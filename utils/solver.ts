@@ -53,7 +53,7 @@ const checkPunchingShear = (Vpd_kN: number, b_col: number, h_col: number, d_foun
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { dimensions, sections, loads, seismic, rebars, materials } = state;
   
-  const { fck, fcd, fctd } = getConcreteProperties(materials.concreteClass);
+  const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
 
   const n_stories = dimensions.storyCount || 1;
   const total_height = dimensions.h * n_stories;
@@ -116,7 +116,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // --- 4. KİRİŞ HESABI ---
   const L_beam = Math.max(dimensions.lx, dimensions.ly);
   const M_beam_support = (q_beam_design * L_beam**2) / 10; 
-  const d_beam = sections.beamDepth * 10 - 40;
+  const d_beam = sections.beamDepth * 10 - 40; // mm cinsinden faydalı yükseklik
   const As_beam_req = (M_beam_support * 1e6) / (0.85 * STEEL_FYD * d_beam); 
   const As_beam_provided = Math.max(As_beam_req, 300); 
 
@@ -131,8 +131,29 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const V_gravity = (q_beam_design * L_beam) / 2;
   const Ve_beam = V_gravity + (Mpi_beam + Mpj_beam) / L_beam; 
 
+  // KESME GÜVENLİĞİ HESABI (DÜZELTİLDİ)
+  // Vcr: Betonun çatlama dayanımı (Etriye gereksinimi için sınır)
   const Vcr_beam = 0.65 * fctd * (sections.beamWidth*10) * d_beam / 1000; 
-  const isShearCritical = Ve_beam > Vcr_beam;
+  // Vmax: Kesit ezilme dayanımı (Kesit boyutunun yetersiz olduğu sınır)
+  const Vmax_beam = 0.22 * fcd * (sections.beamWidth*10) * d_beam / 1000;
+  
+  // Eğer Ve > Vmax ise kesit yetersizdir (Riskli).
+  const isShearSafe = Ve_beam <= Vmax_beam;
+  const isShearCritical = Ve_beam > Vcr_beam; // Sıklaştırma gerekir mi?
+
+  // SEHİM HESABI (DÜZELTİLDİ)
+  // 1. Atalet Momenti (Ig) - mm^4
+  const Ig = (sections.beamWidth * 10 * Math.pow(sections.beamDepth * 10, 3)) / 12;
+  // 2. Efektif Atalet (Çatlamış kesit kabulü ~%50)
+  const I_eff = 0.5 * Ig;
+  // 3. Elastik Sehim (5/384 * q * L^4 / EI) - q: N/mm, L: mm, E: MPa, I: mm4
+  // q_beam_design (kN/m) sayısal olarak (N/mm)'ye eşittir.
+  const delta_elastic = (5 * q_beam_design * Math.pow(L_beam * 1000, 4)) / (384 * Ec * I_eff);
+  // 4. Toplam Sehim (Sünme etkisi ile ~3 kat artırılır)
+  const delta_total = delta_elastic * 3;
+  const deflectionLimit = (L_beam * 1000) / 240;
+
+  
 
   // --- 5. KOLON HESABI ---
   const Ac_col = sections.colWidth * sections.colDepth * 100; 
@@ -206,12 +227,24 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       count_support: countSupport,
       count_span: countSpan,
       shear_force: Ve_beam,
-      shear_capacity: Vcr_beam,
+      shear_capacity: Vmax_beam, // Kapasite olarak Vmax gösterilmeli
       shear_reinf: isShearCritical ? "Ø8/10 (Sıklaştırma)" : "Ø8/15",
-      deflection: 0, 
-      deflection_limit: L_beam * 1000 / 240,
-      deflectionStatus: createStatus(true, 'Uygun', 'Aşıyor'),
-      shearStatus: createStatus(true, 'Yeterli', 'Yetersiz') 
+      
+      // DÜZELTİLEN KISIMLAR:
+      deflection: delta_total, 
+      deflection_limit: deflectionLimit,
+      deflectionStatus: createStatus(
+        delta_total <= deflectionLimit, 
+        'Uygun', 
+        'Aşıyor', 
+        `${delta_total.toFixed(1)}mm > ${deflectionLimit.toFixed(1)}mm`
+      ),
+      shearStatus: createStatus(
+        isShearSafe, 
+        'Yeterli', 
+        'Yetersiz', 
+        `Ve=${Ve_beam.toFixed(0)} > Vmax=${Vmax_beam.toFixed(0)}`
+      ) 
     },
     columns: {
       axial_load: Nd_design,
