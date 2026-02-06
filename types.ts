@@ -7,26 +7,27 @@ export enum SoilClass {
 }
 
 export interface Dimensions {
-  lx: number; // Slab width (meters)
-  ly: number; // Slab length (meters)
-  h: number;  // Story height (meters)
-  slabThickness: number; // cm
+  lx: number; 
+  ly: number; 
+  h: number; 
+  slabThickness: number; 
+  storyCount: number; 
 }
 
 export interface Sections {
-  beamWidth: number; // cm
-  beamDepth: number; // cm
-  colWidth: number; // cm
-  colDepth: number; // cm
+  beamWidth: number; 
+  beamDepth: number; 
+  colWidth: number; 
+  colDepth: number; 
 }
 
 export interface Loads {
-  liveLoad: number; // q (kN/m2)
-  deadLoadCoatings: number; // g_kaplama (kN/m2)
+  liveLoad: number; 
+  deadLoadCoatings: number; 
 }
 
 export interface SeismicParams {
-  ss: number; // Spectral acceleration parameter at short periods
+  ss: number; 
   soilClass: SoilClass;
 }
 
@@ -39,35 +40,45 @@ export interface AppState {
 
 export interface CalculationResult {
   slab: {
-    pd: number; // Design Load (kN/m2)
-    m_x: number; // Moment X direction
-    m_y: number; // Moment Y direction
-    as_x: number; // Required steel area X (cm2/m)
-    as_y: number; // Required steel area Y (cm2/m)
+    pd: number;
+    m_x: number;
+    m_y: number;
+    as_x: number;
+    as_y: number;
     min_as: number;
     isSafe: boolean;
   };
   beams: {
-    load: number; // Distributed load on beam (kN/m)
-    moment_support: number; // Support moment
-    moment_span: number; // Span moment
-    as_top: number; // Support reinforcement
-    as_bottom: number; // Span reinforcement
-    shear_force: number; // Vd
-    shear_reinf: string; // Stirrup suggestion
+    load: number;
+    moment_support: number;
+    moment_span: number;
+    as_top: number;
+    as_bottom: number;
+    shear_force: number;
+    shear_reinf: string;
+    deflection: number; // YENİ: Sehim (mm)
+    deflection_limit: number; // YENİ: Sınır (mm)
+    isDeflectionSafe: boolean; // YENİ
     isSafe: boolean;
   };
   columns: {
-    axial_load: number; // Nd
-    axial_capacity: number; // Nmax
-    min_rho: number; // Min reinforcement ratio
-    req_area: number; // Required area
-    count_phi14: number; // Number of bars example
+    axial_load: number;
+    moment_x: number; // YENİ: Hesap Momenti
+    moment_y: number; // YENİ
+    axial_capacity: number;
+    interaction_ratio: number; // YENİ: N-M Kapasite oranı (<1 güvenli)
+    strong_col_ratio: number; // YENİ: (Mc/Mb) > 1.2 olmalı
+    min_rho: number;
+    req_area: number;
+    count_phi14: number;
     isSafe: boolean;
+    isStrongColumn: boolean; // YENİ
   };
   seismic: {
     sds: number;
-    base_shear: number; // Vt
+    base_shear: number;
     period: number;
+    story_drift_ratio: number; // YENİ: Göreli kat ötelemesi
+    isDriftSafe: boolean; // YENİ
   };
 }
