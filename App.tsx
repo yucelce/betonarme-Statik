@@ -2,16 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult } from './types';
 import { calculateStructure } from './utils/solver';
 import Visualizer from './components/Visualizer';
-import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings } from 'lucide-react';
+import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings, Layers } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3 },
+    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50 }, // Varsayılan radye h=50cm
     sections: { beamWidth: 25, beamDepth: 50, colWidth: 30, colDepth: 30 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.0, soilClass: SoilClass.ZC },
     materials: { concreteClass: ConcreteClass.C30 },
-    rebars: { slabDia: 8, beamMainDia: 12, beamStirrupDia: 8, colMainDia: 14 } // Varsayılanlar
+    rebars: { slabDia: 8, beamMainDia: 12, beamStirrupDia: 8, colMainDia: 14 }
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
@@ -92,6 +92,11 @@ const App: React.FC = () => {
                    <div><label className="text-[10px] text-slate-500">Kat H (m)</label><input type="number" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-1 border rounded" /></div>
                    <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 </div>
+                {/* YENİ: RADYE TEMEL GİRDİSİ */}
+                <div>
+                   <label className="text-[10px] text-slate-500 font-bold text-emerald-600">Radye H (cm)</label>
+                   <input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-1 border border-emerald-200 bg-emerald-50 rounded" />
+                </div>
             </div>
           </div>
 
@@ -122,7 +127,7 @@ const App: React.FC = () => {
              </div>
           </div>
 
-          {/* Girdi 4: Donatı & Malzeme (YENİ) */}
+          {/* Girdi 4: Donatı & Malzeme */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-600"/> Donatı & Malzeme</h2>
              <div className="space-y-2 text-sm">
@@ -162,7 +167,7 @@ const App: React.FC = () => {
 
         {/* SATIR 3: SONUÇ KARTLARI (ÖZET) */}
         {results && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             
             {/* Döşeme Özeti */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
@@ -191,7 +196,7 @@ const App: React.FC = () => {
                  <div className="flex justify-between"><span>Mesnet / Açıklık:</span> <b>{results.beams.count_support}Ø{state.rebars.beamMainDia} / {results.beams.count_span}Ø{state.rebars.beamMainDia}</b></div>
                  <div className="flex justify-between"><span>Etriye:</span> <b className="text-purple-600">{results.beams.shear_reinf}</b></div>
                  <div className="text-[10px] text-right text-slate-400 mt-1">
-                   Sehim: {results.beams.deflection.toFixed(1)}mm (Limit: {results.beams.deflection_limit.toFixed(1)})
+                   Sehim: {results.beams.deflection.toFixed(1)}mm
                  </div>
                </div>
             </div>
@@ -212,10 +217,26 @@ const App: React.FC = () => {
                </div>
             </div>
 
+            {/* YENİ: Temel Özeti */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
+               <div className="flex justify-between items-center mb-3 relative z-10">
+                 <h3 className="font-bold text-slate-700">RADYE TEMEL</h3>
+                 <StatusBadge status={{isSafe: results.foundation.isBearingSafe && results.foundation.isPunchingSafe, message: results.foundation.isBearingSafe ? 'Güvenli' : 'Riskli'}} />
+               </div>
+               <div className="space-y-1 text-xs text-slate-600 relative z-10">
+                 <div className="flex justify-between"><span>Gerilme:</span> <b>{results.foundation.bearing_stress.toFixed(1)} kN/m²</b></div>
+                 <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.isPunchingSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.isPunchingSafe ? 'OK' : 'Yetersiz'}</b></div>
+                 <div className="text-[10px] text-right text-slate-400 mt-1">
+                   H: {state.dimensions.foundationHeight}cm (Ampatman: 50cm)
+                 </div>
+               </div>
+            </div>
+
           </div>
         )}
 
-        {/* SATIR 4: DETAYLI RAPOR (FULL ANALYSIS) */}
+        {/* SATIR 4: DETAYLI RAPOR */}
         {results && (
           <div>
             <button 
@@ -238,10 +259,8 @@ const App: React.FC = () => {
                       <ReportRow label="Plağın Kalınlığı (h)" value={state.dimensions.slabThickness} unit="cm" subtext={`Min. Gereken: ${results.slab.min_thickness.toFixed(1)} cm`} status={results.slab.thicknessStatus.isSafe} />
                       <ReportRow label="Etkili Derinlik (d)" value={results.slab.d} unit="mm" />
                       <ReportRow label="Tasarım Yükü (Pd)" value={results.slab.pd.toFixed(2)} unit="kN/m²" subtext="1.4G + 1.6Q" />
-                      <ReportRow label="Moment Katsayısı (α)" value={results.slab.alpha.toFixed(3)} />
                       <ReportRow label="Hesap Momenti (Md)" value={results.slab.m_x.toFixed(2)} unit="kNm" />
                       <ReportRow label="Gereken Donatı (As)" value={results.slab.as_req.toFixed(2)} unit="cm²/m" />
-                      <ReportRow label="Minimum Donatı" value={results.slab.as_min.toFixed(2)} unit="cm²/m" />
                       <div className="mt-2 pt-2 border-t border-dashed">
                          <div className="flex justify-between items-center font-bold text-blue-700">
                            <span>SONUÇ DONATI:</span>
@@ -251,18 +270,17 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* RAPOR 2: KİRİŞ */}
+                  {/* RAPOR 2: TEMEL (YENİ) */}
                   <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
+                    <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">2. RADYE TEMEL HESAPLARI</h4>
                     <div className="space-y-1">
-                      <ReportRow label="Tasarım Yükü (q)" value={results.beams.load.toFixed(2)} unit="kN/m" />
-                      <ReportRow label="Mesnet Momenti (Md)" value={results.beams.moment_support.toFixed(1)} unit="kNm" />
-                      <ReportRow label="Açıklık Momenti (Md)" value={results.beams.moment_span.toFixed(1)} unit="kNm" />
-                      <ReportRow label="Mesnet Donatısı" value={results.beams.as_support.toFixed(2)} unit="cm²" subtext={`${results.beams.count_support} adet Ø${state.rebars.beamMainDia}`} />
-                      <ReportRow label="Açıklık Donatısı" value={results.beams.as_span.toFixed(2)} unit="cm²" subtext={`${results.beams.count_span} adet Ø${state.rebars.beamMainDia}`} />
-                      <ReportRow label="Tasarım Kesme (Vd)" value={results.beams.shear_force.toFixed(1)} unit="kN" />
-                      <ReportRow label="Kesme Kapasitesi (Vc)" value={results.beams.shear_capacity.toFixed(1)} unit="kN" subtext="Beton katkısı (0.8*0.65*fctd*b*d)" />
-                      <ReportRow label="Etriye Hesabı" value={results.beams.shear_reinf} status={results.beams.shearStatus.isSafe} />
+                       <ReportRow label="Temel Tipi" value="Sürekli Radye" />
+                       <ReportRow label="Seçilen Yükseklik (h)" value={state.dimensions.foundationHeight} unit="cm" />
+                       <ReportRow label="Toplam Bina Yükü (Nd)" value={results.columns.axial_load.toFixed(1)} unit="kN" subtext="G+Q+E kombinasyonu" />
+                       <ReportRow label="Zemin Gerilmesi (σ)" value={results.foundation.bearing_stress.toFixed(2)} unit="kN/m²" subtext={`Kapasite: ${results.foundation.bearing_capacity} kN/m²`} status={results.foundation.isBearingSafe} />
+                       <ReportRow label="Zımbalama Gerilmesi" value={results.foundation.punching_stress.toFixed(2)} unit="MPa" />
+                       <ReportRow label="Zımbalama Dayanımı" value={results.foundation.punching_limit.toFixed(2)} unit="MPa" status={results.foundation.isPunchingSafe} />
+                       <ReportRow label="Zımbalama Durumu" value={results.foundation.isPunchingSafe ? "Güvenli" : "YETERSİZ"} status={results.foundation.isPunchingSafe} />
                     </div>
                   </div>
 
@@ -270,11 +288,9 @@ const App: React.FC = () => {
                   <div className="bg-white p-6">
                      <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON HESAPLARI</h4>
                      <div className="space-y-1">
-                        <ReportRow label="Eksenel Yük (Nd)" value={results.columns.axial_load.toFixed(0)} unit="kN" subtext="1.4G+1.6Q+Deprem" />
+                        <ReportRow label="Eksenel Yük (Nd)" value={results.columns.axial_load.toFixed(0)} unit="kN" />
                         <ReportRow label="Maks. Kapasite (Nmax)" value={results.columns.axial_capacity.toFixed(0)} unit="kN" />
-                        <ReportRow label="Tasarım Momenti (M)" value={results.columns.moment_x.toFixed(1)} unit="kNm" />
                         <ReportRow label="N-M Etkileşim Oranı" value={results.columns.interaction_ratio.toFixed(2)} subtext="Sınır: 1.00" status={results.columns.status.isSafe} />
-                        <ReportRow label="Gereken Donatı" value={results.columns.req_area.toFixed(1)} unit="cm²" />
                         <div className="mt-2 pt-2 border-t border-dashed">
                            <div className="flex justify-between items-center font-bold text-emerald-700">
                              <span>SEÇİLEN DONATI:</span>
@@ -289,12 +305,8 @@ const App: React.FC = () => {
                      <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. DEPREM PARAMETRELERİ (TBDY)</h4>
                      <div className="space-y-1">
                         <ReportRow label="Bina Ağırlığı (W)" value={results.seismic.building_weight.toFixed(0)} unit="kN" />
-                        <ReportRow label="Bina Periyodu (T1)" value={results.seismic.period.toFixed(2)} unit="s" />
-                        <ReportRow label="Kısa Periyot İvme (Ss)" value={state.seismic.ss.toFixed(2)} />
-                        <ReportRow label="Tasarım İvmesi (Sds)" value={results.seismic.sds.toFixed(2)} unit="g" />
-                        <ReportRow label="Taşıyıcı Sistem (R)" value="8" />
-                        <ReportRow label="Taban Kesme (Vt)" value={results.seismic.base_shear.toFixed(0)} unit="kN" subtext="Vt = W * Sds / R" />
-                        <ReportRow label="Göreli Kat Ötelemesi" value={`%${(results.seismic.story_drift_ratio * 100).toFixed(3)}`} subtext="Sınır: %0.8" status={results.seismic.driftStatus.isSafe} />
+                        <ReportRow label="Periyot (T1)" value={results.seismic.period.toFixed(2)} unit="s" />
+                        <ReportRow label="Taban Kesme (Vt)" value={results.seismic.base_shear.toFixed(0)} unit="kN" />
                         <ReportRow label="Güçlü Kolon Oranı" value={results.columns.strong_col_ratio.toFixed(2)} subtext="Sınır: 1.20" status={results.columns.strongColumnStatus.isSafe} />
                      </div>
                   </div>

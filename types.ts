@@ -20,7 +20,8 @@ export interface Dimensions {
   ly: number; 
   h: number; 
   slabThickness: number; 
-  storyCount: number; 
+  storyCount: number;
+  foundationHeight: number; // YENİ: Radye Temel Yüksekliği
 }
 
 export interface Sections {
@@ -44,12 +45,11 @@ export interface MaterialParams {
   concreteClass: ConcreteClass;
 }
 
-// YENİ: Donatı Çapı Seçimleri
 export interface RebarSettings {
-  slabDia: number;      // Döşeme (8, 10, 12)
-  beamMainDia: number;  // Kiriş Ana (12, 14, 16)
-  beamStirrupDia: number; // Kiriş Etriye (8, 10)
-  colMainDia: number;   // Kolon Boyuna (14, 16, 20)
+  slabDia: number;      
+  beamMainDia: number;  
+  beamStirrupDia: number; 
+  colMainDia: number;   
 }
 
 export interface AppState {
@@ -58,7 +58,7 @@ export interface AppState {
   loads: Loads;
   seismic: SeismicParams;
   materials: MaterialParams;
-  rebars: RebarSettings; // YENİ
+  rebars: RebarSettings;
 }
 
 export interface CheckStatus {
@@ -70,12 +70,12 @@ export interface CheckStatus {
 export interface CalculationResult {
   slab: {
     pd: number;
-    alpha: number; // YENİ: Moment Katsayısı
-    d: number;     // YENİ: Faydalı yükseklik
+    alpha: number;
+    d: number;
     m_x: number;
     as_req: number;
-    as_min: number; // YENİ
-    spacing: number; // YENİ: Donatı aralığı (cm)
+    as_min: number;
+    spacing: number;
     min_thickness: number;
     thicknessStatus: CheckStatus;
     status: CheckStatus;
@@ -85,11 +85,11 @@ export interface CalculationResult {
     moment_support: number;
     moment_span: number;
     as_support: number;
-    as_span: number; // YENİ: Açıklık donatısı
-    count_support: number; // YENİ: Adet
-    count_span: number;   // YENİ: Adet
-    shear_force: number; // Vd
-    shear_capacity: number; // Vc (YENİ)
+    as_span: number;
+    count_support: number;
+    count_span: number;
+    shear_force: number;
+    shear_capacity: number;
     shear_reinf: string;
     deflection: number;
     deflection_limit: number;
@@ -103,29 +103,30 @@ export interface CalculationResult {
     interaction_ratio: number;
     strong_col_ratio: number;
     req_area: number;
-    count_main: number; // YENİ: Seçilen çapa göre adet
+    count_main: number;
     status: CheckStatus;
     strongColumnStatus: CheckStatus;
   };
   seismic: {
     sds: number;
-    building_weight: number; // YENİ: Bina Ağırlığı
+    building_weight: number;
     base_shear: number;
     period: number;
     story_drift_ratio: number;
     driftStatus: CheckStatus;
   };
-  foundation?: {
-    bearing_stress: number;   // Zemin Gerilmesi (kN/m2)
-    bearing_capacity: number; // Zemin Emniyet (kN/m2)
+  foundation: {
+    bearing_stress: number;   
+    bearing_capacity: number; 
     isBearingSafe: boolean;
-    punching_stress: number;  // Zımbalama Gerilmesi (MPa)
-    punching_limit: number;   // Zımbalama Sınırı (MPa)
+    punching_stress: number;  
+    punching_limit: number;   
     isPunchingSafe: boolean;
+    min_height_status?: CheckStatus; // YENİ: Min yükseklik kontrolü
   };
-  joint?: {
-    shear_force: number;      // Birleşim Bölgesi Kesme (kN)
-    shear_limit: number;      // Birleşim Kapasite (kN)
+  joint: {
+    shear_force: number;     
+    shear_limit: number;      
     isSafe: boolean;
   };
 }
