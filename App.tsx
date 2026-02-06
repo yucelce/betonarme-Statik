@@ -1,3 +1,4 @@
+// App.tsx
 import React, { useState, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult } from './types';
 import { calculateStructure } from './utils/solver';
@@ -6,12 +7,12 @@ import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, Chevr
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50 },
-    sections: { beamWidth: 25, beamDepth: 50, colWidth: 30, colDepth: 30 },
+    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 60, foundationCantilever: 60 },
+    sections: { beamWidth: 25, beamDepth: 50, colWidth: 40, colDepth: 40 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
-    seismic: { ss: 1.0, soilClass: SoilClass.ZC }, // Varsayılan ZC
+    seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 }, 
     materials: { concreteClass: ConcreteClass.C30 },
-    rebars: { slabDia: 8, beamMainDia: 12, beamStirrupDia: 8, colMainDia: 14 }
+    rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, foundationDia: 14 }
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
@@ -68,20 +69,19 @@ const App: React.FC = () => {
         <header className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Calculator className="w-6 h-6 text-blue-600" />
-            Betonarme Ön Tasarım
+            Betonarme Analiz Pro v2.1 (Detaylı)
           </h1>
           <div className="flex gap-2 text-xs">
-            <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full border border-blue-100 font-bold">TS500</span>
+            <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full border border-blue-100 font-bold">TS500:2000</span>
             <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full border border-red-100 font-bold">TBDY 2018</span>
           </div>
         </header>
 
-        {/* SATIR 1: GİRDİLER VE KONTROLLER */}
+        {/* GİRDİLER - KARTLAR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           
-          {/* Girdi 1: Yapı */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500"/> Yapı</h2>
+            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500"/> Yapı & Temel</h2>
             <div className="space-y-2 text-sm">
                 <div><label className="text-[10px] text-slate-500">Kat Adedi</label><input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 <div className="grid grid-cols-2 gap-2">
@@ -89,17 +89,13 @@ const App: React.FC = () => {
                    <div><label className="text-[10px] text-slate-500">Ly (m)</label><input type="number" value={state.dimensions.ly} onChange={e => handleChange('dimensions', 'ly', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Kat H (m)</label><input type="number" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-1 border rounded" /></div>
                    <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">Radye H</label><input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-1 border bg-emerald-50 rounded" /></div>
                 </div>
-                <div>
-                   <label className="text-[10px] text-slate-500 font-bold text-emerald-600">Radye H (cm)</label>
-                   <input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-1 border border-emerald-200 bg-emerald-50 rounded" />
-                </div>
+                <div><label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label><input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-1 border rounded" /></div>
             </div>
           </div>
 
-          {/* Girdi 2: Kesitler */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Scale className="w-4 h-4 text-purple-500"/> Kesitler</h2>
              <div className="space-y-2 text-sm">
@@ -114,41 +110,30 @@ const App: React.FC = () => {
              </div>
           </div>
 
-          {/* Girdi 3: Yükler & Zemin */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Yükler & Zemin</h2>
+            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Deprem & Yükler</h2>
              <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Q (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">G_kap (kg/m²)</label><input type="number" value={state.loads.deadLoadCoatingsKg} onChange={e => handleChange('loads', 'deadLoadCoatingsKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">Ss</label><input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">S1</label><input type="number" step="0.1" value={state.seismic.s1} onChange={e => handleChange('seismic', 's1', +e.target.value)} className="w-full p-1 border rounded bg-yellow-50" /></div>
                 </div>
-                {/* YENİ: ZEMİN SINIFI SEÇİMİ */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-500">Deprem (Ss)</label>
-                    <input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-1 border rounded" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500">Zemin Sınıfı</label>
-                    <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-1 border rounded bg-slate-50 text-xs">
-                        {Object.values(SoilClass).map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                    </select>
-                  </div>
+                   <div>
+                     <label className="text-[10px] text-slate-500">Zemin</label>
+                     <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-1 border rounded bg-slate-50 text-xs">
+                         {Object.values(SoilClass).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                     </select>
+                   </div>
+                   <div><label className="text-[10px] text-slate-500">Rx (Sistem)</label><input type="number" value={state.seismic.Rx} onChange={e => handleChange('seismic', 'Rx', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 </div>
+                <div><label className="text-[10px] text-slate-500">Hareketli Yük (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
              </div>
           </div>
 
-          {/* Girdi 4: Donatı & Malzeme */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-600"/> Donatı & Malzeme</h2>
+            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-600"/> Donatı Çapları</h2>
              <div className="space-y-2 text-sm">
-                <div>
-                   <label className="text-[10px] text-slate-500">Beton</label>
-                   <select value={state.materials.concreteClass} onChange={e => handleChange('materials', 'concreteClass', e.target.value)} className="w-full p-1 border rounded bg-slate-50 text-xs">
-                    {Object.values(ConcreteClass).map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
-                </div>
-                <div className="grid grid-cols-3 gap-1 text-xs">
+                <div className="grid grid-cols-2 gap-1 text-xs">
                    <div>
                      <label className="text-[9px] text-slate-400 block">Döşeme</label>
                      <select value={state.rebars.slabDia} onChange={e => handleChange('rebars', 'slabDia', +e.target.value)} className="w-full border rounded">
@@ -167,88 +152,78 @@ const App: React.FC = () => {
                         {[14, 16, 20, 22].map(d => <option key={d} value={d}>Ø{d}</option>)}
                      </select>
                    </div>
+                   <div>
+                     <label className="text-[9px] text-slate-400 block">Radye</label>
+                     <select value={state.rebars.foundationDia} onChange={e => handleChange('rebars', 'foundationDia', +e.target.value)} className="w-full border rounded bg-emerald-50">
+                        {[12, 14, 16, 20].map(d => <option key={d} value={d}>Ø{d}</option>)}
+                     </select>
+                   </div>
                 </div>
              </div>
           </div>
 
         </div>
 
-        {/* SATIR 2: GÖRSELLER (Artık Visualizer içinde yanyana olacak) */}
+        {/* GÖRSELLER */}
         <div><Visualizer dimensions={state.dimensions} sections={state.sections} /></div>
 
-        {/* SATIR 3: SONUÇ KARTLARI (ÖZET) */}
+        {/* SONUÇ KARTLARI - DETAYLI */}
         {results && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             
-            {/* Döşeme Özeti */}
+            {/* Döşeme Kartı */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <div className="flex justify-between items-center mb-3 relative z-10">
-                 <h3 className="font-bold text-slate-700">DÖŞEME</h3>
-                 <StatusBadge status={results.slab.status} />
-               </div>
+               <h3 className="font-bold text-slate-700 mb-2">DÖŞEME</h3>
                <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Moment (Md):</span> <b>{results.slab.m_x.toFixed(2)} kNm</b></div>
-                 <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing.toFixed(0)} cm</b></div>
-                 <div className="text-[10px] text-right text-slate-400 mt-1">
-                   Kalınlık: {state.dimensions.slabThickness}cm (Min: {results.slab.min_thickness.toFixed(1)})
-                 </div>
+                 <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
+                 <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
+                 <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
+                 <StatusBadge status={results.slab.thicknessStatus} />
                </div>
             </div>
 
-            {/* Kiriş Özeti */}
+            {/* Kiriş Kartı */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <div className="flex justify-between items-center mb-3 relative z-10">
-                 <h3 className="font-bold text-slate-700">KİRİŞ</h3>
-                 <div className="flex gap-1"><StatusBadge status={results.beams.shearStatus} /></div>
-               </div>
+               <h3 className="font-bold text-slate-700 mb-2">KİRİŞ</h3>
                <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Mesnet / Açıklık:</span> <b>{results.beams.count_support}Ø{state.rebars.beamMainDia} / {results.beams.count_span}Ø{state.rebars.beamMainDia}</b></div>
-                 <div className="flex justify-between"><span>Etriye:</span> <b className="text-purple-600">{results.beams.shear_reinf}</b></div>
-                 <div className="text-[10px] text-right text-slate-400 mt-1">
-                   Sehim: {results.beams.deflection.toFixed(1)}mm
+                 <div className="flex justify-between"><span>Açıklık Donatı:</span> <b>{results.beams.count_span}Ø{state.rebars.beamMainDia}</b></div>
+                 <div className="flex justify-between"><span>Etriye:</span> <b className="text-purple-600">{results.beams.shear_reinf_type}</b></div>
+                 <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Vd: {results.beams.shear_design.toFixed(1)}</span>
+                    <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
                  </div>
+                 <StatusBadge status={results.beams.checks.shear} />
                </div>
             </div>
 
-            {/* Kolon Özeti */}
+            {/* Kolon Kartı */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <div className="flex justify-between items-center mb-3 relative z-10">
-                 <h3 className="font-bold text-slate-700">KOLON</h3>
-                 {/* Burada güçlü kolon uyarısı içeren durumu gösteriyoruz */}
-                 <StatusBadge status={results.columns.status} />
-               </div>
+               <h3 className="font-bold text-slate-700 mb-2">KOLON</h3>
                <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Seçilen:</span> <b>{results.columns.count_main} adet Ø{state.rebars.colMainDia}</b></div>
-                 <div className="flex justify-between"><span>Kapasite Oranı:</span> <b>%{(results.columns.interaction_ratio*100).toFixed(0)}</b></div>
-                 <div className="text-[10px] text-right text-slate-400 mt-1">
-                   Güçlü Kolon: {results.columns.strong_col_ratio.toFixed(2)} (Min 1.2)
-                 </div>
+                 <div className="flex justify-between"><span>Donatı:</span> <b>{results.columns.count_main}Ø{state.rebars.colMainDia}</b></div>
+                 <div className="flex justify-between"><span>Yük/Kap:</span> <b>{results.columns.axial_load_design.toFixed(0)} / {results.columns.axial_capacity_max.toFixed(0)} kN</b></div>
+                 <StatusBadge status={results.columns.checks.strongColumn} />
                </div>
             </div>
 
-            {/* Temel Özeti */}
+            {/* Radye Kartı */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <div className="flex justify-between items-center mb-3 relative z-10">
-                 <h3 className="font-bold text-slate-700">RADYE TEMEL</h3>
-                 <StatusBadge status={{isSafe: results.foundation.isBearingSafe && results.foundation.isPunchingSafe, message: results.foundation.isBearingSafe ? 'Güvenli' : 'Riskli'}} />
-               </div>
+               <h3 className="font-bold text-slate-700 mb-2">RADYE</h3>
                <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Gerilme:</span> <b>{results.foundation.bearing_stress.toFixed(1)} kN/m²</b></div>
-                 <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.isPunchingSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.isPunchingSafe ? 'OK' : 'Yetersiz'}</b></div>
-                 <div className="text-[10px] text-right text-slate-400 mt-1">
-                   H: {state.dimensions.foundationHeight}cm (Ampatman: 50cm)
-                 </div>
+                 <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
+                 <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
+                 <StatusBadge status={results.foundation.checks.bearing} />
                </div>
             </div>
 
           </div>
         )}
 
-        {/* SATIR 4: DETAYLI RAPOR */}
+        {/* DETAYLI MÜHENDİSLİK RAPORU */}
         {results && (
           <div>
             <button 
@@ -256,7 +231,7 @@ const App: React.FC = () => {
               className="w-full py-3 flex items-center justify-center gap-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors shadow-lg text-sm"
             >
               <FileText className="w-4 h-4" />
-              {showReport ? "Raporu Gizle" : "Detaylı Hesap Raporunu İncele"}
+              {showReport ? "Raporu Gizle" : "Detaylı Mühendislik Raporunu İncele"}
               {showReport ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
             </button>
 
@@ -264,65 +239,70 @@ const App: React.FC = () => {
               <div className="mt-4 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-slate-200">
                   
-                  {/* RAPOR 1: DÖŞEME */}
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-blue-600 uppercase mb-4 border-b pb-2">1. DÖŞEME HESAPLARI (TS500)</h4>
                     <div className="space-y-1">
-                      <ReportRow label="Plağın Kalınlığı (h)" value={state.dimensions.slabThickness} unit="cm" subtext={`Min. Gereken: ${results.slab.min_thickness.toFixed(1)} cm`} status={results.slab.thicknessStatus.isSafe} />
-                      <ReportRow label="Etkili Derinlik (d)" value={results.slab.d} unit="mm" />
                       <ReportRow label="Tasarım Yükü (Pd)" value={results.slab.pd.toFixed(2)} unit="kN/m²" subtext="1.4G + 1.6Q" />
+                      <ReportRow label="Moment Katsayısı (α)" value={results.slab.alpha.toFixed(3)} />
                       <ReportRow label="Hesap Momenti (Md)" value={results.slab.m_x.toFixed(2)} unit="kNm" />
                       <ReportRow label="Gereken Donatı (As)" value={results.slab.as_req.toFixed(2)} unit="cm²/m" />
-                      <div className="mt-2 pt-2 border-t border-dashed">
-                         <div className="flex justify-between items-center font-bold text-blue-700">
-                           <span>SONUÇ DONATI:</span>
-                           <span>Ø{state.rebars.slabDia} / {results.slab.spacing.toFixed(0)} cm</span>
-                         </div>
+                      <div className="mt-2 pt-2 border-t border-dashed font-bold text-blue-700 text-sm flex justify-between">
+                         <span>SONUÇ:</span>
+                         <span>Ø{state.rebars.slabDia} / {results.slab.spacing} cm</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* RAPOR 2: TEMEL */}
                   <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">2. RADYE TEMEL HESAPLARI</h4>
+                    <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
                     <div className="space-y-1">
-                       <ReportRow label="Temel Tipi" value="Sürekli Radye" />
-                       <ReportRow label="Seçilen Yükseklik (h)" value={state.dimensions.foundationHeight} unit="cm" />
-                       <ReportRow label="Toplam Bina Yükü (Nd)" value={results.columns.axial_load.toFixed(1)} unit="kN" subtext="G+Q+E kombinasyonu" />
-                       <ReportRow label="Zemin Gerilmesi (σ)" value={results.foundation.bearing_stress.toFixed(2)} unit="kN/m²" subtext={`Kapasite: ${results.foundation.bearing_capacity} kN/m²`} status={results.foundation.isBearingSafe} />
-                       <ReportRow label="Zımbalama Gerilmesi" value={results.foundation.punching_stress.toFixed(2)} unit="MPa" />
-                       <ReportRow label="Zımbalama Dayanımı" value={results.foundation.punching_limit.toFixed(2)} unit="MPa" status={results.foundation.isPunchingSafe} />
-                       <ReportRow label="Zımbalama Durumu" value={results.foundation.isPunchingSafe ? "Güvenli" : "YETERSİZ"} status={results.foundation.isPunchingSafe} />
+                       <ReportRow label="Tasarım Kesme (Vd)" value={results.beams.shear_design.toFixed(2)} unit="kN" />
+                       <ReportRow label="Kesme Dayanımı (Vcr)" value={results.beams.shear_cracking.toFixed(2)} unit="kN" subtext="Çatlama Sınırı" />
+                       <ReportRow label="Maksimum Kesme (Vmax)" value={results.beams.shear_limit.toFixed(2)} unit="kN" subtext="Kesit Ezilme Sınırı" status={results.beams.checks.shear.isSafe} />
+                       <ReportRow label="Hesap Momenti (Mesnet)" value={results.beams.moment_support.toFixed(1)} unit="kNm" />
+                       <ReportRow label="Sehim (δ)" value={results.beams.deflection.toFixed(2)} unit="mm" subtext={`Limit: ${results.beams.deflection_limit.toFixed(1)} mm`} status={results.beams.checks.deflection.isSafe} />
                     </div>
                   </div>
 
-                  {/* RAPOR 3: KOLON */}
                   <div className="bg-white p-6">
-                     <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON HESAPLARI</h4>
+                     <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON & PERFORMANS</h4>
                      <div className="space-y-1">
-                        <ReportRow label="Eksenel Yük (Nd)" value={results.columns.axial_load.toFixed(0)} unit="kN" />
-                        <ReportRow label="Maks. Kapasite (Nmax)" value={results.columns.axial_capacity.toFixed(0)} unit="kN" />
-                        <ReportRow label="N-M Etkileşim Oranı" value={results.columns.interaction_ratio.toFixed(2)} subtext="Sınır: 1.00" status={results.columns.interaction_ratio <= 1} />
-                        <ReportRow label="Güçlü Kolon Oranı" value={results.columns.strong_col_ratio.toFixed(2)} subtext="Min. Gereken: 1.20" status={results.columns.strongColumnStatus.isSafe} />
-                        <div className="mt-2 pt-2 border-t border-dashed">
-                           <div className="flex justify-between items-center font-bold text-emerald-700">
-                             <span>SEÇİLEN DONATI:</span>
-                             <span>{results.columns.count_main} adet Ø{state.rebars.colMainDia}</span>
+                        <ReportRow label="Eksenel Yük (Nd)" value={results.columns.axial_load_design.toFixed(0)} unit="kN" />
+                        <ReportRow label="Eksenel Kapasite (Nmax)" value={results.columns.axial_capacity_max.toFixed(0)} unit="kN" subtext="0.5 fck Ac" />
+                        <ReportRow label="Kapasite Oranı" value={results.columns.interaction_ratio.toFixed(2)} status={results.columns.checks.capacity.isSafe} />
+                        <ReportRow label="Güçlü Kolon Oranı" value={results.columns.strong_col_ratio.toFixed(2)} subtext="(Mra+Mrü) / (Mri+Mrj) ≥ 1.2" status={results.columns.checks.strongColumn.isSafe} />
+                     </div>
+                  </div>
+
+                   <div className="bg-white p-6">
+                     <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. TBDY 2018 DEPREM ANALİZİ</h4>
+                     <div className="space-y-1">
+                        <ReportRow label="Spektral İvme (Sds)" value={results.seismic.param_sds.toFixed(3)} />
+                        <ReportRow label="Periyot (S1)" value={results.seismic.param_sd1.toFixed(3)} />
+                        <ReportRow label="Bina Doğal Periyodu (T1)" value={results.seismic.period_t1.toFixed(2)} unit="s" />
+                        <ReportRow label="Tasarım İvmesi Sae(T)" value={results.seismic.spectrum_sae.toFixed(3)} unit="g" />
+                        <ReportRow label="Taban Kesme (Vt)" value={results.seismic.base_shear.toFixed(0)} unit="kN" subtext={`Ağırlık W = ${results.seismic.building_weight.toFixed(0)} kN`} />
+                     </div>
+                  </div>
+
+                  <div className="bg-white p-6 col-span-1 lg:col-span-2">
+                     <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">5. RADYE TEMEL KONTROLLERİ</h4>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1">
+                           <ReportRow label="Temel Alanı" value={((state.dimensions.lx + 2*state.dimensions.foundationCantilever/100) * (state.dimensions.ly + 2*state.dimensions.foundationCantilever/100)).toFixed(1)} unit="m²" />
+                           <ReportRow label="Zemin Gerilmesi" value={results.foundation.stress_actual.toFixed(1)} unit="kN/m²" subtext={`Emniyet: ${results.foundation.stress_limit}`} status={results.foundation.checks.bearing.isSafe} />
+                        </div>
+                        <div className="space-y-1">
+                           <ReportRow label="Zımbalama Yükü (Vpd)" value={results.foundation.punching_force.toFixed(0)} unit="N" />
+                           <ReportRow label="Zımbalama Gerilmesi" value={results.foundation.punching_stress.toFixed(2)} unit="MPa" />
+                           <ReportRow label="Zımbalama Sınırı" value={results.foundation.punching_capacity.toFixed(2)} unit="MPa" status={results.foundation.checks.punching.isSafe} />
+                           <div className="mt-2 text-right font-bold text-orange-700 text-sm">
+                              Donatı: Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm
                            </div>
                         </div>
                      </div>
                   </div>
 
-                   {/* RAPOR 4: DEPREM */}
-                   <div className="bg-white p-6">
-                     <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. DEPREM PARAMETRELERİ (TBDY)</h4>
-                     <div className="space-y-1">
-                        <ReportRow label="Bina Ağırlığı (W)" value={results.seismic.building_weight.toFixed(0)} unit="kN" />
-                        <ReportRow label="Periyot (T1)" value={results.seismic.period.toFixed(2)} unit="s" />
-                        <ReportRow label="Taban Kesme (Vt)" value={results.seismic.base_shear.toFixed(0)} unit="kN" />
-                        <ReportRow label="Zemin Sınıfı" value={state.seismic.soilClass} />
-                     </div>
-                  </div>
                 </div>
               </div>
             )}
