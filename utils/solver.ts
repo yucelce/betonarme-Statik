@@ -16,6 +16,37 @@ const createStatus = (isSafe: boolean, successMsg: string = 'Güvenli', failMsg:
   reason: isSafe ? undefined : reason
 });
 
+// Yönetmelik ve Geometri Kontrolleri (YENİ)
+const checkBeamStandards = (
+  b: number, // cm
+  h: number, // cm
+  slabThickness: number, // cm
+  rho: number, // Mevcut donatı oranı
+  fctd: number,
+  fyd: number,
+  colWidth: number // cm
+) => {
+  const errors: string[] = [];
+  
+  // 1. TBDY 2018 Geometrik Sınırlar (Madde 7.4.1)
+  if (b < 25) errors.push("Genişlik < 25cm (TBDY)");
+  if (h < 30) errors.push("Yükseklik < 30cm");
+  if (h < 3 * slabThickness) errors.push("h < 3*hf (Döşeme)");
+  if (b > colWidth + h) errors.push("b > b_kolon + h");
+
+  // 2. TS500 Donatı Oranı Sınırları
+  const rho_min = 0.8 * fctd / fyd;
+  const rho_max = 0.02; // Ön tasarım için %2 pratik üst sınır (Net sınır 0.85*rho_b)
+
+  if (rho < rho_min) errors.push(`Min Donatı Altında (ρ < ${rho_min.toFixed(4)})`);
+  if (rho > rho_max) errors.push(`Maks Donatı Aşıldı (ρ > 0.02)`);
+
+  return {
+    isSafe: errors.length === 0,
+    messages: errors
+  };
+};
+
 const calculateMomentCapacity = (b: number, h: number, As: number, fcd: number, N_kN: number = 0): number => {
   const N = N_kN * 1000; 
   const d = h - 40; 
@@ -53,6 +84,7 @@ const checkPunchingShear = (Vpd_kN: number, b_col: number, h_col: number, d_foun
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { dimensions, sections, loads, seismic, rebars, materials } = state;
   
+  // Ec (Elastisite Modülü) eklendi
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
 
   const n_stories = dimensions.storyCount || 1;
@@ -80,7 +112,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const q_beam_design = pd * (Math.min(dimensions.lx, dimensions.ly) / 2) + beam_self + wall_load; 
 
   // --- 2. DEPREM HESABI ---
-  // getFs artık seçilen zemin sınıfını kullanıyor
   const Fs = getFs(seismic.ss, seismic.soilClass);
   const Sms = seismic.ss * Fs;
   const Sds = Sms / 1.5;
@@ -113,47 +144,80 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const rebarAreaSlab = Math.PI * Math.pow(rebars.slabDia/2, 2) / 100; 
   const spacingSlab = Math.min((rebarAreaSlab * 100) / as_req_slab, 30); 
 
-  // --- 4. KİRİŞ HESABI ---
+  // --- 4. KİRİŞ HESABI (GÜNCELLENMİŞ) ---
   const L_beam = Math.max(dimensions.lx, dimensions.ly);
   const M_beam_support = (q_beam_design * L_beam**2) / 10; 
-  const d_beam = sections.beamDepth * 10 - 40; // mm cinsinden faydalı yükseklik
-  const As_beam_req = (M_beam_support * 1e6) / (0.85 * STEEL_FYD * d_beam); 
-  const As_beam_provided = Math.max(As_beam_req, 300); 
+  const d_beam = sections.beamDepth * 10 - 40; // mm
+  
+  // TS500 Minimum Donatı Hesabı
+  const Ac_beam_mm2 = (sections.beamWidth * 10) * (sections.beamDepth * 10);
+  const As_min_formula = (0.8 * fctd / STEEL_FYD) * (sections.beamWidth * 10) * d_beam; // TS500 Formülü
+  
+  const As_beam_req_calc = (M_beam_support * 1e6) / (0.85 * STEEL_FYD * d_beam); 
+  // Minimum donatı şartını burada uyguluyoruz:
+  const As_beam_req = Math.max(As_beam_req_calc, As_min_formula);
+  
+  // TBDY Alt Donatı Şartı (Mesnetlerde alt donatı, üst donatının min %50'si)
+  // Basitleştirilmiş kabul: Açıklık donatısını mesnet donatısının yarısı kadar tut.
+  const As_beam_span_req = Math.max(As_beam_req / 2, As_min_formula);
+
+  const As_beam_provided = As_beam_req; // Seçilen (Burada yuvarlama/çap seçimi yapılabilir)
 
   const areaOneBarBeam = Math.PI * Math.pow(rebars.beamMainDia/2, 2);
   const countSupport = Math.ceil(As_beam_provided / areaOneBarBeam);
-  const countSpan = Math.ceil((As_beam_provided / 2) / areaOneBarBeam);
+  const countSpan = Math.ceil(As_beam_span_req / areaOneBarBeam);
 
+  // Kapasite ve Kesme Hesabı
   const Mr_beam = calculateMomentCapacity(sections.beamWidth*10, sections.beamDepth*10, As_beam_provided, fcd, 0);
   const Mpi_beam = 1.4 * Mr_beam; 
   const Mpj_beam = 1.4 * Mr_beam;
-
   const V_gravity = (q_beam_design * L_beam) / 2;
   const Ve_beam = V_gravity + (Mpi_beam + Mpj_beam) / L_beam; 
 
-  // KESME GÜVENLİĞİ HESABI (DÜZELTİLDİ)
-  // Vcr: Betonun çatlama dayanımı (Etriye gereksinimi için sınır)
   const Vcr_beam = 0.65 * fctd * (sections.beamWidth*10) * d_beam / 1000; 
-  // Vmax: Kesit ezilme dayanımı (Kesit boyutunun yetersiz olduğu sınır)
   const Vmax_beam = 0.22 * fcd * (sections.beamWidth*10) * d_beam / 1000;
   
-  // Eğer Ve > Vmax ise kesit yetersizdir (Riskli).
   const isShearSafe = Ve_beam <= Vmax_beam;
-  const isShearCritical = Ve_beam > Vcr_beam; // Sıklaştırma gerekir mi?
+  const isShearCritical = Ve_beam > Vcr_beam;
 
-  // SEHİM HESABI (DÜZELTİLDİ)
-  // 1. Atalet Momenti (Ig) - mm^4
-  const Ig = (sections.beamWidth * 10 * Math.pow(sections.beamDepth * 10, 3)) / 12;
-  // 2. Efektif Atalet (Çatlamış kesit kabulü ~%50)
-  const I_eff = 0.5 * Ig;
-  // 3. Elastik Sehim (5/384 * q * L^4 / EI) - q: N/mm, L: mm, E: MPa, I: mm4
-  // q_beam_design (kN/m) sayısal olarak (N/mm)'ye eşittir.
+  // Sehim Hesabı (Düzeltildi)
+  const Ig = (sections.beamWidth * 10 * Math.pow(sections.beamDepth * 10, 3)) / 12; // mm4
+  const I_eff = 0.5 * Ig; // Çatlamış atalet (Basitleştirilmiş)
+  // Elastik sehim: 5/384 * q * L^4 / EI
   const delta_elastic = (5 * q_beam_design * Math.pow(L_beam * 1000, 4)) / (384 * Ec * I_eff);
-  // 4. Toplam Sehim (Sünme etkisi ile ~3 kat artırılır)
-  const delta_total = delta_elastic * 3;
+  const delta_total = delta_elastic * 3; // Sünme çarpanı
   const deflectionLimit = (L_beam * 1000) / 240;
 
-  
+  // --- YENİ EKLENEN YÖNETMELİK KONTROLLERİ ---
+  const currentRho = As_beam_provided / ((sections.beamWidth * 10) * d_beam);
+  const standardCheck = checkBeamStandards(
+    sections.beamWidth, 
+    sections.beamDepth, 
+    dimensions.slabThickness,
+    currentRho,
+    fctd,
+    STEEL_FYD,
+    sections.colWidth
+  );
+
+  // Kiriş Durum Mesajını Oluşturma
+  let beamStatusMsg = 'Uygun';
+  let beamStatusReason = undefined;
+  let isBeamSafe = true;
+
+  if (!standardCheck.isSafe) {
+    isBeamSafe = false;
+    beamStatusMsg = 'Yönetmelik';
+    beamStatusReason = standardCheck.messages[0]; // İlk hatayı göster
+  } else if (!isShearSafe) {
+    isBeamSafe = false;
+    beamStatusMsg = 'Kesme';
+    beamStatusReason = 'Kesit Yetersiz (V > Vmax)';
+  } else if (delta_total > deflectionLimit) {
+    isBeamSafe = false;
+    beamStatusMsg = 'Sehim';
+    beamStatusReason = 'Sehim Sınırı Aşıldı';
+  }
 
   // --- 5. KOLON HESABI ---
   const Ac_col = sections.colWidth * sections.colDepth * 100; 
@@ -189,7 +253,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const slabMinThickness = 10; 
   const interactionRatio = Nd_design / (0.5 * fck * Ac_col / 1000);
 
-  // DEĞİŞİKLİK BURADA: Kolon güvenliği hem Nmax hem de Güçlü Kolon'a bağlı
+  // Kolon güvenliği hem Nmax hem de Güçlü Kolon'a bağlı
   let colStatusMsg = 'Yeterli';
   let colStatusReason = undefined;
   let isColSafe = true;
@@ -223,28 +287,16 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       moment_support: M_beam_support,
       moment_span: M_beam_support * 0.6,
       as_support: As_beam_provided / 100,
-      as_span: As_beam_provided / 2 / 100,
+      as_span: As_beam_span_req / 100, // as_span düzeltildi
       count_support: countSupport,
       count_span: countSpan,
       shear_force: Ve_beam,
-      shear_capacity: Vmax_beam, // Kapasite olarak Vmax gösterilmeli
+      shear_capacity: Vmax_beam, // Vmax gösteriliyor
       shear_reinf: isShearCritical ? "Ø8/10 (Sıklaştırma)" : "Ø8/15",
-      
-      // DÜZELTİLEN KISIMLAR:
       deflection: delta_total, 
       deflection_limit: deflectionLimit,
-      deflectionStatus: createStatus(
-        delta_total <= deflectionLimit, 
-        'Uygun', 
-        'Aşıyor', 
-        `${delta_total.toFixed(1)}mm > ${deflectionLimit.toFixed(1)}mm`
-      ),
-      shearStatus: createStatus(
-        isShearSafe, 
-        'Yeterli', 
-        'Yetersiz', 
-        `Ve=${Ve_beam.toFixed(0)} > Vmax=${Vmax_beam.toFixed(0)}`
-      ) 
+      deflectionStatus: createStatus(delta_total <= deflectionLimit, 'Uygun', 'Aşıyor'),
+      shearStatus: createStatus(isBeamSafe, beamStatusMsg, 'Riskli', beamStatusReason) 
     },
     columns: {
       axial_load: Nd_design,
@@ -254,7 +306,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       strong_col_ratio: B_ratio,
       req_area: As_col_provided / 100,
       count_main: countColMain,
-      // Güncellenmiş Durum
       status: createStatus(isColSafe, colStatusMsg, colStatusMsg, colStatusReason),
       strongColumnStatus: createStatus(isStrongColumn, 'Güçlü Kolon', 'Zayıf Kolon', `Oran: ${B_ratio.toFixed(2)}`)
     },
