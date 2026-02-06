@@ -44,15 +44,16 @@ const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
   const colWidthPx = Math.max(sections.colWidth * scaleElev / 40, 8);
 
   return (
-    <div className="w-full flex flex-col gap-6">
+    // DEĞİŞİKLİK BURADA: flex-col yerine grid yapısı kullanılarak yan yana getirildi.
+    <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6">
       
-      {/* 1. PLAN GÖRÜNÜŞÜ (MEVCUT) */}
+      {/* 1. PLAN GÖRÜNÜŞÜ */}
       <div className="flex flex-col items-center bg-white rounded-xl shadow-sm border border-slate-200 p-4">
         <h3 className="text-slate-500 text-xs font-bold mb-2 tracking-wider uppercase flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
           Kat Planı (Üstten)
         </h3>
-        <svg width={canvasSize} height={canvasSize} className="border border-slate-100 bg-slate-50/50 rounded">
+        <svg width={canvasSize} height={canvasSize} className="border border-slate-100 bg-slate-50/50 rounded w-full h-auto max-w-[400px]">
           <defs>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.5"/>
@@ -91,13 +92,13 @@ const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
         </svg>
       </div>
 
-      {/* 2. KESİT GÖRÜNÜŞÜ (YENİ) */}
+      {/* 2. KESİT GÖRÜNÜŞÜ */}
       <div className="flex flex-col items-center bg-white rounded-xl shadow-sm border border-slate-200 p-4">
         <h3 className="text-slate-500 text-xs font-bold mb-2 tracking-wider uppercase flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-purple-500"></span>
           A-A Kesiti (Yandan - {storyCount} Kat)
         </h3>
-        <svg width={canvasSize} height={elevationHeight} className="border border-slate-100 bg-slate-50/50 rounded">
+        <svg width={canvasSize} height={elevationHeight} className="border border-slate-100 bg-slate-50/50 rounded w-full h-auto max-w-[400px]">
           <rect width="100%" height="100%" fill="url(#grid)" />
           
           <g transform={`translate(0, ${elevationHeight - padding}) scale(1, -1)`}>

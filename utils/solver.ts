@@ -1,12 +1,10 @@
-// utils/solver.ts
-
 import { AppState, CalculationResult, CheckStatus } from "../types";
 import { 
   CONCRETE_DENSITY, 
   STEEL_FYD, 
   getFs, 
   STEEL_FYK,
-  getConcreteProperties // YENİ: Sabitler yerine fonksiyonu alıyoruz
+  getConcreteProperties 
 } from "../constants";
 
 // --- YARDIMCI FONKSİYONLAR ---
@@ -18,7 +16,6 @@ const createStatus = (isSafe: boolean, successMsg: string = 'Güvenli', failMsg:
   reason: isSafe ? undefined : reason
 });
 
-// Beton dayanımı (fcd) artık parametre olarak gelmeli
 const calculateMomentCapacity = (b: number, h: number, As: number, fcd: number, N_kN: number = 0): number => {
   const N = N_kN * 1000; 
   const d = h - 40; 
@@ -35,10 +32,8 @@ const calculateMomentCapacity = (b: number, h: number, As: number, fcd: number, 
   return Mr / 1000000; // kNm
 };
 
-// Beton çekme dayanımı (fctd) artık parametre olarak gelmeli
 const checkPunchingShear = (Vpd_kN: number, b_col: number, h_col: number, d_found: number, fctd: number) => {
   const Vpd = Vpd_kN * 1000; 
-  // Zımbalama çevresi (d kadar uzakta)
   const u_p = 2 * (b_col + d_found) + 2 * (h_col + d_found); 
   
   const gamma = 1.0; 
@@ -58,45 +53,40 @@ const checkPunchingShear = (Vpd_kN: number, b_col: number, h_col: number, d_foun
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { dimensions, sections, loads, seismic, rebars, materials } = state;
   
-  // YENİ: Seçilen beton sınıfına göre özellikleri alıyoruz
   const { fck, fcd, fctd } = getConcreteProperties(materials.concreteClass);
 
   const n_stories = dimensions.storyCount || 1;
   const total_height = dimensions.h * n_stories;
 
-  // --- TEMEL GEOMETRİ (RADYE) ---
-  const foundation_height = dimensions.foundationHeight || 50; // cm
-  // Radye alanı: Bina oturumu + 50cm ampatman
+  // --- TEMEL GEOMETRİ ---
+  const foundation_height = dimensions.foundationHeight || 50; 
   const foundation_width_m = dimensions.lx + 1.0; 
   const foundation_length_m = dimensions.ly + 1.0;
-  const foundation_area = foundation_width_m * foundation_length_m; // m2
+  const foundation_area = foundation_width_m * foundation_length_m; 
 
   // --- 1. YÜK ANALİZİ ---
   const g_slab = (dimensions.slabThickness / 100) * CONCRETE_DENSITY; 
-  const g_total = g_slab + loads.deadLoadCoatingsKg / 1000; 
   
-  const g_coatings_kN = loads.deadLoadCoatingsKg * 10 / 1000; // kN/m2
-  const q_live_kN = loads.liveLoadKg * 10 / 1000; // kN/m2
+  const g_coatings_kN = loads.deadLoadCoatingsKg * 10 / 1000; 
+  const q_live_kN = loads.liveLoadKg * 10 / 1000; 
 
   const g_slab_kN = (dimensions.slabThickness / 100) * CONCRETE_DENSITY; 
   const g_total_kN = g_slab_kN + g_coatings_kN;
 
   const pd = 1.4 * g_total_kN + 1.6 * q_live_kN; 
   
-  // Kiriş Yükü
   const beam_self = (sections.beamWidth/100) * (sections.beamDepth/100) * CONCRETE_DENSITY * 1.4;
   const wall_load = 3.5 * 1.4; 
-  const q_beam_design = pd * (Math.min(dimensions.lx, dimensions.ly) / 2) + beam_self + wall_load; // kN/m
+  const q_beam_design = pd * (Math.min(dimensions.lx, dimensions.ly) / 2) + beam_self + wall_load; 
 
   // --- 2. DEPREM HESABI ---
+  // getFs artık seçilen zemin sınıfını kullanıyor
   const Fs = getFs(seismic.ss, seismic.soilClass);
   const Sms = seismic.ss * Fs;
   const Sds = Sms / 1.5;
 
   const area = dimensions.lx * dimensions.ly;
-  // Bina ağırlığı hesabı (kN)
   const W_story = (g_total_kN * area) + (beam_self/1.4 * 2 * (dimensions.lx+dimensions.ly)) + 4*(sections.colWidth/100*sections.colDepth/100*dimensions.h*CONCRETE_DENSITY);
-  // Radye ağırlığı
   const W_foundation = foundation_area * (foundation_height / 100) * CONCRETE_DENSITY;
   
   const W_total = (W_story + q_live_kN*area*0.3) * n_stories;
@@ -120,7 +110,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const as_req_slab = (m_slab * 1e6) / (0.9 * STEEL_FYD * d_slab) / 100; 
   const as_min_slab = 0.002 * 100 * d_slab / 10; 
 
-  // Donatı aralığı
   const rebarAreaSlab = Math.PI * Math.pow(rebars.slabDia/2, 2) / 100; 
   const spacingSlab = Math.min((rebarAreaSlab * 100) / as_req_slab, 30); 
 
@@ -135,7 +124,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const countSupport = Math.ceil(As_beam_provided / areaOneBarBeam);
   const countSpan = Math.ceil((As_beam_provided / 2) / areaOneBarBeam);
 
-  // Düzeltme: fcd parametresi eklendi
   const Mr_beam = calculateMomentCapacity(sections.beamWidth*10, sections.beamDepth*10, As_beam_provided, fcd, 0);
   const Mpi_beam = 1.4 * Mr_beam; 
   const Mpj_beam = 1.4 * Mr_beam;
@@ -143,7 +131,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const V_gravity = (q_beam_design * L_beam) / 2;
   const Ve_beam = V_gravity + (Mpi_beam + Mpj_beam) / L_beam; 
 
-  // Düzeltme: fctd kullanıldı
   const Vcr_beam = 0.65 * fctd * (sections.beamWidth*10) * d_beam / 1000; 
   const isShearCritical = Ve_beam > Vcr_beam;
 
@@ -155,7 +142,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const areaOneBarCol = Math.PI * Math.pow(rebars.colMainDia/2, 2);
   const countColMain = Math.ceil(As_col_provided / areaOneBarCol);
 
-  // Düzeltme: fcd parametresi eklendi
   const Mr_col_bottom = calculateMomentCapacity(sections.colWidth*10, sections.colDepth*10, As_col_provided/2, fcd, Nd_design);
   const Mr_col_top = Mr_col_bottom; 
 
@@ -166,7 +152,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   // --- 6. BİRLEŞİM ---
   const V_node_shear = 1.25 * (STEEL_FYK) * (As_beam_provided) / 1000 - V_col_seismic; 
-  // Düzeltme: fck kullanıldı
   const V_node_limit = 1.7 * Math.sqrt(fck) * (sections.colWidth*10) * (sections.colDepth*10) / 1000;
   const isJointSafe = V_node_shear <= V_node_limit;
 
@@ -178,12 +163,25 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const isBearingSafe = sigma_zemin_actual <= sigma_zemin_emniyet;
   
   const d_found_mm = (foundation_height * 10) - 50; 
-  // Düzeltme: fctd parametresi eklendi
   const punchingCheck = checkPunchingShear(Nd_design, sections.colWidth*10, sections.colDepth*10, d_found_mm, fctd);
 
   const slabMinThickness = 10; 
-  // Düzeltme: fck kullanıldı
   const interactionRatio = Nd_design / (0.5 * fck * Ac_col / 1000);
+
+  // DEĞİŞİKLİK BURADA: Kolon güvenliği hem Nmax hem de Güçlü Kolon'a bağlı
+  let colStatusMsg = 'Yeterli';
+  let colStatusReason = undefined;
+  let isColSafe = true;
+
+  if (interactionRatio > 1) {
+    isColSafe = false;
+    colStatusMsg = 'Kapasite';
+    colStatusReason = `Oran: ${interactionRatio.toFixed(2)}`;
+  } else if (!isStrongColumn) {
+    isColSafe = false;
+    colStatusMsg = 'Yetersiz';
+    colStatusReason = 'Güçlü Kolon Sağlanmadı';
+  }
 
   // --- SONUÇ OBJESİ ---
   return {
@@ -218,12 +216,13 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     columns: {
       axial_load: Nd_design,
       moment_x: Md_col_design,
-      axial_capacity: 0.5 * fck * Ac_col / 1000, // Düzeltme: fck
+      axial_capacity: 0.5 * fck * Ac_col / 1000,
       interaction_ratio: interactionRatio,
       strong_col_ratio: B_ratio,
       req_area: As_col_provided / 100,
       count_main: countColMain,
-      status: createStatus(interactionRatio <= 1, 'Yeterli', 'Kapasite Aşımı', `Oran: ${interactionRatio.toFixed(2)}`),
+      // Güncellenmiş Durum
+      status: createStatus(isColSafe, colStatusMsg, colStatusMsg, colStatusReason),
       strongColumnStatus: createStatus(isStrongColumn, 'Güçlü Kolon', 'Zayıf Kolon', `Oran: ${B_ratio.toFixed(2)}`)
     },
     seismic: {

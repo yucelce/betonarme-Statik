@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult } from './types';
 import { calculateStructure } from './utils/solver';
 import Visualizer from './components/Visualizer';
-import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings, Layers } from 'lucide-react';
+import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50 }, // Varsayılan radye h=50cm
+    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50 },
     sections: { beamWidth: 25, beamDepth: 50, colWidth: 30, colDepth: 30 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
-    seismic: { ss: 1.0, soilClass: SoilClass.ZC },
+    seismic: { ss: 1.0, soilClass: SoilClass.ZC }, // Varsayılan ZC
     materials: { concreteClass: ConcreteClass.C30 },
     rebars: { slabDia: 8, beamMainDia: 12, beamStirrupDia: 8, colMainDia: 14 }
   });
@@ -92,7 +92,6 @@ const App: React.FC = () => {
                    <div><label className="text-[10px] text-slate-500">Kat H (m)</label><input type="number" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-1 border rounded" /></div>
                    <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 </div>
-                {/* YENİ: RADYE TEMEL GİRDİSİ */}
                 <div>
                    <label className="text-[10px] text-slate-500 font-bold text-emerald-600">Radye H (cm)</label>
                    <input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-1 border border-emerald-200 bg-emerald-50 rounded" />
@@ -115,15 +114,27 @@ const App: React.FC = () => {
              </div>
           </div>
 
-          {/* Girdi 3: Yükler */}
+          {/* Girdi 3: Yükler & Zemin */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Yükler</h2>
+            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Yükler & Zemin</h2>
              <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                    <div><label className="text-[10px] text-slate-500">Q (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
                    <div><label className="text-[10px] text-slate-500">G_kap (kg/m²)</label><input type="number" value={state.loads.deadLoadCoatingsKg} onChange={e => handleChange('loads', 'deadLoadCoatingsKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
                 </div>
-                <div><label className="text-[10px] text-slate-500">Deprem (Ss)</label><input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                {/* YENİ: ZEMİN SINIFI SEÇİMİ */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Deprem (Ss)</label>
+                    <input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-1 border rounded" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500">Zemin Sınıfı</label>
+                    <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-1 border rounded bg-slate-50 text-xs">
+                        {Object.values(SoilClass).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                    </select>
+                  </div>
+                </div>
              </div>
           </div>
 
@@ -162,7 +173,7 @@ const App: React.FC = () => {
 
         </div>
 
-        {/* SATIR 2: GÖRSELLER */}
+        {/* SATIR 2: GÖRSELLER (Artık Visualizer içinde yanyana olacak) */}
         <div><Visualizer dimensions={state.dimensions} sections={state.sections} /></div>
 
         {/* SATIR 3: SONUÇ KARTLARI (ÖZET) */}
@@ -206,6 +217,7 @@ const App: React.FC = () => {
                <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
                <div className="flex justify-between items-center mb-3 relative z-10">
                  <h3 className="font-bold text-slate-700">KOLON</h3>
+                 {/* Burada güçlü kolon uyarısı içeren durumu gösteriyoruz */}
                  <StatusBadge status={results.columns.status} />
                </div>
                <div className="space-y-1 text-xs text-slate-600 relative z-10">
@@ -217,7 +229,7 @@ const App: React.FC = () => {
                </div>
             </div>
 
-            {/* YENİ: Temel Özeti */}
+            {/* Temel Özeti */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
                <div className="flex justify-between items-center mb-3 relative z-10">
@@ -270,7 +282,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* RAPOR 2: TEMEL (YENİ) */}
+                  {/* RAPOR 2: TEMEL */}
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">2. RADYE TEMEL HESAPLARI</h4>
                     <div className="space-y-1">
@@ -290,7 +302,8 @@ const App: React.FC = () => {
                      <div className="space-y-1">
                         <ReportRow label="Eksenel Yük (Nd)" value={results.columns.axial_load.toFixed(0)} unit="kN" />
                         <ReportRow label="Maks. Kapasite (Nmax)" value={results.columns.axial_capacity.toFixed(0)} unit="kN" />
-                        <ReportRow label="N-M Etkileşim Oranı" value={results.columns.interaction_ratio.toFixed(2)} subtext="Sınır: 1.00" status={results.columns.status.isSafe} />
+                        <ReportRow label="N-M Etkileşim Oranı" value={results.columns.interaction_ratio.toFixed(2)} subtext="Sınır: 1.00" status={results.columns.interaction_ratio <= 1} />
+                        <ReportRow label="Güçlü Kolon Oranı" value={results.columns.strong_col_ratio.toFixed(2)} subtext="Min. Gereken: 1.20" status={results.columns.strongColumnStatus.isSafe} />
                         <div className="mt-2 pt-2 border-t border-dashed">
                            <div className="flex justify-between items-center font-bold text-emerald-700">
                              <span>SEÇİLEN DONATI:</span>
@@ -307,7 +320,7 @@ const App: React.FC = () => {
                         <ReportRow label="Bina Ağırlığı (W)" value={results.seismic.building_weight.toFixed(0)} unit="kN" />
                         <ReportRow label="Periyot (T1)" value={results.seismic.period.toFixed(2)} unit="s" />
                         <ReportRow label="Taban Kesme (Vt)" value={results.seismic.base_shear.toFixed(0)} unit="kN" />
-                        <ReportRow label="Güçlü Kolon Oranı" value={results.columns.strong_col_ratio.toFixed(2)} subtext="Sınır: 1.20" status={results.columns.strongColumnStatus.isSafe} />
+                        <ReportRow label="Zemin Sınıfı" value={state.seismic.soilClass} />
                      </div>
                   </div>
                 </div>
