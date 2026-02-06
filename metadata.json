@@ -1,0 +1,5 @@
+{
+  "name": "Betonarme Statik Analiz (TS500 & TBDY 2018)",
+  "description": "Basit bir betonarme yapı (1 döşeme, 4 kiriş, 4 kolon) için TS500 ve TBDY 2018 yönetmeliklerine göre ön tasarım ve kontrol yapan web uygulaması.",
+  "requestFramePermissions": []
+}
