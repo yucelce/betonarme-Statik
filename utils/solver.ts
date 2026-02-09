@@ -275,7 +275,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // ==========================================================================
   // 3. KİRİŞ HESABI (TS500 - Madde 7)
   // ==========================================================================
-const L_beam = ly; // Kritik açıklık
+  const L_beam = ly; // Kritik açıklık
   const d_beam = sections.beamDepth * 10 - 30; // mm
   const bw_mm = sections.beamWidth * 10;       // mm
   const h_beam_mm = sections.beamDepth * 10;   // mm
@@ -310,9 +310,8 @@ const L_beam = ly; // Kritik açıklık
  // Kesme Kuvveti Hesabı
   const V_beam_design = q_beam_design * L_beam / 2; // Vd (kN)
 
-  // Kesme Dayanımları
-  const bw_mm = sections.beamWidth * 10;
-  const h_beam_mm = sections.beamDepth * 10;
+  // Kesme Dayanımları - HATA BURADAYDI, DEĞİŞKENLER ZATEN YUKARIDA TANIMLI
+  // (bw_mm ve h_beam_mm satır 316-317'de tanımlı, tekrar tanımlamıyoruz)
   const Vcr = 0.65 * fctd * bw_mm * d_beam / 1000; // kN
   const Vmax = 0.22 * fcd * bw_mm * d_beam / 1000; // kN
   
@@ -467,8 +466,12 @@ const L_beam = ly; // Kritik açıklık
   
   // Vw (Etriye katkısı) - Basit hesap (Sadece Vr kontrolü için)
   const s_stirrup = 100; // mm (Sıklaştırma bölgesi varsayımı)
-  const stirrupDia = rebars.colStirrupDia || 8; 
-  const stirrupAreaTwoLegs = 2 * (Math.PI * Math.pow(stirrupDia/2, 2)); // 2 kollu kabul
+  // stirrupDia zaten yukarıda beamStirrupDia ile tanımlanmıştı ama burada kolonunki gerek.
+  // Bu nedenle rebars.colStirrupDia kullanacağız, yukarıdaki değişkenle çakışmasın diye yeni isim verebiliriz
+  // ancak zaten aşağıdaki confResult içinde rebars.colStirrupDia kullanılıyor.
+  // Burada Vw hesabı için kolon etriye çapını alalım:
+  const colStirrupDia = rebars.colStirrupDia || 8; 
+  const stirrupAreaTwoLegs = 2 * (Math.PI * Math.pow(colStirrupDia/2, 2)); // 2 kollu kabul
   const d_col = (sections.colDepth * 10) - 30;
   const Vw_col = (stirrupAreaTwoLegs * 420 * d_col) / s_stirrup / 1000; 
   
