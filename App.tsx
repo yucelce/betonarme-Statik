@@ -12,7 +12,8 @@ const App: React.FC = () => {
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 }, 
     materials: { concreteClass: ConcreteClass.C30 },
-    rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, foundationDia: 14 }
+    // BURAYA colStirrupDia: 8 EKLENDİ
+    rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
@@ -377,38 +378,93 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white p-6">
-                     <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON & PERFORMANS</h4>
-                     <div className="space-y-1">
+                  {/* YENİ KOLON RAPORU BAŞLANGICI */}
+                  <div className="bg-white p-6 col-span-1 lg:col-span-2">
+                     <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON DETAYLI ANALİZİ (TBDY 2018 & TS500)</h4>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       
+                       {/* SOL SÜTUN: EKSENEL, MOMENT, NARİNLİK */}
+                       <div className="space-y-1">
+                          <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">A. EKSENEL KUVVET VE EĞİLME</h5>
+                          
+                          <ReportRow 
+                            label="Eksenel Yük (Nd)" 
+                            value={results.columns.axial_load_design.toFixed(0)} unit="kN"
+                            formula="Nd = 1.0G + 1.0Q + 1.0E" 
+                          />
+                          <ReportRow 
+                            label="Eksenel Sınır (0.40 Ac)" 
+                            value={results.columns.axial_capacity_max.toFixed(0)} unit="kN" 
+                            status={results.columns.checks.axial_limit.isSafe}
+                            formula="Nmax = 0.40 * fck * Ac"
+                            subtext="Süneklik Sınırı"
+                          />
+                          <ReportRow 
+                            label="Narinlik Oranı (λ)" 
+                            value={results.columns.slenderness.lambda.toFixed(2)} 
+                            subtext={`Limit: ${results.columns.slenderness.lambda_lim.toFixed(1)}`}
+                            formula="λ = ln / i"
+                            status={!results.columns.slenderness.isSlender}
+                          />
+                          {results.columns.slenderness.isSlender && (
+                            <ReportRow 
+                              label="Moment Büyütme (β)" 
+                              value={results.columns.slenderness.beta.toFixed(2)} 
+                              formula="β = Cm / (1 - Nd/Nc)"
+                              subtext="Narin kolon etkisi"
+                            />
+                          )}
                         <ReportRow 
-                          label="Eksenel Yük (Nd)" 
-                          value={results.columns.axial_load_design.toFixed(0)} 
-                          unit="kN"
-                          formula="Nd = 1.0G + 1.0Q + 1.0E" 
-                        />
-                        <ReportRow 
-                          label="Eksenel Kapasite (Nmax)" 
-                          value={results.columns.axial_capacity_max.toFixed(0)} 
-                          unit="kN" 
-                          subtext="0.5 fck Ac" 
-                          formula="Nmax = 0.5 * fck * Ac"
-                          calc={`0.5 * ${fck} * ${(state.sections.colWidth*state.sections.colDepth)/10} / 1000`}
-                        />
-                        <ReportRow 
-                          label="Kapasite Oranı" 
-                          value={results.columns.interaction_ratio.toFixed(2)} 
-                          status={results.columns.checks.capacity.isSafe}
-                          formula="Nd / Nmax" 
-                        />
-                        <ReportRow 
-                          label="Güçlü Kolon Oranı" 
-                          value={results.columns.strong_col_ratio.toFixed(2)} 
-                          subtext="(Mra+Mrü) / (Mri+Mrj) ≥ 1.2" 
-                          status={results.columns.checks.strongColumn.isSafe} 
-                          formula="(M_col_top + M_col_bot) / M_beam"
-                        />
+                            label="Tasarım Momenti (Md)" 
+                            value={results.columns.moment_magnified.toFixed(1)} unit="kNm"
+                            formula={results.columns.slenderness.isSlender ? "Md = β * M_analiz" : "Md = M_analiz"}
+                            status={results.columns.checks.moment_capacity.isSafe}
+                          />
+                       </div>
+
+                       {/* SAĞ SÜTUN: KESME, SARGI, GÜÇLÜ KOLON */}
+                       <div className="space-y-1">
+                          <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">B. KESME VE SARGI (KAPASİTE TASARIMI)</h5>
+                          
+                          <ReportRow 
+                            label="Kapasite Kesmesi (Ve)" 
+                            value={results.columns.shear.Ve.toFixed(1)} unit="kN"
+                            formula="Ve = (Mra + Mrü) / ln"
+                            subtext="Moment kapasitesinden türetildi"
+                          />
+                          <ReportRow 
+                            label="Kesme Dayanımı (Vr)" 
+                            value={results.columns.shear.Vr.toFixed(1)} unit="kN"
+                            status={results.columns.checks.shear_capacity.isSafe}
+                            formula="Vr = Vc + Vw"
+                            subtext={`Beton: ${results.columns.shear.Vc.toFixed(1)} + Etriye: ${results.columns.shear.Vw.toFixed(1)}`}
+                          />
+                          
+                          <div className="my-2 border-t border-slate-100"></div>
+
+                          <ReportRow 
+                            label="Sargı Etriyesi (Ash)" 
+                            value={results.columns.confinement.Ash_prov.toFixed(0)} unit="mm²"
+                            subtext={`Gereken: ${results.columns.confinement.Ash_req.toFixed(0)} mm²`}
+                            status={results.columns.checks.confinement.isSafe}
+                            formula="Ash ≥ 0.3 s b (fck/fywk)..."
+                          />
+                          <ReportRow 
+                            label="Max Donatı Oranı" 
+                            value={(results.columns.rho_provided*100).toFixed(2)} unit="%"
+                            status={results.columns.checks.maxRebar.isSafe}
+                            subtext="Limit: %4.0"
+                          />
+                          <ReportRow 
+                            label="Güçlü Kolon Oranı" 
+                            value={results.columns.strong_col_ratio.toFixed(2)} 
+                            subtext="(Mra+Mrü) / (Mri+Mrj) ≥ 1.2" 
+                            status={results.columns.checks.strongColumn.isSafe} 
+                          />
+                       </div>
                      </div>
                   </div>
+                  {/* YENİ KOLON RAPORU BİTİŞİ */}
 
                   <div className="bg-white p-6">
                   <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
