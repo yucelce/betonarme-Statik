@@ -247,6 +247,28 @@ const App: React.FC = () => {
                  <StatusBadge status={getOverallStatus(results.foundation.checks)} />
                </div>
             </div>
+            {/* Joint (Birleşim) Kartı - YENİ EKLENECEK */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
+              <h3 className="font-bold text-slate-700 mb-2">BİRLEŞİM (JOINT)</h3>
+              <div className="space-y-1 text-xs text-slate-600 relative z-10">
+                <div className="flex justify-between">
+                    <span>Kesme Kuvveti (Ve):</span> 
+                    <b>{results.joint.shear_force.toFixed(1)} kN</b>
+                </div>
+                <div className="flex justify-between">
+                    <span>Kapasite (Vmax):</span> 
+                    <b>{results.joint.shear_limit.toFixed(1)} kN</b>
+                </div>
+                <div className="flex justify-between border-t pt-1 mt-1">
+                    <span>Durum:</span>
+                    <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
+                        {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
+                    </span>
+                </div>
+              </div>
+            </div>
+
 
           </div>
         )}
@@ -387,6 +409,28 @@ const App: React.FC = () => {
                         />
                      </div>
                   </div>
+
+                  <div className="bg-white p-6">
+                  <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
+                  <div className="space-y-1">
+                      <ReportRow 
+                        label="Birleşim Kesme (Ve)" 
+                        value={results.joint.shear_force.toFixed(2)} 
+                        unit="kN" 
+                        formula="Ve = 1.25 * fyk * As - Vkol" 
+                      />
+                      <ReportRow 
+                        label="Birleşim Dayanımı (Vmax)" 
+                        value={results.joint.shear_limit.toFixed(2)} 
+                        unit="kN" 
+                        subtext="Kuşatılmamış Kabulü"
+                        formula="1.0 * √fck * bj * h" 
+                        status={results.joint.isSafe}
+                      />
+                  </div>
+                  </div>
+
+
 
                    <div className="bg-white p-6">
                      <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. TBDY 2018 DEPREM ANALİZİ</h4>

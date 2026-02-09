@@ -174,7 +174,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const W_total = W_story * storyCount;
 
   // Periyot
-  const Ct = 0.07; 
+  const Ct = 0.01; 
   const T1 = Ct * Math.pow(totalHeight, 0.75);
   const Sae_g = calculateSpectrum(T1, Sds, Sd1); 
   
