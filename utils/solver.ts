@@ -241,17 +241,18 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   
   const Vt_design = Math.max(Vt_calc, Vt_min); // Tasarım Taban Kesme Kuvveti
 
-  // ==========================================================================
-  // 5. KOLON HESABI (TS500 & TBDY 2018)
-  // ==========================================================================
-  
-// ==========================================================================
-  // 5. KOLON HESABI (GÜNCELLENMİŞ & GENİŞLETİLMİŞ)
+// 5. KOLON HESABI (TS500 & TBDY 2018)
   // ==========================================================================
   
+  // KOLON GEOMETRİK ÖZELLİKLERİ
   const Ic = (sections.colWidth * 10 * Math.pow(sections.colDepth * 10, 3)) / 12; // mm4
   const Ac_col_mm2 = sections.colWidth * 10 * sections.colDepth * 10;
   
+  // ETRİYE BİLGİLERİ (HATA DÜZELTİLDİ: Tek seferde tanımlandı)
+  const stirrupDia = rebars.colStirrupDia || 8; 
+  const stirrupArea = 2 * (Math.PI * Math.pow(stirrupDia/2, 2)); // Çift kollu (mm2)
+  const Ash_prov = stirrupArea; // Sargılama hesabı için mevcut alan
+
   // Deprem Etkileri (Basit Çerçeve Kabulü)
   const V_col_seismic = Vt_design * 1000 / 4; // Newton (Tek kolon)
   const Md_col_seismic = (V_col_seismic * dimensions.h * 1000) / 2 / 1e6; // kNm
@@ -264,29 +265,24 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const Nd_design = 1.0 * N_gravity + 1.0 * N_seismic; 
 
   // [KONTROL 1] Eksenel Yük Sınırı Kontrolü (0.40 fck Ac)
-  // Görseldeki istek: "Nd <= 0.40 fck Ac"
   const N_max_limit_040 = 0.40 * fck * Ac_col_mm2 / 1000; 
   const N_max_design = N_max_limit_040;
 
   // [KONTROL 2] Narinlik Etkisi (Slenderness Effect)
-  // Serbest boy ln
   const ln_mm = (dimensions.h * 1000) - (sections.beamDepth * 10); 
-  // Atalet yarıçapı i ≈ 0.3h (Dikdörtgen için)
   const i_radius = 0.3 * (sections.colDepth * 10);
   const lambda = ln_mm / i_radius; // Narinlik oranı
   
-  // Sınır Narinlik: 34 - 12(M1/M2). Güvenli taraf için M1/M2 = 0.9 kabulü.
   const lambda_limit = 34 - 12 * (0.9); // Yaklaşık 23.2
   
   let beta = 1.0;
   let isSlender = false;
   if (lambda > lambda_limit) {
     isSlender = true;
-    // Kritik Yük (Euler)
     const EI_eff = 0.7 * Ec * Ic; // Etkili rijitlik
     const Nc = (Math.pow(Math.PI, 2) * EI_eff) / Math.pow(ln_mm, 2) / 1000; // kN
     
-    // Moment Büyütme Katsayısı Beta = Cm / (1 - Nd/Nc) >= 1.0
+    // Moment Büyütme Katsayısı Beta
     const Cm = 1.0; 
     beta = Cm / (1 - (Nd_design / Nc));
     if (beta < 1.0) beta = 1.0;
@@ -311,41 +307,76 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const strongColRatio = sum_M_col / (Mr_beam + 0.001); 
 
   // [KONTROL 6] Kapasite Tasarımı (Kesme Güvenliği Ve <= Vr)
-  // Ve = (Mra + Mrü) / ln -> Mr_col yaklaşık kapasite olduğu için 1.4 ile pekiştirilir.
   const M_capacity_design = Mr_col * 1.4; 
   const Ve_col = (M_capacity_design * 2) / (ln_mm / 1000); // kN
 
   // Vr = Vc + Vw
-  // Vc (Beton katkısı) - TBDY'ye göre eksenel yük varsa alınabilir.
   const Vc_col = 0.8 * 0.65 * fctd * Ac_col_mm2 * (1 + (0.07 * Nd_design * 1000)/Ac_col_mm2) / 1000;
   
   // Vw (Etriye katkısı)
-  // Not: types.ts'e eklediğimiz colStirrupDia'yı kullanıyoruz, yoksa varsayılan 8mm
-  const stirrupDia = rebars.colStirrupDia || 8; 
-  const stirrupArea = 2 * (Math.PI * Math.pow(stirrupDia/2, 2)); // Çift kollu
   const s_stirrup = 100; // mm (Sıklaştırma bölgesi varsayımı: 100mm)
   const d_col = (sections.colDepth * 10) - 30;
   const Vw_col = (stirrupArea * 420 * d_col) / s_stirrup / 1000; // kN (420 = fyk)
   
-  // Vr limit kontrolü (Vr <= 0.22 fcd Ac)
   const Vr_max = 0.22 * fcd * Ac_col_mm2 / 1000;
   const Vr_col = Math.min(Vc_col + Vw_col, Vr_max);
 
-  // [KONTROL 7] Sargı Donatısı Kontrolü (Ash)
-  // s <= 100mm, s <= b/3
-  const s_max_code = Math.min(100, Math.min(sections.colWidth*10, sections.colDepth*10)/3);
+  // ==========================================================================
+  // [KONTROL 7] SARGILAMA (ETRİYE) HESABI - OTO. ARALIK & MİN. KONTROLÜ
+  // ==========================================================================
   
-  // Ash >= 0.30 s b (fck/fyk) [(Ac/Ack) - 1]
-  // Ash >= 0.075 s b (fck/fyk)
-  const paspayi_col = 25;
-  const bk = (sections.colWidth * 10) - 2 * paspayi_col; 
-  const Ack = bk * ((sections.colDepth * 10) - 2 * paspayi_col);
+  // 1. Yönetmelik Sınırları (Geometrik)
+  const s_geom_max = Math.min(100, Math.min(sections.colWidth * 10, sections.colDepth * 10) / 3);
+  const s_code_min = 50; 
+
+  // 2. Çekirdek (Sargılı Beton) Boyutları
+  const paspayi_col = 25; // mm
+  const bk_x = (sections.colWidth * 10) - 2 * paspayi_col; 
+  const bk_y = (sections.colDepth * 10) - 2 * paspayi_col; 
+  const bk = Math.max(bk_x, bk_y); 
+  const Ack = bk_x * bk_y;
+
+  // 3. Mevcut Etriye Alanı (Ash_prov yukarıda hesaplanmıştı, tekrar tanımlanmadı)
+
+  // 4. Gereken Maksimum Aralık Hesabı (Formülden 's' çekilir)
+  // TBDY Denklem 4.30a
+  const coeff1 = 0.30 * bk * (fck / 420) * ((Ac_col_mm2 / Ack) - 1);
+  const s_calc_1 = coeff1 > 0 ? Ash_prov / coeff1 : 999; 
+
+  // TBDY Denklem 4.30b
+  const coeff2 = 0.075 * bk * (fck / 420);
+  const s_calc_2 = coeff2 > 0 ? Ash_prov / coeff2 : 999;
+
+  // 5. En Uygun Aralığın Belirlenmesi
+  let s_target = Math.min(s_geom_max, s_calc_1, s_calc_2);
   
-  // fywk = 420 kabulü ile
-  const ash_term1 = 0.30 * s_stirrup * bk * (fck/420) * ((Ac_col_mm2/Ack) - 1);
-  const ash_term2 = 0.075 * s_stirrup * bk * (fck/420);
-  const Ash_req = Math.max(ash_term1, ash_term2);
-  const Ash_prov = stirrupArea; // Seçilen etriye alanı
+  // Uygulama Pratiği: Aşağıya doğru 5mm katına yuvarla
+  let s_final = Math.floor(s_target / 5) * 5;
+
+  // 6. Nihai Karar Mekanizması
+  let confinementStatus = {
+    isSafe: true,
+    message: "Uygun",
+    description: "",
+    s_application: s_final
+  };
+
+  if (s_final < s_code_min) {
+    confinementStatus.isSafe = false;
+    confinementStatus.message = "Çap Yetersiz";
+    confinementStatus.description = `Hesaplanan aralık (${s_final}mm) döküm için çok dar. Lütfen etriye çapını artırın (Örn: Ø10).`;
+    confinementStatus.s_application = s_code_min; 
+  } else {
+    confinementStatus.isSafe = true;
+    confinementStatus.message = "Sargı Yeterli";
+    confinementStatus.description = `Sıklaştırma Aralığı: ${s_final/10} cm (Hesap: ${s_target.toFixed(1)}mm)`;
+  }
+
+  // Raporlama için Ash_req değerini hesapla
+  const ash_req_check = Math.max(
+      0.30 * s_final * bk * (fck/420) * ((Ac_col_mm2/Ack) - 1),
+      0.075 * s_final * bk * (fck/420)
+  );
 
   // ==========================================================================
   // 6. JOINT (BİRLEŞİM) BÖLGESİ KESME GÜVENLİĞİ (TBDY 2018 Madde 7.5)
@@ -484,10 +515,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
       // Types.ts: confinement: { Ash_req, Ash_prov, s_max, s_opt }
       confinement: {
-        Ash_req, 
-        Ash_prov: Ash_prov, 
-        s_max: s_max_code, 
-        s_opt: s_stirrup
+        Ash_req: ash_req_check, // Hesaplanan s_final'e göre gereken alan
+        Ash_prov: Ash_prov,     // Seçilen etriyenin alanı
+        s_max: s_geom_max,      // Geometrik sınır (100mm)
+        s_opt: confinementStatus.s_application // Bizim hesapladığımız (örn: 70mm)
       },
       
       interaction_ratio: Nd_design / N_max_design,
@@ -505,7 +536,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK'),
         minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK', 'Yetersiz', '%1 Altı'),
         maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK', 'Fazla Donatı', '%4 Üstü'),
-        confinement: createStatus(Ash_prov >= Ash_req, 'Sargı Yeterli', 'Sargı Yetersiz', `Ash<${Ash_req.toFixed(0)}`)
+        confinement: createStatus(Ash_prov >= ash_req_check, 'Sargı Yeterli', 'Sargı Yetersiz', `Ash<${ash_req_check.toFixed(0)}`)
       }
     },
     seismic: {
