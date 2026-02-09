@@ -97,6 +97,7 @@ export interface CalculationResult {
       shear: CheckStatus;
       deflection: CheckStatus;
       min_reinf: CheckStatus;
+      max_reinf: CheckStatus; // <--- BU SATIRI EKLEYİN
     }
   };
   columns: {

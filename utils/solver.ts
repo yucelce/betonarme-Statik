@@ -10,282 +10,374 @@ import {
 } from "../constants";
 
 /**
- * Durum mesajı oluşturucu (Helper)
+ * YARDIMCI FONKSİYONLAR
+ * ----------------------------------------------------------------------------
  */
+
+// Durum mesajı ve objesi oluşturucu
 const createStatus = (isSafe: boolean, successMsg: string = 'Uygun', failMsg: string = 'Yetersiz', reason?: string): CheckStatus => ({
   isSafe,
   message: isSafe ? successMsg : failMsg,
   reason: isSafe ? undefined : reason
 });
 
-/**
- * Moment Kapasitesi (Dikdörtgen Basınç Bloğu - TS500)
- */
+// TS500 - Dikdörtgen Kesit Taşıma Gücü Momenti (Basit Eğilme / Bileşik Eğilme)
 const calculateMomentCapacity = (b_mm: number, h_mm: number, As_mm2: number, fcd: number, N_design: number = 0): number => {
-  const d = h_mm - 40; // Faydalı yükseklik (Paspayı 40mm)
+  const paspayi = 40; // mm
+  const d = h_mm - paspayi; // Faydalı yükseklik
   
-  // Basınç bloğu derinliği (a)
-  // Denge: As*fyd + N = 0.85*fcd*b*a
+  // Eşdeğer Basınç Bloğu Derinliği (a)
+  // Denge Denklemi: Fs - N = Fc  =>  As*fyd - N = 0.85*fcd*b*a
+  // Buradan a çekilirse:
   const a = (As_mm2 * STEEL_FYD + N_design) / (0.85 * fcd * b_mm);
   
-  if (a > d) return 0; // Kesit yetersiz (Basınç bloğu çok büyük)
+  // Kesit Yetersizlik Kontrolü (Basınç bloğu faydalı yüksekliği geçerse)
+  if (a > d) return 0; 
   
-  // Moment Kapasitesi: Mr = As*fyd*(d - a/2)
-  // Güvenli tarafta kalmak için eksenel yükün moment koluna katkısı (N*(h/2-a/2)) ihmal edilerek
-  // sadece donatı çifti üzerinden hesap yapıldı.
+  // Moment Kapasitesi (Çekme Donatısına Göre Moment Alınarak)
+  // Mr = Fc * (d - a/2)  veya  Mr = As*fyd*(d-a/2) (Eksenel yük ihmali ile güvenli taraf)
+  // Eksenel yükün moment kolu katkısı ihmal edilerek güvenli tarafta kalındı.
   const Mr = (As_mm2 * STEEL_FYD) * (d - a/2);
   
-  return Mr / 1e6; // kNm
+  return Mr / 1e6; // Nmm -> kNm çevrimi
 };
 
-/**
- * TBDY 2018 Yatay Elastik Tasarım Spektrumu S(T)
- */
+// TBDY 2018 - Yatay Elastik Tasarım Spektrumu S(T) - Denklem 2.2
 const calculateSpectrum = (T: number, Sds: number, Sd1: number): number => {
-  // Köşe periyotlar
+  // Köşe periyotların belirlenmesi
   const Ta = 0.2 * (Sd1 / Sds);
   const Tb = (Sd1 / Sds);
 
   if (T < Ta) {
+    // Doğrusal artan kısım
     return (0.4 + 0.6 * (T / Ta)) * Sds;
   } else if (T >= Ta && T <= Tb) {
+    // Sabit plato bölgesi
     return Sds;
   } else if (T > Tb) { 
-    // TBDY Denklem 2.5: T > Tb durumunda Sd1 / T
+    // Sabit yer değiştirme bölgesi (T > Tb)
     return Sd1 / T;
   }
+  // Teorik olarak buraya düşmez ama varsayılan dönüş
   return Sds;
 };
 
+/**
+ * ANA HESAPLAMA FONKSİYONU
+ * ----------------------------------------------------------------------------
+ */
 export const calculateStructure = (state: AppState): CalculationResult => {
+  // Girdilerin ayrıştırılması (Destructuring)
   const { dimensions, sections, loads, seismic, rebars, materials } = state;
+  
+  // Malzeme Özelliklerinin Alınması
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
+  
+  // Geometrik Genel Bilgiler
   const storyCount = dimensions.storyCount || 1;
   const totalHeight = dimensions.h * storyCount;
-
-  // --------------------------------------------------------------------------
-  // 1. YÜK ANALİZİ (TS500)
-  // --------------------------------------------------------------------------
-  const g_slab = (dimensions.slabThickness / 100) * CONCRETE_DENSITY; 
-  const g_total = g_slab + (loads.deadLoadCoatingsKg * 9.81 / 1000); // G (kN/m2)
-  const q_live = loads.liveLoadKg * 9.81 / 1000; // Q (kN/m2)
-  
-  // Tasarım Yükü (1.4G + 1.6Q)
-  const pd = 1.4 * g_total + 1.6 * q_live;
-
-  // Kiriş Yükleri Analizi (DÜZELTİLDİ)
-  // 4 kolonlu yapıda tüm kirişler döşemenin kenarındadır.
-  // Kısa kenar (Lx) üzerindeki kirişe üçgen, uzun kenar (Ly) üzerindeki kirişe trapez yük gelir.
-  // TS500 Eşdeğer Düzgün Yayılı Yük Formülleri:
-  
   const lx = Math.min(dimensions.lx, dimensions.ly);
   const ly = Math.max(dimensions.lx, dimensions.ly);
   const m_ratio = ly / lx; // Uzun kenar / Kısa kenar oranı
 
-  // Eşdeğer Yük Katsayıları
-  // Kısa kiriş (Üçgen yük): q = pd * lx / 3
-  const q_eq_short = (pd * lx) / 3;
+  // ==========================================================================
+  // 1. YÜK ANALİZİ (TS500 & TS498)
+  // ==========================================================================
   
-  // Uzun kiriş (Trapez yük): q = (pd * lx / 3) * (1.5 - 0.5 / m^2)
-  const q_eq_long = (pd * lx / 3) * (1.5 - (0.5 / (m_ratio * m_ratio)));
+  // Sabit Yükler (G)
+  const slab_thickness_m = dimensions.slabThickness / 100;
+  const g_slab = slab_thickness_m * CONCRETE_DENSITY; // Plak ağırlığı (kN/m2)
+  const g_coating = loads.deadLoadCoatingsKg * 9.81 / 1000; // Kaplama ağırlığı (kN/m2)
+  const g_total = g_slab + g_coating; // Toplam ölü yük (G)
 
-  // Kritik Kiriş Hesabı (En çok zorlanan kiriş - Uzun olan)
+  // Hareketli Yükler (Q)
+  const q_live = loads.liveLoadKg * 9.81 / 1000; // Hareketli yük (Q)
+  
+  // Tasarım Yükü (Pd) - TS500 Yük Birleşimi
+  const pd = 1.4 * g_total + 1.6 * q_live; // kN/m2
+
+  // Kirişlere Aktarılan Yükler (Eşdeğer Düzgün Yayılı Yük Yöntemi)
+  // Uzun kirişe trapez yük gelir. TS500 formülü:
+  // q_eq = (P * lx / 3) * (1.5 - 0.5 / m^2)
+  const load_triangle_base = (pd * lx) / 3;
+  const trapezoidal_factor = (1.5 - (0.5 / (m_ratio * m_ratio)));
+  const q_eq_long = load_triangle_base * trapezoidal_factor;
+
+  // Kiriş Öz ağırlığı ve Duvar Yükü
   const beam_width_m = sections.beamWidth / 100;
   const beam_depth_m = sections.beamDepth / 100;
   const beam_self_g = beam_width_m * beam_depth_m * CONCRETE_DENSITY;
-  const wall_load_g = 3.5; // kN/m
+  const wall_load_g = 3.5; // kN/m (Standart tuğla duvar kabulü)
   
-  // Kiriş tasarım yükü (Uzun kiriş esas alındı)
+  // Kiriş Toplam Tasarım Yükü (kN/m)
   const q_beam_design = q_eq_long + 1.4 * beam_self_g + 1.4 * wall_load_g;
 
-  // --------------------------------------------------------------------------
-  // 2. DÖŞEME HESABI
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // 2. DÖŞEME HESABI (TS500 - Madde 11)
+  // ==========================================================================
   
-  // Moment Katsayısı (Alpha) - TS500 Tablo 11.1
-  let alpha = 0.045; 
-  if (m_ratio > 2.0) alpha = 0.083; // Hurdi
-  else if (m_ratio <= 1.2) alpha = 0.035; 
+  // Moment Katsayısı (Alpha) Seçimi - TS500 Tablo 11.1 (Basitleştirilmiş)
+  let alpha = 0.045; // Standart dört tarafı sürekli kabulü ortalaması
+  if (m_ratio > 2.0) {
+    alpha = 0.083; // Hurdi döşeme davranışı (Tek doğrultuda çalışan)
+  } else if (m_ratio <= 1.2) {
+    alpha = 0.035; // Kareye yakın döşeme
+  }
   
+  // Döşeme Momenti: M = alpha * Pd * lx^2
   const M_slab = alpha * pd * Math.pow(lx, 2); // kNm
-  const d_slab = dimensions.slabThickness * 10 - 20; // Paspayı 20mm
   
+  // Döşeme Faydalı Yüksekliği
+  const d_slab = dimensions.slabThickness * 10 - 20; // 20mm paspayı (mm)
+  
+  // Gerekli Donatı Alanı (As)
+  // As = Md / (0.86 * fyd * d) yaklaşık formülü yerine tam denge denklemi:
+  // Basitleştirilmiş: As = (M * 1e6) / (0.9 * fyd * d)
   const As_req_slab = (M_slab * 1e6) / (0.9 * STEEL_FYD * d_slab); // mm2
-  const As_min_slab = 0.002 * 1000 * (dimensions.slabThickness * 10);
   
+  // Minimum Donatı Alanı (TS500 Madde 11.4.2 - S220 için 0.002)
+  const As_min_slab = 0.002 * 1000 * (dimensions.slabThickness * 10); // 1 metre genişlik için
+  
+  // Tasarım Donatısı (Hesap ve Min değerin büyüğü)
   const As_slab_design = Math.max(As_req_slab, As_min_slab);
-  const barAreaSlab = Math.PI * Math.pow(rebars.slabDia/2, 2);
-  const spacingSlab = Math.min((barAreaSlab * 1000) / (As_slab_design / lx), 250); 
-  const spacingSlabFinal = Math.floor(Math.min(spacingSlab, 20));
-
-  // --------------------------------------------------------------------------
-  // 3. KİRİŞ HESABI (DÜZELTİLDİ: Tek Açıklıklı Çerçeve Yaklaşımı)
-  // --------------------------------------------------------------------------
-  const L_beam = ly; // Uzun açıklık kritik
   
-  // Tek açıklıklı çerçeve sistemlerde (kolonlara rijit bağlı), 
-  // mesnet momenti yaklaşık qL^2/12 (ankastreye yakın) civarındadır.
-  // Önceki kodda kullanılan 1/10 (sürekli kiriş) yerine 1/12 kullanıldı.
+  // Donatı Aralığı Hesabı
+  const barAreaSlab = Math.PI * Math.pow(rebars.slabDia/2, 2); // Seçilen çapın alanı
+  const spacingSlabCalc = (barAreaSlab * 1000) / As_slab_design; // mm cinsinden aralık
+  
+  // Max Aralık Kontrolü (TS500: 1.5h veya 200mm)
+  const maxSpacingSlab = Math.min(1.5 * dimensions.slabThickness * 10, 250); 
+  
+  // Uygulama Aralığı (5cm modülüne yuvarlama)
+  const spacingSlabFinal = Math.floor(Math.min(spacingSlabCalc, 200) / 10) * 10; // cm değil mm hesabı yapıp cm'ye dönülecekse /10 sonda
+
+  // ==========================================================================
+  // 3. KİRİŞ HESABI (TS500 - Madde 7)
+  // ==========================================================================
+  const L_beam = ly; // Kritik açıklık (Uzun kenar)
+  const d_beam = sections.beamDepth * 10 - 30; // 30mm paspayı
+  
+  // Yaklaşık Çerçeve Analizi (Ön Tasarım İçin Katsayılar Yöntemi)
+  // Mesnet Momenti (Ankastreye yakın kabul): qL^2 / 12
   const M_beam_supp = (q_beam_design * Math.pow(L_beam, 2)) / 12; 
-  
-  // Açıklık momenti: (qL^2/8) - M_supp/2 yaklaşık yaklaşımı veya direk qL^2/12 (muhafazakar açıklık)
-  const M_beam_span = (q_beam_design * Math.pow(L_beam, 2)) / 14; // Biraz daha düşük moment açıklıkta beklenir
+  // Açıklık Momenti: qL^2 / 14 (Biraz güvenli taraf)
+  const M_beam_span = (q_beam_design * Math.pow(L_beam, 2)) / 14; 
 
-  const d_beam = sections.beamDepth * 10 - 30; // mm
-
+  // Gerekli Donatı Alanları
   const As_beam_supp_req = (M_beam_supp * 1e6) / (0.9 * STEEL_FYD * d_beam);
   const As_beam_span_req = (M_beam_span * 1e6) / (0.9 * STEEL_FYD * d_beam);
   
+  // Minimum Donatı (TS500 Denklem 7.1)
+  // As_min = 0.8 * (fctd / fyd) * b * d
   const As_min_beam = 0.8 * (fctd / STEEL_FYD) * (sections.beamWidth * 10) * d_beam;
   
+  // Maksimum Donatı (TS500 - Süneklik için)
+  // rho_max ~ 0.02 (veya 0.85 * rho_b). %2 pratik sınır kabul edildi.
+  const As_max_beam = 0.02 * (sections.beamWidth * 10) * d_beam;
+
+  // Tasarım Donatıları (Min-Max Aralığında)
   const As_beam_supp_design = Math.max(As_beam_supp_req, As_min_beam);
   const As_beam_span_design = Math.max(As_beam_span_req, As_min_beam);
   
+  // Donatı Adetleri
   const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia/2, 2);
   const countSupp = Math.ceil(As_beam_supp_design / barAreaBeam);
   const countSpan = Math.ceil(As_beam_span_design / barAreaBeam);
 
-  const V_beam_design = q_beam_design * L_beam / 2; // kN
-  const Vcr = 0.65 * fctd * (sections.beamWidth * 10) * d_beam / 1000; 
-  const Vmax = 0.22 * fcd * (sections.beamWidth * 10) * d_beam / 1000;
+  // Kesme Kuvveti Hesabı
+  const V_beam_design = q_beam_design * L_beam / 2; // Basit kiriş kesmesi
   
-  // Sehim Hesabı
+  // Kesme Dayanımları
+  // Vcr: Çatlama Dayanımı = 0.65 * fctd * b * d
+  const Vcr = 0.65 * fctd * (sections.beamWidth * 10) * d_beam / 1000; // kN
+  // Vmax: Ezilme Dayanımı = 0.22 * fcd * b * d
+  const Vmax = 0.22 * fcd * (sections.beamWidth * 10) * d_beam / 1000; // kN
+  
+  // Sehim Hesabı (Ani + Sünme)
   const I_beam = (sections.beamWidth * 10 * Math.pow(sections.beamDepth * 10, 3)) / 12;
-  const I_eff = I_beam * 0.5; // Çatlamış kesit
+  const I_eff = I_beam * 0.5; // Çatlamış kesit atalet momenti kabulü (%50)
   const delta_elastic = (5 * q_beam_design * Math.pow(L_beam*1000, 4)) / (384 * Ec * I_eff); 
-  const delta_total = delta_elastic * 3; 
-  const delta_limit = (L_beam * 1000) / 240;
+  const delta_total = delta_elastic * 3; // Uzun süreli sehim (Sünme katsayısı ile)
+  const delta_limit = (L_beam * 1000) / 240; // TS500 Sehim sınırı (l/240)
 
-  // --------------------------------------------------------------------------
-  // 4. DEPREM ANALİZİ (TBDY 2018)
-  // --------------------------------------------------------------------------
-  const Fs = getFs(seismic.ss, seismic.soilClass);
-  const F1 = getF1(seismic.s1, seismic.soilClass);
-  const Sds = seismic.ss * Fs;
-  const Sd1 = seismic.s1 * F1;
+  // ==========================================================================
+  // 4. DEPREM ANALİZİ (TBDY 2018 - Bölüm 4)
+  // ==========================================================================
   
-  // Bina Ağırlığı
+  // Spektral İvme Katsayıları
+  const Fs = getFs(seismic.ss, seismic.soilClass); // Kısa periyot bölge katsayısı
+  const F1 = getF1(seismic.s1, seismic.soilClass); // 1sn periyot bölge katsayısı
+  const Sds = seismic.ss * Fs; // Tasarım spektral ivme katsayısı (Kısa)
+  const Sd1 = seismic.s1 * F1; // Tasarım spektral ivme katsayısı (1s)
+  
+  // Bina Toplam Ağırlığı (W)
   const area_m2 = dimensions.lx * dimensions.ly;
+  // n = 0.3 (Konutlar için hareketli yük katılım katsayısı)
   const weight_slab = (g_total + 0.3 * q_live) * area_m2;
   const weight_beams = (beam_self_g * (2*(dimensions.lx + dimensions.ly)));
   const weight_cols = (sections.colWidth/100 * sections.colDepth/100 * dimensions.h * CONCRETE_DENSITY) * 4;
   
-  const W_story = weight_slab + weight_beams + weight_cols;
-  const W_total = W_story * storyCount;
+  const W_story = weight_slab + weight_beams + weight_cols; // Kat ağırlığı
+  const W_total = W_story * storyCount; // Toplam ağırlık
 
-  // Periyot
-  const Ct = 0.01; 
-  const T1 = Ct * Math.pow(totalHeight, 0.75);
+  // Periyot Hesabı (T1) - TBDY 2018 Denklem 4.28
+  // Betonarme Çerçeve Sistemler için Ct = 0.1
+  const Ct = 0.1; 
+  const T1 = Ct * Math.pow(totalHeight, 0.75); // Hakim titreşim periyodu
+  
+  // Elastik Tasarım Spektral İvmesi Sae(T)
   const Sae_g = calculateSpectrum(T1, Sds, Sd1); 
   
-  // Taban Kesme Kuvveti
-  const Ra = seismic.Rx || 8; 
-  const I_building = seismic.I || 1.0;
+  // Taban Kesme Kuvveti (Vt) - Eşdeğer Deprem Yükü
+  const Ra = seismic.Rx || 8; // Taşıyıcı sistem davranış katsayısı (Süneklik)
+  const I_building = seismic.I || 1.0; // Bina önem katsayısı
+  
+  // Vt = (m * Sae * I) / Ra(T)
   const Vt_calc = (W_total * Sae_g * I_building) / Ra; 
+  
+  // Minimum Taban Kesme Kuvveti Kontrolü (TBDY Denk 4.24)
+  // Vt_min = 0.04 * m * I * Sds * g
   const Vt_min = 0.04 * W_total * I_building * Sds;
-  const Vt_design = Math.max(Vt_calc, Vt_min);
+  
+  const Vt_design = Math.max(Vt_calc, Vt_min); // Tasarım Taban Kesme Kuvveti
 
-  // --------------------------------------------------------------------------
-  // 5. KOLON HESABI (DÜZELTİLDİ: Çift Eksenli Etki)
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // 5. KOLON HESABI (TS500 & TBDY 2018)
+  // ==========================================================================
+  
+  // Deprem Yükünün Kolonlara Dağıtılması (Rijitliklerine Göre)
+  // Basitlik için tüm kolonlar aynı boyutta kabul edildi.
   const Ic = (sections.colWidth * Math.pow(sections.colDepth, 3)) / 12;
   const sum_Ic = Ic * 4;
-  const V_col_seismic = Vt_design * (Ic / sum_Ic); 
+  const V_col_seismic = Vt_design * (Ic / sum_Ic); // Tek bir kolona gelen kesme
   
-  // Portal metodu: Moment kolon ortasında sıfır kabulü
+  // Kolon Deprem Momenti (Portal Metodu Kabulü: Moment açıklık ortasında sıfır)
   const Md_col_seismic = V_col_seismic * (dimensions.h / 2); 
-
-  // Köşe kolonlarda çift eksenli (biaxial) eğilme etkisi vardır.
-  // Basitleştirilmiş çözüm olarak tasarım momentini %20 artırarak kontrol ediyoruz.
+  
+  // Çift Eksenli Eğilme Etkisi (Biaxial Bending)
+  // Köşe kolonlarda her iki yönden moment gelir. %20 artırım kabulü.
   const Md_col_biaxial = Md_col_seismic * 1.2;
 
-  // Düşey yüklerin dağılımı (Simetrik 4 kolonlu yapıda W/4 doğrudur)
+  // Kolon Eksenel Yükleri (Nd)
+  // 1. Düşey Yükler: W / 4 (Simetrik kabul)
   const N_gravity = W_total / 4; 
-  // Depremden gelen eksenel yük (Devrilme momenti kaynaklı)
-  const M_overturn = Vt_design * (0.65 * totalHeight); 
+  // 2. Deprem Yükleri: Devrilme Momentinden kaynaklı eksenel yük (Çekme/Basınç)
+  const M_overturn = Vt_design * (0.65 * totalHeight); // Eşdeğer yükün ağırlık merkezi h*0.65 civarı
   const N_seismic = M_overturn / (dimensions.lx * 2); // Çerçeve açıklığına bölündü
 
+  // Tasarım Eksenel Yükü (Nd = 1.0G + 1.0Q + 1.0E en elverişsiz durum)
   const Nd_design = 1.0 * N_gravity + 1.0 * N_seismic; 
 
-  const Ac_col = sections.colWidth * sections.colDepth * 100;
-  const N_max = 0.5 * fck * Ac_col / 1000; 
+  // Kolon Maksimum Eksenel Yük Sınırı (TS500 Madde 7.3)
+  // Nd <= 0.50 * fck * Ac (veya 0.40)
+  const Ac_col = sections.colWidth * sections.colDepth * 100; // mm2
+  const N_max = 0.5 * fck * Ac_col / 1000; // kN
 
-  // Donatı Hesabı
-  const As_col_min = Ac_col * 0.01;
+  // Kolon Min Donatı Hesabı
+  const As_col_min = Ac_col * 0.01; // %1 min donatı
   const barAreaCol = Math.PI * Math.pow(rebars.colMainDia/2, 2);
   const countCol = Math.max(4, Math.ceil(As_col_min / barAreaCol));
   const As_col_provided = countCol * barAreaCol;
 
-  // Güçlü Kolon Kontrolü
-  // Kolon Kapasitesi (Biaxial moment için artırılmış tasarım yüküne göre kontrol edilecek)
-  // Kapasite hesabında tasarım eksenel yükü kullanılır.
+  // Kolon Moment Kapasitesi (Karşılıklı Etki Diyagramı Yaklaşımı)
+  // Nd seviyesindeki moment kapasitesi hesaplanır.
   const Mr_col = calculateMomentCapacity(sections.colWidth*10, sections.colDepth*10, As_col_provided/2, fcd, Nd_design);
-  const sum_M_col = Mr_col * 2; // Alt + Üst kolon düğüm noktası
   
+  // Güçlü Kolon Kontrolü (TBDY 2018 Madde 7.3)
+  // (Mra + Mrü) >= 1.2 * (Mri + Mrj)
+  const sum_M_col = Mr_col * 2; // Alt ve Üst kolon kapasiteleri toplamı (Aynı kesit)
   const Mr_beam = calculateMomentCapacity(sections.beamWidth*10, sections.beamDepth*10, As_beam_supp_design, fcd, 0);
-  // Köşe birleşimde, incelenen doğrultuda sadece 1 kiriş birleşime saplanır.
-  // Bu nedenle sum_M_beam = Mr_beam (tek kiriş) alınması doğrudur.
-  const sum_M_beam = Mr_beam; 
+  const sum_M_beam = Mr_beam; // Düğüm noktasına saplanan kiriş
   
-  const strongColRatio = sum_M_col / (sum_M_beam + 0.001);
-  // ÖRNEK MANTIK (Mevcut kodda YOKTUR)
+  const strongColRatio = sum_M_col / (sum_M_beam + 0.001); // Sıfıra bölünme hatasını önle
 
-  // 1. Birleşim Bölgesi Kesme Kuvveti (Ve)
-  // Kiriş üst donatısının akması durumunda oluşan kuvvet (Basitleştirilmiş)
-  const As_beam_top = As_beam_supp_design; // Kiriş mesnet donatısı (mm2)
-  const F_tensile = 1.25 * STEEL_FYD * As_beam_top; // 1.25 fyk As (Newton)
-  // Kolon kesme kuvvetini düşmek gerekir (V_col), yaklaşık olarak ihmal edip güvenli tarafta kalabiliriz veya hesaplanan V_col_seismic kullanılabilir.
-  const Ve_joint = (F_tensile - (V_col_seismic * 1000)) / 1000; // kN cinsinden
+  // ==========================================================================
+  // 6. JOINT (BİRLEŞİM) BÖLGESİ KESME GÜVENLİĞİ (TBDY 2018 Madde 7.5)
+  // ==========================================================================
+  
+  // 1. Düğüm Noktası Kesme Kuvveti (Ve)
+  // Ve = 1.25 * fyk * As_kiriş - V_kolon
+  const As_beam_top = As_beam_supp_design; // Kiriş üst donatısı
+  const F_tensile = 1.25 * STEEL_FYD * As_beam_top; // Donatı çekme kuvveti (Pekiştirilmiş)
+  
+  // V_kolon (Yaklaşık olarak min deprem kesmesi alınabilir veya analizden gelen)
+  const V_col_approx = V_col_seismic * 1000; // N
+  
+  const Ve_joint = Math.max(0, (F_tensile - V_col_approx) / 1000); // kN cinsinden
 
-  // 2. Birleşim Bölgesi Kapasitesi (Vmax)
-  // Bj: Birleşim genişliği (Genelde kiriş genişliği veya kolon genişliği ile ilişkilidir, min olan alınır)
-  const bj = Math.min(sections.colWidth, sections.beamWidth) * 10; // mm
-  const h_col = sections.colDepth * 10; // mm
+  // 2. Düğüm Noktası Kesme Dayanımı (Vmax)
+  // Kuşatılmamış birleşim kabulü (En güvenli taraf)
+  // Vmax = 1.0 * sqrt(fck) * bj * h
+  const bj = Math.min(sections.colWidth, sections.beamWidth) * 10; // Birleşim genişliği
+  const h_col = sections.colDepth * 10; // Kolon derinliği (Kesme yönünde)
+  
+  const Vmax_joint = (1.0 * Math.sqrt(fck) * bj * h_col) / 1000; // kN
 
-  // TBDY 2018 Denklem 7.12 (Kuşatılmamış varsayımı ile - Güvenli taraf)
-  // 1.0 * sqrt(fck) * bj * h
-  const Vmax_joint = (1.0 * Math.sqrt(materials.concreteClass === 'C30' ? 30 : 25) * bj * h_col) / 1000; // kN
-
-  // SONUÇ OBJESİ GÜNCELLEMESİ
-  /*
-  joint: {
-    shear_force: Ve_joint,
-    shear_limit: Vmax_joint,
-    isSafe: Ve_joint <= Vmax_joint
-  }
-  */
-
-  // --------------------------------------------------------------------------
-  // 6. RADYE TEMEL
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // 7. RADYE TEMEL HESABI (TS500 & ZEMİN MEKANİĞİ)
+  // ==========================================================================
+  
   const h_found = dimensions.foundationHeight;
   const cantilever = dimensions.foundationCantilever || 50; 
-  const Area_found = (dimensions.lx + 2*cantilever/100) * (dimensions.ly + 2*cantilever/100);
   
-  const Load_found = W_total + (h_found/100 * CONCRETE_DENSITY * Area_found);
-  const sigma_zemin = Load_found / Area_found;
-  const sigma_limit = 200; // kN/m2
+  // Temel Alanı
+  const foundation_Lx = dimensions.lx + 2*cantilever/100;
+  const foundation_Ly = dimensions.ly + 2*cantilever/100;
+  const Area_found = foundation_Lx * foundation_Ly;
+  
+  // Zemin Gerilmesi (Net)
+  // Toplam Yük = Bina Yükü + Temel Ağırlığı
+  const foundation_weight = Area_found * (h_found/100) * CONCRETE_DENSITY;
+  const Load_found_total = W_total + foundation_weight;
+  const sigma_zemin = Load_found_total / Area_found; // kN/m2
+  const sigma_limit = 200; // Zemin emniyet gerilmesi kabulü (kN/m2)
 
-  // Zımbalama
-  const d_found = h_found * 10 - 50; 
+  // Zımbalama Kontrolü (Punching Shear)
+  const d_found = h_found * 10 - 50; // Temel faydalı yüksekliği (50mm paspayı)
+  
+  // Zımbalama Çevresi (up) - Kolon yüzünden d/2 kadar uzakta
   const up = 2 * ((sections.colWidth*10 + d_found) + (sections.colDepth*10 + d_found)); 
-  const Vpd = Nd_design * 1000; 
-  const tau_pd = Vpd / (up * d_found); 
-  const tau_limit = fctd; 
+  const Vpd = Nd_design * 1000; // Zımbalama Yükü (Kolon Eksenel Yükü)
+  
+  // Moment Aktarımı Etkisi Katsayısı (Beta) - İç kolonlarda genelde 1.15 alınır
+  const beta_punching = 1.15;
+  const tau_pd = (Vpd * beta_punching) / (up * d_found); // Hesap gerilmesi (MPa)
+  const tau_limit = fctd; // Dayanım sınırı (Beton çekme dayanımı)
 
-  // Temel Donatısı
+  // Temel Donatısı (Eğilme Hesabı)
+  // 1. Durum: Ampatman (Konsol) Momenti
   const l_cant = cantilever / 100; 
-  const M_found = sigma_zemin * Math.pow(l_cant, 2) / 2;
-  const As_found_req = (M_found * 1e6) / (0.9 * STEEL_FYD * d_found);
-  const As_found_min = 0.002 * 1000 * (h_found*10);
-  const As_found_final = Math.max(As_found_req, As_found_min);
-  const barAreaFound = Math.PI * Math.pow(rebars.foundationDia/2, 2);
-  const spacingFound = Math.min(Math.floor(barAreaFound*1000 / As_found_final), 25);
+  const M_found_cant = sigma_zemin * Math.pow(l_cant, 2) / 2;
 
+  // 2. Durum: Açıklık Momenti (Kolonlar arası ters döşeme)
+  // q * L^2 / 10 yaklaşımı (Sürekli temel)
+  const Ln_found = Math.max(dimensions.lx, dimensions.ly) - (sections.colWidth/100);
+  const M_found_span = (sigma_zemin * Math.pow(Ln_found, 2)) / 10;
+
+  // Tasarım Momenti (Hangi etki daha büyükse o esas alınır)
+  const M_found = Math.max(M_found_cant, M_found_span);
+
+  const As_found_req = (M_found * 1e6) / (0.9 * STEEL_FYD * d_found);
+  const As_found_min = 0.002 * 1000 * (h_found*10); // Min donatı oranı
+  const As_found_final = Math.max(As_found_req, As_found_min);
+  
+  const barAreaFound = Math.PI * Math.pow(rebars.foundationDia/2, 2);
+  // Donatı aralığı hesabı
+  let spacingFound = Math.floor((barAreaFound * 1000) / As_found_final);
+  spacingFound = Math.min(spacingFound, 25); // Max 25cm aralık
+
+  // ==========================================================================
+  // SONUÇLARIN DÖNDÜRÜLMESİ
+  // ==========================================================================
   return {
     slab: {
-      pd, alpha, d: d_slab, m_x: M_slab,
-      as_req: As_req_slab, as_min: As_min_slab, spacing: spacingSlabFinal,
+      pd, 
+      alpha, 
+      d: d_slab, 
+      m_x: M_slab,
+      as_req: As_req_slab, 
+      as_min: As_min_slab, 
+      spacing: Math.floor(spacingSlabFinal), // cm
       min_thickness: (lx*100)/25,
       thicknessStatus: createStatus(dimensions.slabThickness >= 10, 'Uygun', 'Yetersiz', 'Min 10cm'),
       status: createStatus(true)
@@ -307,21 +399,20 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       checks: {
         shear: createStatus(V_beam_design < Vmax, 'Kesme Güvenli', 'Gevrek Kırılma Riski', 'Vd > Vmax'),
         deflection: createStatus(delta_total < delta_limit, 'Sehim Uygun', 'Sehim Aşıldı'),
-        min_reinf: createStatus(As_beam_supp_design >= As_min_beam, 'Min Donatı OK')
+        min_reinf: createStatus(As_beam_supp_design >= As_min_beam, 'Min Donatı OK'),
+        // Max donatı kontrolü (Gevrek kırılma önlemi)
+        max_reinf: createStatus(As_beam_supp_design <= As_max_beam, 'Max Donatı OK', 'Max Donatı Aşıldı')
       }
     },
     columns: {
       axial_load_design: Nd_design,
       axial_capacity_max: N_max,
-      moment_design: Md_col_biaxial, // Biaxial etki ile artırılmış moment gösterimi
+      moment_design: Md_col_biaxial, 
       interaction_ratio: Nd_design / N_max,
       strong_col_ratio: strongColRatio,
       req_area: As_col_provided,
       count_main: countCol,
       checks: {
-        // Kapasite kontrolünde Md_col_biaxial kullanılması daha doğru olurdu ancak 
-        // calculateMomentCapacity fonksiyonu tek eksenli kontrol yapıyor.
-        // Bu yüzden kullanıcıya sunulan moment değerini artırdık.
         capacity: createStatus(Nd_design <= N_max, 'Uygun', 'Yetersiz', 'N > Nmax'),
         strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon', 'Zayıf Kolon', 'Oran < 1.2'),
         minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK')
@@ -351,9 +442,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         bending: createStatus(true, 'Eğilme OK')
       }
     },
-      joint: {
-      shear_force: Ve_joint,      // 0 yerine hesaplanan değişken
-      shear_limit: Vmax_joint,    // 0 yerine hesaplanan değişken
+    joint: {
+      shear_force: Ve_joint,
+      shear_limit: Vmax_joint,
       isSafe: Ve_joint <= Vmax_joint
     }
   };
