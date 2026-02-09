@@ -351,10 +351,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         bending: createStatus(true, 'Eğilme OK')
       }
     },
-    joint: {
-      shear_force: 0, 
-      shear_limit: 0,
-      isSafe: true
+      joint: {
+      shear_force: Ve_joint,      // 0 yerine hesaplanan değişken
+      shear_limit: Vmax_joint,    // 0 yerine hesaplanan değişken
+      isSafe: Ve_joint <= Vmax_joint
     }
   };
 };
