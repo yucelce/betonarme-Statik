@@ -42,6 +42,92 @@ const calculateMomentCapacity = (b_mm: number, h_mm: number, As_mm2: number, fcd
   return Mr / 1e6; // Nmm -> kNm çevrimi
 };
 
+const checkColumnConfinement = (
+  bw_cm: number,      // Kolon genişliği (cm)
+  hw_cm: number,      // Kolon derinliği (cm)
+  fck: number,        // Beton dayanımı (MPa)
+  s_req_mm: number,   // Kullanıcının girdiği/seçtiği aralık (mm) - Kontrol için
+  stirrupDia_mm: number, // Etriye çapı (mm)
+  colMainDia_mm: number // Boyuna donatı çapı (mm) - En küçüğü
+): { isSafe: boolean; message: string; s_max_code: number; s_opt: number } => {
+  
+  const fywk = 420; // Etriye akma dayanımı (MPa)
+  const paspayi_cm = 2.5; // Net paspayı
+
+  // 1. Çekirdek Boyutları (bk)
+  // Yönetmelik: Dıştan dışa çekirdek boyutu (paspayı düşülmüş)
+  const bk_x = (bw_cm - 2 * paspayi_cm) * 10; // mm
+  const bk_y = (hw_cm - 2 * paspayi_cm) * 10; // mm
+  const bk_max = Math.max(bk_x, bk_y); // Formüldeki bk (bmax)
+
+  // Alanlar
+  const Ac = bw_cm * hw_cm * 100; // Brüt alan (mm2)
+  const Ack = bk_x * bk_y;        // Çekirdek alanı (mm2)
+
+  // 2. Etriye Kol Sayısı ve Alanı (Ash)
+  // Kabul: 40cm ve üzeri kenarlarda 3 kol, altında 2 kol (Çirozlu/Çirozsuz)
+  // Not: TBDY 7.3.4.1 (c) uyarınca etriye kollarının arası 25xø_etriye'yi geçmemeli. 
+  // Basitlik adına 40cm altı 2 kol, üstü 3 kol (ortada çiroz) kabulü yapıyoruz.
+  const nx = bw_cm >= 40 ? 3 : 2;
+  const ny = hw_cm >= 40 ? 3 : 2;
+  
+  // Hesabı her iki yön için ayrı yapıp en sık (küçük) aralığı alacağız
+  // Ancak genelde bk_max ve min(nx, ny) belirleyici olur. 
+  // Güvenli taraf için en küçük kol sayısını ve en büyük bk'yı baz alalım.
+  const n_legs_min = Math.min(nx, ny); 
+  const Ash_mm2 = n_legs_min * (Math.PI * Math.pow(stirrupDia_mm / 2, 2));
+
+  // 3. Yönetmelik Geometrik Sınırları (Madde 7.3.4.1)
+  // a) Enkesit boyutunun 1/3'ü
+  const limit_geom_1 = Math.min(bw_cm * 10, hw_cm * 10) / 3;
+  // b) 100 mm (Sarılma bölgesinde) - TBDY 2018'de 150mm değil 100mm sınır vardır (7.3.4.1-b)
+  const limit_geom_2 = 100; 
+  // c) Boyuna donatı çapının 6 katı
+  const limit_geom_3 = 6 * colMainDia_mm;
+
+  // Geometrik Maksimum Aralık (s_max)
+  const s_geom_max = Math.min(limit_geom_1, limit_geom_2, limit_geom_3);
+
+  // 4. Gereken Aralık Hesabı (Denklem 7.1 ve 7.2'den s çekilerek)
+  
+  // Formül 1: Ash >= 0.30 * s * bk * (fck/fywk) * (Ac/Ack - 1)
+  // Buradan s1 çekilirse:
+  const term1 = 0.30 * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
+  const s1_calc = term1 > 0 ? Ash_mm2 / term1 : 200; // Pozitif kontrolü
+
+  // Formül 2: Ash >= 0.075 * s * bk * (fck/fywk)
+  // Buradan s2 çekilirse:
+  const term2 = 0.075 * bk_max * (fck / fywk);
+  const s2_calc = term2 > 0 ? Ash_mm2 / term2 : 200;
+
+  // Hesaplanan Maksimum Aralık (Tüm şartların en küçüğü)
+  let s_limit_final = Math.min(s_geom_max, s1_calc, s2_calc);
+
+  // Uygulama için yuvarlama (5mm katlarına aşağı yuvarla)
+  // Örn: 83mm -> 80mm
+  let s_app = Math.floor(s_limit_final / 5) * 5;
+
+  // Min sınır kontrolü (Beton dökümü için min 50mm)
+  if (s_app < 50) {
+    return {
+      isSafe: false,
+      message: 'Etriye Çapı Yetersiz',
+      s_max_code: Math.floor(s_limit_final),
+      s_opt: 50 // Teorik olarak 50 veriyoruz ama uyarı dönecek
+    };
+  }
+
+  // Kullanıcı kontrolü
+  const isSafe = s_req_mm <= s_app;
+
+  return {
+    isSafe,
+    message: isSafe ? 'Sargı Yeterli' : `Aralık Yetersiz (Max ${s_app/10}cm)`,
+    s_max_code: s_app,
+    s_opt: s_app
+  };
+};
+
 // TBDY 2018 - Yatay Elastik Tasarım Spektrumu S(T) - Denklem 2.2
 const calculateSpectrum = (T: number, Sds: number, Sd1: number): number => {
   // Köşe periyotların belirlenmesi
