@@ -70,7 +70,7 @@ export interface CheckStatus {
   reason?: string; 
 }
 
-// Hesap Sonuçları - Detaylandırıldı
+// Hesap Sonuçları - GÜNCELLENDİ (joint eklendi)
 export interface CalculationResult {
   slab: {
     pd: number; alpha: number; d: number; m_x: number;
@@ -87,9 +87,9 @@ export interface CalculationResult {
     as_span_req: number;
     count_support: number;
     count_span: number;
-    shear_design: number; // Vd
-    shear_cracking: number; // Vcr
-    shear_limit: number; // Vmax
+    shear_design: number; 
+    shear_cracking: number; 
+    shear_limit: number; 
     shear_reinf_type: string;
     deflection: number;
     deflection_limit: number;
@@ -100,9 +100,9 @@ export interface CalculationResult {
     }
   };
   columns: {
-    axial_load_design: number; // Nd
-    axial_capacity_max: number; // Nmax
-    moment_design: number; // Md
+    axial_load_design: number; 
+    axial_capacity_max: number; 
+    moment_design: number; 
     interaction_ratio: number;
     strong_col_ratio: number;
     req_area: number;
@@ -117,9 +117,9 @@ export interface CalculationResult {
     param_sds: number;
     param_sd1: number;
     period_t1: number;
-    spectrum_sae: number; // Spektral İvme (g)
+    spectrum_sae: number; 
     building_weight: number;
-    base_shear: number; // Vt
+    base_shear: number; 
     story_drift_check: CheckStatus;
   };
   foundation: {
@@ -136,5 +136,11 @@ export interface CalculationResult {
       punching: CheckStatus;
       bending: CheckStatus;
     }
+  };
+  // EKLENEN KISIM:
+  joint: {
+    shear_force: number;
+    shear_limit: number;
+    isSafe: boolean;
   };
 }
