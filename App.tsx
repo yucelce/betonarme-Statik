@@ -251,9 +251,11 @@ const App: React.FC = () => {
            <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
          </div>
          <div className="flex justify-between">
-           <span>Sargı:</span> 
-           <b className="text-emerald-600">Ø{state.rebars.colStirrupDia} / {results.columns.confinement.s_opt / 10} cm</b>
-         </div>
+        <span>Sargı:</span> 
+        <b className="text-emerald-600">
+          Ø{state.rebars.colStirrupDia} / {Math.floor(results.columns.confinement.s_opt / 10)} cm
+        </b>
+      </div>
          <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
             <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
             <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>

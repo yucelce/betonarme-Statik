@@ -113,9 +113,12 @@ const checkColumnConfinement = (
   let s_found = 0;
   let isFeasible = false;
 
-  // 5mm hassasiyetle aşağı doğru tarama (En büyük uygun aralığı bulmak için)
-  // s_geom_max'tan başlayıp 50mm'ye kadar iniyoruz.
-  for (let s_try = Math.floor(s_geom_max / 5) * 5; s_try >= 50; s_try -= 5) {
+  // YENİ KOD: (10mm hassasiyet için)
+  // s_geom_max değerini en yakın alt 10'luğa yuvarla (Örn: 98mm -> 90mm)
+  const start_s = Math.floor(s_geom_max / 10) * 10;
+  
+  // 10mm (1cm) adımlarla aşağı doğru tara
+  for (let s_try = start_s; s_try >= 50; s_try -= 10) {
       
       const Ash_req_1 = 0.30 * s_try * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
       const Ash_req_2 = 0.075 * s_try * bk_max * (fck / fywk);
