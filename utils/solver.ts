@@ -44,93 +44,88 @@ const calculateMomentCapacity = (b_mm: number, h_mm: number, As_mm2: number, fcd
 
 // TBDY 2018 Madde 7.3.4 - Kolon Sarılma Bölgesi Etriye Hesabı
 const checkColumnConfinement = (
-  bw_cm: number,      // Kolon genişliği (cm)
-  hw_cm: number,      // Kolon derinliği (cm)
-  fck: number,        // Beton dayanımı (MPa)
-  s_req_mm: number,   // Kullanıcının girdiği/seçtiği aralık (mm) - Kontrol için
-  stirrupDia_mm: number, // Etriye çapı (mm)
-  colMainDia_mm: number // Boyuna donatı çapı (mm) - En küçüğü
+  bw_cm: number,
+  hw_cm: number,
+  fck: number,
+  s_req_mm: number,
+  stirrupDia_mm: number,
+  colMainDia_mm: number
 ): { isSafe: boolean; message: string; s_max_code: number; s_opt: number; Ash_prov: number; Ash_req: number } => {
   
-  const fywk = 420; // Etriye akma dayanımı (MPa)
-  const paspayi_cm = 2.5; // Net paspayı
+  const fywk = 420;
+  const paspayi_cm = 2.5;
 
-  // 1. Çekirdek Boyutları (bk)
-  // Yönetmelik: Dıştan dışa çekirdek boyutu (paspayı düşülmüş)
-  const bk_x = (bw_cm - 2 * paspayi_cm) * 10; // mm
-  const bk_y = (hw_cm - 2 * paspayi_cm) * 10; // mm
-  const bk_max = Math.max(bk_x, bk_y); // Formüldeki bk (bmax)
+  // 1. Çekirdek Boyutları
+  const bk_x = (bw_cm - 2 * paspayi_cm) * 10;
+  const bk_y = (hw_cm - 2 * paspayi_cm) * 10;
+  const bk_max = Math.max(bk_x, bk_y);
 
   // Alanlar
-  const Ac = bw_cm * hw_cm * 100; // Brüt alan (mm2)
-  const Ack = bk_x * bk_y;        // Çekirdek alanı (mm2)
+  const Ac = bw_cm * hw_cm * 100;
+  const Ack = bk_x * bk_y;
 
-  // 2. Etriye Kol Sayısı ve Alanı (Ash_prov)
-  // Kabul: 40cm ve üzeri kenarlarda 3 kol, altında 2 kol (Çirozlu/Çirozsuz)
+  // 2. Etriye Kol Sayısı
   const nx = bw_cm >= 40 ? 3 : 2;
   const ny = hw_cm >= 40 ? 3 : 2;
   
-  // Güvenli taraf için en küçük kol sayısını baz alıyoruz (Confinement hesabı için)
-  const n_legs_min = Math.min(nx, ny); 
-  const Ash_mm2 = n_legs_min * (Math.PI * Math.pow(stirrupDia_mm / 2, 2));
+  // Her iki yönde de etriye var, toplam kol sayısı
+  const n_legs_total = nx + ny;
+  const Ash_mm2 = n_legs_total * (Math.PI * Math.pow(stirrupDia_mm / 2, 2));
 
-  // 3. Yönetmelik Geometrik Sınırları (Madde 7.3.4.1)
-  // a) Enkesit boyutunun 1/3'ü
+  // 3. Geometrik Sınırlar
   const limit_geom_1 = Math.min(bw_cm * 10, hw_cm * 10) / 3;
-  // b) 100 mm (Sarılma bölgesinde)
-  const limit_geom_2 = 100; 
-  // c) Boyuna donatı çapının 6 katı
+  const limit_geom_2 = 100;
   const limit_geom_3 = 6 * colMainDia_mm;
-
-  // Geometrik Maksimum Aralık (s_max)
   const s_geom_max = Math.min(limit_geom_1, limit_geom_2, limit_geom_3);
 
-  // 4. Gereken Aralık Hesabı (Denklem 7.1 ve 7.2'den s çekilerek)
-  
-  // Formül 1: Ash >= 0.30 * s * bk * (fck/fywk) * (Ac/Ack - 1)
-  const term1 = 0.30 * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
-  const s1_calc = term1 > 0 ? Ash_mm2 / term1 : 200; 
+  // 4. Gereken Minimum Etriye Alanı (s = 100mm varsayımı ile başla)
+  let s_trial = 100;
+  let iteration = 0;
+  let s_final = s_geom_max;
 
-  // Formül 2: Ash >= 0.075 * s * bk * (fck/fywk)
-  const term2 = 0.075 * bk_max * (fck / fywk);
-  const s2_calc = term2 > 0 ? Ash_mm2 / term2 : 200;
+  // İteratif hesaplama
+  while (iteration < 10) {
+    const Ash_req_1 = 0.30 * s_trial * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
+    const Ash_req_2 = 0.075 * s_trial * bk_max * (fck / fywk);
+    const Ash_req_max = Math.max(Ash_req_1, Ash_req_2);
 
-  // Hesaplanan Maksimum Aralık (Tüm şartların en küçüğü)
-  let s_limit_final = Math.min(s_geom_max, s1_calc, s2_calc);
-
-  // Uygulama için yuvarlama (5mm katlarına aşağı yuvarla)
-  let s_app = Math.floor(s_limit_final / 5) * 5;
-
-  // 5. Raporlama için Ash_req (Ters hesap)
-  // Bulunan s_app aralığına göre yönetmeliğin istediği minimum alan nedir?
-  // Bu değer raporda "Gereken: ... mm2" olarak gösterilir.
-  const ash_req_calc = Math.max(
-    0.30 * s_app * bk_max * (fck/fywk) * ((Ac/Ack) - 1),
-    0.075 * s_app * bk_max * (fck/fywk)
-  );
-
-  // Min sınır kontrolü (Beton dökümü için min 50mm)
-  if (s_app < 50) {
-    return {
-      isSafe: false,
-      message: 'Etriye Çapı Yetersiz',
-      s_max_code: Math.floor(s_limit_final),
-      s_opt: 50, // Teorik olarak 50 veriyoruz ama uyarı dönecek
-      Ash_prov: Ash_mm2,
-      Ash_req: ash_req_calc
-    };
+    // Mevcut etriye ile karşılanabilecek maksimum aralık
+    const s_from_area = Ash_mm2 / (Math.max(Ash_req_max, 1) / s_trial);
+    
+    // Tüm sınırlamaların minimumu
+    s_final = Math.min(s_geom_max, s_from_area);
+    
+    // 5mm katlarına yuvarla
+    s_final = Math.floor(s_final / 5) * 5;
+    
+    // Yakınsama kontrolü
+    if (Math.abs(s_trial - s_final) < 5) break;
+    
+    s_trial = s_final;
+    iteration++;
   }
 
-  // Kullanıcı kontrolü
-  const isSafe = s_req_mm <= s_app;
+  // Minimum sınır
+  if (s_final < 50) {
+    s_final = 50;
+  }
+
+  // Gereken alan hesabı (final aralık için)
+  const ash_req_final = Math.max(
+    0.30 * s_final * bk_max * (fck / fywk) * ((Ac / Ack) - 1),
+    0.075 * s_final * bk_max * (fck / fywk)
+  );
+
+  // Kontrol
+  const isSafe = s_req_mm <= s_final;
 
   return {
     isSafe,
-    message: isSafe ? 'Sargı Yeterli' : `Aralık Yetersiz (Max ${s_app/10}cm)`,
-    s_max_code: s_app,
-    s_opt: s_app,
+    message: isSafe ? 'Sargı Yeterli' : `Aralık Yetersiz (Max ${s_final/10}cm)`,
+    s_max_code: Math.floor(s_final),
+    s_opt: Math.floor(s_final),
     Ash_prov: Ash_mm2,
-    Ash_req: ash_req_calc
+    Ash_req: ash_req_final
   };
 };
 
