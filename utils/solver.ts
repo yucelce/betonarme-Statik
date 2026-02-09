@@ -131,6 +131,7 @@ const checkColumnConfinement = (
           break; // En büyük uygun aralığı bulduk, döngüden çık.
       }
   }
+  
 
   // SONUÇ ANALİZİ
   if (isFeasible) {
