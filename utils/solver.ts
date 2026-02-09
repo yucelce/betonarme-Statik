@@ -228,6 +228,32 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const sum_M_beam = Mr_beam; 
   
   const strongColRatio = sum_M_col / (sum_M_beam + 0.001);
+  // ÖRNEK MANTIK (Mevcut kodda YOKTUR)
+
+  // 1. Birleşim Bölgesi Kesme Kuvveti (Ve)
+  // Kiriş üst donatısının akması durumunda oluşan kuvvet (Basitleştirilmiş)
+  const As_beam_top = As_beam_supp_design; // Kiriş mesnet donatısı (mm2)
+  const F_tensile = 1.25 * STEEL_FYD * As_beam_top; // 1.25 fyk As (Newton)
+  // Kolon kesme kuvvetini düşmek gerekir (V_col), yaklaşık olarak ihmal edip güvenli tarafta kalabiliriz veya hesaplanan V_col_seismic kullanılabilir.
+  const Ve_joint = (F_tensile - (V_col_seismic * 1000)) / 1000; // kN cinsinden
+
+  // 2. Birleşim Bölgesi Kapasitesi (Vmax)
+  // Bj: Birleşim genişliği (Genelde kiriş genişliği veya kolon genişliği ile ilişkilidir, min olan alınır)
+  const bj = Math.min(sections.colWidth, sections.beamWidth) * 10; // mm
+  const h_col = sections.colDepth * 10; // mm
+
+  // TBDY 2018 Denklem 7.12 (Kuşatılmamış varsayımı ile - Güvenli taraf)
+  // 1.0 * sqrt(fck) * bj * h
+  const Vmax_joint = (1.0 * Math.sqrt(materials.concreteClass === 'C30' ? 30 : 25) * bj * h_col) / 1000; // kN
+
+  // SONUÇ OBJESİ GÜNCELLEMESİ
+  /*
+  joint: {
+    shear_force: Ve_joint,
+    shear_limit: Vmax_joint,
+    isSafe: Ve_joint <= Vmax_joint
+  }
+  */
 
   // --------------------------------------------------------------------------
   // 6. RADYE TEMEL
