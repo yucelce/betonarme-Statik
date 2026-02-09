@@ -156,6 +156,7 @@ export interface CalculationResult {
       minRebar: CheckStatus;       // rho >= 0.01
       maxRebar: CheckStatus;       // rho <= 0.04
       confinement: CheckStatus;    // Ash ve s kontrolü
+      slendernessCheck: CheckStatus; // <--- YENİ EKLENDİ
     }
   };
   seismic: {

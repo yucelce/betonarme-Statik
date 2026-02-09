@@ -258,15 +258,26 @@ const App: React.FC = () => {
            <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
          </div>
          <div className="flex justify-between">
-        <span>Sargı:</span> 
-        <b className="text-emerald-600">
-          Ø{state.rebars.colStirrupDia} / {Math.floor(results.columns.confinement.s_opt / 10)} cm
-        </b>
-      </div>
+            <span>Sargı:</span> 
+            <b className="text-emerald-600">
+              Ø{state.rebars.colStirrupDia} / {Math.floor(results.columns.confinement.s_opt / 10)} cm
+            </b>
+         </div>
+         
+         {/* YENİ EKLENEN NARİNLİK SATIRI */}
+         <div className="flex justify-between border-t border-dashed pt-1 mt-1">
+            <span>Narinlik:</span>
+            <b className={`${results.columns.checks.slendernessCheck.isSafe ? (results.columns.slenderness.isSlender ? 'text-orange-500' : 'text-slate-700') : 'text-red-600'}`}>
+               {results.columns.checks.slendernessCheck.message}
+            </b>
+         </div>
+
          <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
             <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
             <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>
          </div>
+         
+         {/* getOverallStatus artık slendernessCheck'i de kapsayacak */}
          <StatusBadge status={getOverallStatus(results.columns.checks)} />
        </div>
     </div>
