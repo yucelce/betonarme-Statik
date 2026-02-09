@@ -47,7 +47,7 @@ const checkColumnConfinement = (
   bw_cm: number,
   hw_cm: number,
   fck: number,
-  s_req_mm: number,
+  // s_req_mm parametresini kaldırdık veya yoksayacağız, çünkü sistem hesaplayacak.
   stirrupDia_mm: number,
   colMainDia_mm: number
 ): { isSafe: boolean; message: string; s_max_code: number; s_opt: number; Ash_prov: number; Ash_req: number } => {
@@ -72,61 +72,62 @@ const checkColumnConfinement = (
   const n_legs_total = nx + ny;
   const Ash_mm2 = n_legs_total * (Math.PI * Math.pow(stirrupDia_mm / 2, 2));
 
-  // 3. Geometrik Sınırlar
+  // 3. Geometrik Sınırlar (TBDY 2018)
   const limit_geom_1 = Math.min(bw_cm * 10, hw_cm * 10) / 3;
-  const limit_geom_2 = 100;
+  const limit_geom_2 = 100; // En fazla 100mm (sıklaştırma bölgesi için) // Bazı durumlarda 150mm olabilir ama güvenli taraf 100.
   const limit_geom_3 = 6 * colMainDia_mm;
   const s_geom_max = Math.min(limit_geom_1, limit_geom_2, limit_geom_3);
 
-  // 4. Gereken Minimum Etriye Alanı (s = 100mm varsayımı ile başla)
-  let s_trial = 100;
-  let iteration = 0;
-  let s_final = s_geom_max;
+  // 4. İteratif Hesaplama: Yönetmeliği sağlayan en büyük 's' değerini bul
+  // 50mm (min uygulama) ile Geometrik Max arasında tarama yapıyoruz.
+  
+  let s_found = 0;
+  let isFeasible = false;
 
-  // İteratif hesaplama
-  while (iteration < 10) {
-    const Ash_req_1 = 0.30 * s_trial * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
-    const Ash_req_2 = 0.075 * s_trial * bk_max * (fck / fywk);
-    const Ash_req_max = Math.max(Ash_req_1, Ash_req_2);
+  // 5mm hassasiyetle aşağı doğru tarama (En büyük uygun aralığı bulmak için)
+  // s_geom_max'tan başlayıp 50mm'ye kadar iniyoruz.
+  for (let s_try = Math.floor(s_geom_max / 5) * 5; s_try >= 50; s_try -= 5) {
+      
+      const Ash_req_1 = 0.30 * s_try * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
+      const Ash_req_2 = 0.075 * s_try * bk_max * (fck / fywk);
+      const Ash_req_max = Math.max(Ash_req_1, Ash_req_2);
 
-    // Mevcut etriye ile karşılanabilecek maksimum aralık
-    const s_from_area = Ash_mm2 / (Math.max(Ash_req_max, 1) / s_trial);
-    
-    // Tüm sınırlamaların minimumu
-    s_final = Math.min(s_geom_max, s_from_area);
-    
-    // 5mm katlarına yuvarla
-    s_final = Math.floor(s_final / 5) * 5;
-    
-    // Yakınsama kontrolü
-    if (Math.abs(s_trial - s_final) < 5) break;
-    
-    s_trial = s_final;
-    iteration++;
+      // Eğer mevcut donatı alanı (Ash_mm2), gereken alandan (Ash_req_max) büyük veya eşitse bu aralık uygundur.
+      if (Ash_mm2 >= Ash_req_max) {
+          s_found = s_try;
+          isFeasible = true;
+          break; // En büyük uygun aralığı bulduk, döngüden çık.
+      }
   }
 
-  // Minimum sınır
-  if (s_final < 50) {
-    s_final = 50;
+  // SONUÇ ANALİZİ
+  if (isFeasible) {
+      return {
+          isSafe: true,
+          message: 'Sargı Uygun',
+          s_max_code: Math.floor(s_geom_max),
+          s_opt: s_found,
+          Ash_prov: Ash_mm2,
+          Ash_req: Math.max( // Rapor için bulunan aralıktaki gereksinimi tekrar hesapla
+              0.30 * s_found * bk_max * (fck / fywk) * ((Ac / Ack) - 1),
+              0.075 * s_found * bk_max * (fck / fywk)
+          )
+      };
+  } else {
+      // Eğer 50mm'ye kadar inmemize rağmen kurtarmıyorsa:
+      // Kesit yetersizdir veya etriye çapı arttırılmalıdır.
+      return {
+          isSafe: false,
+          message: 'Kesit/Etriye Yetersiz', // Kullanıcıya net mesaj
+          s_max_code: Math.floor(s_geom_max),
+          s_opt: 50, // Min sınırda kaldık
+          Ash_prov: Ash_mm2,
+          Ash_req: Math.max(
+            0.30 * 50 * bk_max * (fck / fywk) * ((Ac / Ack) - 1),
+            0.075 * 50 * bk_max * (fck / fywk)
+        )
+      };
   }
-
-  // Gereken alan hesabı (final aralık için)
-  const ash_req_final = Math.max(
-    0.30 * s_final * bk_max * (fck / fywk) * ((Ac / Ack) - 1),
-    0.075 * s_final * bk_max * (fck / fywk)
-  );
-
-  // Kontrol
-  const isSafe = s_req_mm <= s_final;
-
-  return {
-    isSafe,
-    message: isSafe ? 'Sargı Yeterli' : `Aralık Yetersiz (Max ${s_final/10}cm)`,
-    s_max_code: Math.floor(s_final),
-    s_opt: Math.floor(s_final),
-    Ash_prov: Ash_mm2,
-    Ash_req: ash_req_final
-  };
 };
 
 // TBDY 2018 - Yatay Elastik Tasarım Spektrumu S(T) - Denklem 2.2
@@ -417,7 +418,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     sections.colWidth,      // cm
     sections.colDepth,      // cm
     fck,                    // MPa
-    100,                    // Kullanıcı talebi (Varsayılan 10cm kontrolü)
     rebars.colStirrupDia,   // mm
     rebars.colMainDia       // mm
   );
