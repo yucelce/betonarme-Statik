@@ -275,8 +275,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // ==========================================================================
   // 3. KİRİŞ HESABI (TS500 - Madde 7)
   // ==========================================================================
-  const L_beam = ly; // Kritik açıklık (Uzun kenar)
-  const d_beam = sections.beamDepth * 10 - 30; // 30mm paspayı
+const L_beam = ly; // Kritik açıklık
+  const d_beam = sections.beamDepth * 10 - 30; // mm
+  const bw_mm = sections.beamWidth * 10;       // mm
+  const h_beam_mm = sections.beamDepth * 10;   // mm
   
   // Yaklaşık Çerçeve Analizi (Ön Tasarım İçin Katsayılar Yöntemi)
   // Mesnet Momenti (Ankastreye yakın kabul): qL^2 / 12
@@ -305,14 +307,45 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const countSupp = Math.ceil(As_beam_supp_design / barAreaBeam);
   const countSpan = Math.ceil(As_beam_span_design / barAreaBeam);
 
-  // Kesme Kuvveti Hesabı
-  const V_beam_design = q_beam_design * L_beam / 2; // Basit kiriş kesmesi
-  
+ // Kesme Kuvveti Hesabı
+  const V_beam_design = q_beam_design * L_beam / 2; // Vd (kN)
+
   // Kesme Dayanımları
-  // Vcr: Çatlama Dayanımı = 0.65 * fctd * b * d
-  const Vcr = 0.65 * fctd * (sections.beamWidth * 10) * d_beam / 1000; // kN
-  // Vmax: Ezilme Dayanımı = 0.22 * fcd * b * d
-  const Vmax = 0.22 * fcd * (sections.beamWidth * 10) * d_beam / 1000; // kN
+  const bw_mm = sections.beamWidth * 10;
+  const h_beam_mm = sections.beamDepth * 10;
+  const Vcr = 0.65 * fctd * bw_mm * d_beam / 1000; // kN
+  const Vmax = 0.22 * fcd * bw_mm * d_beam / 1000; // kN
+  
+  // --- YENİ ETRİYE HESABI BAŞLANGICI ---
+  const stirrupDia = rebars.beamStirrupDia || 8; 
+  const stirrupArea2Legs = 2 * (Math.PI * Math.pow(stirrupDia/2, 2));
+
+  // 1. Teorik Hesap (Vd > Vcr ise)
+  let calc_spacing_mm = 999;
+  if (V_beam_design > Vcr) {
+     const Vw_req = (V_beam_design - 0.8 * Vcr) * 1000; 
+     if (Vw_req > 0) {
+        calc_spacing_mm = (stirrupArea2Legs * STEEL_FYD * d_beam) / Vw_req;
+     }
+  }
+
+  // 2. Mesnet (Sıklaştırma) Bölgesi Kuralları (TS500)
+  // Max s = min(h/4, 8*phi_boyuna, 150mm)
+  const s_supp_rule = Math.min(h_beam_mm / 4, 8 * rebars.beamMainDia, 150);
+  let s_support_mm = Math.min(s_supp_rule, calc_spacing_mm);
+  let s_support_final = Math.floor(s_support_mm / 10) * 10;
+  if (s_support_final < 50) s_support_final = 50; 
+
+  // 3. Orta Bölge Kuralları
+  // Max s = min(d/2, 200mm)
+  const s_span_rule = Math.min(d_beam / 2, 200);
+  let s_span_final = Math.floor(s_span_rule / 10) * 10;
+
+  // Metinler
+  const str_supp = `Ø${stirrupDia}/${s_support_final/10}`;
+  const str_span = `Ø${stirrupDia}/${s_span_final/10}`;
+  const combined_stirrup_text = `${str_supp} / ${str_span}`;
+  // --- YENİ ETRİYE HESABI BİTİŞİ ---
   
   // Sehim Hesabı (Ani + Sünme)
   const I_beam = (sections.beamWidth * 10 * Math.pow(sections.beamDepth * 10, 3)) / 12;
@@ -557,7 +590,14 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       shear_design: V_beam_design,
       shear_cracking: Vcr,
       shear_limit: Vmax,
-      shear_reinf_type: V_beam_design > Vcr ? "Ø8/10 (Sıklaştırma)" : "Ø8/15",
+      stirrup_result: {
+              dia: stirrupDia,
+              s_support: s_support_final/10,
+              s_span: s_span_final/10,
+              text_support: str_supp,
+              text_span: str_span
+            },
+      shear_reinf_type: combined_stirrup_text,
       deflection: delta_total,
       deflection_limit: delta_limit,
       checks: {

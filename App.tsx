@@ -229,10 +229,17 @@ const App: React.FC = () => {
            <span>Boyuna:</span> 
            <b className="text-slate-900">{results.beams.count_span}Ø{state.rebars.beamMainDia}</b>
          </div>
-         <div className="flex justify-between">
-           <span>Etriye:</span> 
-           <b className="text-purple-600">{results.beams.shear_reinf_type}</b>
+         <div className="flex flex-col gap-1 my-1 border-t border-b border-dashed py-1">
+            <div className="flex justify-between">
+               <span className="text-purple-600 font-medium">Sıklaştırma:</span>
+               <b className="text-purple-700">{results.beams.stirrup_result.text_support}</b>
+            </div>
+            <div className="flex justify-between">
+               <span className="text-slate-500">Orta Bölge:</span>
+               <b className="text-slate-700">{results.beams.stirrup_result.text_span}</b>
+            </div>
          </div>
+      
          <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
             <span>Vd: {results.beams.shear_design.toFixed(1)} kN</span>
             <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
@@ -362,13 +369,27 @@ const App: React.FC = () => {
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
                     <div className="space-y-1">
-                       <ReportRow 
-                        label="Tasarım Kesme (Vd)" 
-                        value={results.beams.shear_design.toFixed(2)} 
-                        unit="kN" 
-                        formula="Vd ≈ q * L / 2"
-                        calc={`${results.beams.load_design.toFixed(1)} * ${Math.max(state.dimensions.lx, state.dimensions.ly)} / 2`}
-                       />
+                      {/* YENİ ETRİYE DETAYI */}
+                       <div className="py-2 px-2 bg-purple-50 rounded border border-purple-100 my-2">
+                          <div className="flex justify-between text-xs font-bold text-purple-800 mb-1 border-b border-purple-200 pb-1">
+                             <span>Etriye Seçimi (Ø{results.beams.stirrup_result.dia})</span>
+                             <span>TS500</span>
+                          </div>
+                          <div className="flex justify-between text-[11px] text-purple-700">
+                             <span>Sıklaştırma (Mesnet):</span>
+                             <span className="font-mono font-bold">{results.beams.stirrup_result.text_support}</span>
+                          </div>
+                          <div className="text-[9px] text-purple-400 text-right mb-1">
+                             (Max s = min(h/4, 8Ø, 15cm))
+                          </div>
+                          <div className="flex justify-between text-[11px] text-slate-600">
+                             <span>Orta Bölge:</span>
+                             <span className="font-mono font-bold">{results.beams.stirrup_result.text_span}</span>
+                          </div>
+                          <div className="text-[9px] text-slate-400 text-right">
+                             (Max s = min(d/2, 20cm))
+                          </div>
+                       </div>
                        <ReportRow 
                         label="Kesme Dayanımı (Vcr)" 
                         value={results.beams.shear_cracking.toFixed(2)} 

@@ -90,7 +90,17 @@ export interface CalculationResult {
     shear_design: number; 
     shear_cracking: number; 
     shear_limit: number; 
-    shear_reinf_type: string;
+
+    stirrup_result: {
+       dia: number;           // Seçilen çap (örn: 8)
+       s_support: number;     // Mesnet aralığı (örn: 10 cm)
+       s_span: number;        // Orta açıklık aralığı (örn: 20 cm)
+       text_support: string;  // "Ø8/10"
+       text_span: string;     // "Ø8/20"
+    };
+
+    shear_reinf_type: string; // Geriye uyumluluk için (örn: "Ø8/10 / Ø8/20")
+    
     deflection: number;
     deflection_limit: number;
     checks: {
