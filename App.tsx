@@ -192,87 +192,99 @@ const App: React.FC = () => {
         {/* GÖRSELLER */}
         <div><Visualizer dimensions={state.dimensions} sections={state.sections} /></div>
 
-        {/* SONUÇ KARTLARI - GÜNCELLENDİ (Toplu Kontrol) */}
-        {results && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            
-            {/* Döşeme Kartı */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <h3 className="font-bold text-slate-700 mb-2">DÖŞEME</h3>
-               <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
-                 <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
-                 <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
-                 {/* Burada tüm döşeme kontrollerini içeren bir özet kullanılabilir, şimdilik kalınlık kontrolü */}
-                 <StatusBadge status={getOverallStatus({ thickness: results.slab.thicknessStatus, general: results.slab.status })} />
-               </div>
-            </div>
+      {/* SONUÇ KARTLARI - TAM LİSTE (HİÇBİR ŞEY SİLİNMEDEN) */}
+{results && (
+  <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
+    
+    {/* 1. Döşeme Kartı */}
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+       <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
+       <h3 className="font-bold text-slate-700 mb-2 text-sm">DÖŞEME</h3>
+       <div className="space-y-1 text-xs text-slate-600 relative z-10">
+         <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
+         <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
+         <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
+         <StatusBadge status={getOverallStatus({ thickness: results.slab.thicknessStatus, general: results.slab.status })} />
+       </div>
+    </div>
 
-            {/* Kiriş Kartı - GÜNCELLENDİ (Toplu Hata Gösterimi) */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <h3 className="font-bold text-slate-700 mb-2">KİRİŞ</h3>
-               <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Açıklık Donatı:</span> <b>{results.beams.count_span}Ø{state.rebars.beamMainDia}</b></div>
-                 <div className="flex justify-between"><span>Etriye:</span> <b className="text-purple-600">{results.beams.shear_reinf_type}</b></div>
-                 <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>Vd: {results.beams.shear_design.toFixed(1)}</span>
-                    <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
-                 </div>
-                 {/* Sadece Shear değil, tüm kiriş hatalarını göster */}
-                 <StatusBadge status={getOverallStatus(results.beams.checks)} />
-               </div>
-            </div>
+    {/* 2. Kiriş Kartı - Boyuna + Etriye */}
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+       <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
+       <h3 className="font-bold text-slate-700 mb-2 text-sm">KİRİŞ</h3>
+       <div className="space-y-1 text-xs text-slate-600 relative z-10">
+         <div className="flex justify-between">
+           <span>Boyuna:</span> 
+           <b className="text-slate-900">{results.beams.count_span}Ø{state.rebars.beamMainDia}</b>
+         </div>
+         <div className="flex justify-between">
+           <span>Etriye:</span> 
+           <b className="text-purple-600">{results.beams.shear_reinf_type}</b>
+         </div>
+         <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
+            <span>Vd: {results.beams.shear_design.toFixed(1)} kN</span>
+            <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
+         </div>
+         <StatusBadge status={getOverallStatus(results.beams.checks)} />
+       </div>
+    </div>
 
-            {/* Kolon Kartı - GÜNCELLENDİ (Toplu Hata Gösterimi) */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <h3 className="font-bold text-slate-700 mb-2">KOLON</h3>
-               <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Donatı:</span> <b>{results.columns.count_main}Ø{state.rebars.colMainDia}</b></div>
-                 <div className="flex justify-between"><span>Yük/Kap:</span> <b>{results.columns.axial_load_design.toFixed(0)} / {results.columns.axial_capacity_max.toFixed(0)} kN</b></div>
-                 {/* Kapasite, Güçlü kolon vb. tüm hataları göster */}
-                 <StatusBadge status={getOverallStatus(results.columns.checks)} />
-               </div>
-            </div>
+    {/* 3. Kolon Kartı - Boyuna + Sargı (Etriye) */}
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+       <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
+       <h3 className="font-bold text-slate-700 mb-2 text-sm">KOLON</h3>
+       <div className="space-y-1 text-xs text-slate-600 relative z-10">
+         <div className="flex justify-between">
+           <span>Boyuna:</span> 
+           <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
+         </div>
+         <div className="flex justify-between">
+           <span>Sargı:</span> 
+           <b className="text-emerald-600">Ø{state.rebars.colStirrupDia} / {results.columns.confinement.s_opt / 10} cm</b>
+         </div>
+         <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
+            <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
+            <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>
+         </div>
+         <StatusBadge status={getOverallStatus(results.columns.checks)} />
+       </div>
+    </div>
 
-            {/* Radye Kartı - GÜNCELLENDİ (Toplu Hata Gösterimi) */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
-               <h3 className="font-bold text-slate-700 mb-2">RADYE</h3>
-               <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                 <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
-                 <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
-                 {/* Zemin gerilmesi, Zımbalama vb. tüm hataları göster */}
-                 <StatusBadge status={getOverallStatus(results.foundation.checks)} />
-               </div>
-            </div>
-            {/* Joint (Birleşim) Kartı - YENİ EKLENECEK */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2">BİRLEŞİM (JOINT)</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between">
-                    <span>Kesme Kuvveti (Ve):</span> 
-                    <b>{results.joint.shear_force.toFixed(1)} kN</b>
-                </div>
-                <div className="flex justify-between">
-                    <span>Kapasite (Vmax):</span> 
-                    <b>{results.joint.shear_limit.toFixed(1)} kN</b>
-                </div>
-                <div className="flex justify-between border-t pt-1 mt-1">
-                    <span>Durum:</span>
-                    <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
-                        {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
-                    </span>
-                </div>
-              </div>
-            </div>
+    {/* 4. Radye Kartı */}
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+       <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
+       <h3 className="font-bold text-slate-700 mb-2 text-sm">RADYE</h3>
+       <div className="space-y-1 text-xs text-slate-600 relative z-10">
+         <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
+         <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
+         <StatusBadge status={getOverallStatus(results.foundation.checks)} />
+       </div>
+    </div>
 
+    {/* 5. Birleşim (Joint) Kartı - (Geri Eklendi) */}
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
+      <h3 className="font-bold text-slate-700 mb-2 text-sm">BİRLEŞİM (JOINT)</h3>
+      <div className="space-y-1 text-xs text-slate-600 relative z-10">
+        <div className="flex justify-between">
+            <span>Ve:</span> 
+            <b>{results.joint.shear_force.toFixed(1)} kN</b>
+        </div>
+        <div className="flex justify-between">
+            <span>Vmax:</span> 
+            <b>{results.joint.shear_limit.toFixed(1)} kN</b>
+        </div>
+        <div className="flex justify-between border-t pt-1 mt-1">
+            <span>Durum:</span>
+            <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
+                {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
+            </span>
+        </div>
+      </div>
+    </div>
 
-          </div>
-        )}
+  </div>
+)}
 
         {/* DETAYLI MÜHENDİSLİK RAPORU - GÜNCELLENDİ (Formüllerle) */}
         {results && (

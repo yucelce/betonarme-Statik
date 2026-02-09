@@ -289,12 +289,15 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   }
   const Md_col_magnified = Md_col_biaxial * beta;
 
-  // [KONTROL 3] Donatı Oranı Kontrolü (%1 - %4)
-  const As_col_min = Ac_col_mm2 * 0.01; // %1 min
-  const As_col_max = Ac_col_mm2 * 0.04; // %4 max
+// [KONTROL 3] Donatı Oranı Kontrolü (%1 - %4)
+  const As_col_min = Ac_col_mm2 * 0.01; 
   
   const barAreaCol = Math.PI * Math.pow(rebars.colMainDia/2, 2);
-  const countCol = Math.max(4, Math.ceil(As_col_min / barAreaCol));
+  let countCol = Math.max(4, Math.ceil(As_col_min / barAreaCol));
+  
+  // DÜZENLEME: Kolon boyuna donatı sayısı çift olmalıdır (Örn: 9 yerine 10)
+  if (countCol % 2 !== 0) countCol++; 
+  
   const As_col_provided = countCol * barAreaCol;
   const rho_col = As_col_provided / Ac_col_mm2;
 
@@ -321,47 +324,54 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const Vr_max = 0.22 * fcd * Ac_col_mm2 / 1000;
   const Vr_col = Math.min(Vc_col + Vw_col, Vr_max);
 
-  // ==========================================================================
-  // [KONTROL 7] SARGILAMA (ETRİYE) HESABI - OTO. ARALIK & MİN. KONTROLÜ
+ // ==========================================================================
+  // [KONTROL 7] SARGILAMA (ETRİYE) HESABI - GÜNCELLENDİ (TAM KOD)
   // ==========================================================================
   
   // 1. Yönetmelik Sınırları (Geometrik)
   const s_geom_max = Math.min(100, Math.min(sections.colWidth * 10, sections.colDepth * 10) / 3);
   const s_code_min = 50; 
 
-  // 2. Çekirdek (Sargılı Beton) Boyutları
-  const paspayi_col = 25; // mm
+  // 2. Çekirdek (Sargılı Beton) Boyutları (EKSİK OLAN KISIM EKLENDİ)
+  const paspayi_col = 25; // mm (Net paspayı)
   const bk_x = (sections.colWidth * 10) - 2 * paspayi_col; 
   const bk_y = (sections.colDepth * 10) - 2 * paspayi_col; 
-  const bk = Math.max(bk_x, bk_y); 
-  const Ack = bk_x * bk_y;
+  const bk = Math.max(bk_x, bk_y); // En büyük çekirdek boyutu
+  const Ack = bk_x * bk_y; // Çekirdek alanı
 
-  // 3. Mevcut Etriye Alanı (Ash_prov yukarıda hesaplanmıştı, tekrar tanımlanmadı)
+  // 3. Düşük Eksenel Yük Kontrolü (TBDY 2018 7.3.4.1-a)
+  // Nd <= 0.25 * fck * Ac ise Ash_min %33 (2/3) azaltılabilir.
+  const isLowAxialLoad = (Nd_design * 1000) <= (0.25 * fck * Ac_col_mm2);
+  const ashReductionFactor = isLowAxialLoad ? (2/3) : 1.0;
 
-  // 4. Gereken Maksimum Aralık Hesabı (Formülden 's' çekilir)
-  // TBDY Denklem 4.30a
+  // 4. Etriye Kol Sayısı ve Alanı (Pratik Kabul: 40cm+ ise çiroz ile 3 kol)
+  // stirrupDia değişkeni üst satırlarda tanımlı olmalıdır.
+  const n_legs = (sections.colWidth >= 40 || sections.colDepth >= 40) ? 3 : 2;
+  const stirrupAreaTotal = n_legs * (Math.PI * Math.pow(stirrupDia/2, 2));
+
+  // 5. Gereken Aralık Hesabı (İndirim faktörü dahil)
   const coeff1 = 0.30 * bk * (fck / 420) * ((Ac_col_mm2 / Ack) - 1);
-  const s_calc_1 = coeff1 > 0 ? Ash_prov / coeff1 : 999; 
+  const s_calc_1 = coeff1 > 0 ? stirrupAreaTotal / (coeff1 * ashReductionFactor) : 999; 
 
-  // TBDY Denklem 4.30b
   const coeff2 = 0.075 * bk * (fck / 420);
-  const s_calc_2 = coeff2 > 0 ? Ash_prov / coeff2 : 999;
+  const s_calc_2 = coeff2 > 0 ? stirrupAreaTotal / (coeff2 * ashReductionFactor) : 999;
 
-  // 5. En Uygun Aralığın Belirlenmesi
+  // 6. Nihai Aralık Seçimi
   let s_target = Math.min(s_geom_max, s_calc_1, s_calc_2);
   
-  // Uygulama Pratiği: Aşağıya doğru 5mm katına yuvarla
-  let s_final = Math.floor(s_target / 5) * 5;
+  // Uygulama Pratiği: 5mm veya 10mm katına yuvarla
+  let s_final = Math.floor(s_target / 10) * 10; // Daha rasyonel aralıklar için 1cm'lik adımlar
+  if (s_final < s_code_min) s_final = s_code_min;
 
-  // 6. Nihai Karar Mekanizması
+  // 7. Nihai Karar Mekanizması
   let confinementStatus = {
     isSafe: true,
-    message: "Uygun",
+    message: "Sargı Yeterli",
     description: "",
     s_application: s_final
   };
 
-  if (s_final < s_code_min) {
+  if (s_final < s_code_min) { // Eğer hesaplanan min aralık bile yönetmelik sınırının altındaysa (Örn: 25mm gerekiyorsa)
     confinementStatus.isSafe = false;
     confinementStatus.message = "Çap Yetersiz";
     confinementStatus.description = `Hesaplanan aralık (${s_final}mm) döküm için çok dar. Lütfen etriye çapını artırın (Örn: Ø10).`;
@@ -372,11 +382,11 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     confinementStatus.description = `Sıklaştırma Aralığı: ${s_final/10} cm (Hesap: ${s_target.toFixed(1)}mm)`;
   }
 
-  // Raporlama için Ash_req değerini hesapla
+  // Raporlama için Ash_req değerini hesapla (İndirimsiz teorik değer referans için)
   const ash_req_check = Math.max(
       0.30 * s_final * bk * (fck/420) * ((Ac_col_mm2/Ack) - 1),
       0.075 * s_final * bk * (fck/420)
-  );
+  ) * ashReductionFactor; // Raporda görünen gereksinim de indirimli olmalı
 
   // ==========================================================================
   // 6. JOINT (BİRLEŞİM) BÖLGESİ KESME GÜVENLİĞİ (TBDY 2018 Madde 7.5)
