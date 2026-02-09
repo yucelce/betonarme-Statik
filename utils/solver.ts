@@ -22,24 +22,53 @@ const createStatus = (isSafe: boolean, successMsg: string = 'Uygun', failMsg: st
 });
 
 // TS500 - Dikdörtgen Kesit Taşıma Gücü Momenti (Basit Eğilme / Bileşik Eğilme)
-const calculateMomentCapacity = (b_mm: number, h_mm: number, As_mm2: number, fcd: number, N_design: number = 0): number => {
+// utils/solver.ts
+
+// GÜNCELLENMİŞ FONKSİYON: Eksenel Yük Etkileşimli Moment Kapasitesi
+const calculateMomentCapacity = (
+    b_mm: number, 
+    h_mm: number, 
+    As_tension_mm2: number, // Sadece çekme tarafındaki donatı (Toplamın yarısı)
+    fcd: number, 
+    N_design: number = 0 // Newton cinsinden eksenel yük (Basınç +)
+): number => {
   const paspayi = 40; // mm
   const d = h_mm - paspayi; // Faydalı yükseklik
   
-  // Eşdeğer Basınç Bloğu Derinliği (a)
-  // Denge Denklemi: Fs - N = Fc  =>  As*fyd - N = 0.85*fcd*b*a
-  // Buradan a çekilirse:
-  const a = (As_mm2 * STEEL_FYD + N_design) / (0.85 * fcd * b_mm);
+  // 1. EŞDEĞER BASINÇ BLOĞU DERİNLİĞİ (a)
+  // Denge: Fc = N + Fs_tension
+  // 0.85 * fcd * b * a = N + As * fyd
+  const Fs_tension = As_tension_mm2 * STEEL_FYD;
+  const Fc_force = N_design + Fs_tension; // Betonun taşıması gereken toplam basınç
   
-  // Kesit Yetersizlik Kontrolü (Basınç bloğu faydalı yüksekliği geçerse)
-  if (a > d) return 0; 
+  let a = Fc_force / (0.85 * fcd * b_mm);
   
-  // Moment Kapasitesi (Çekme Donatısına Göre Moment Alınarak)
-  // Mr = Fc * (d - a/2)  veya  Mr = As*fyd*(d-a/2) (Eksenel yük ihmali ile güvenli taraf)
-  // Eksenel yükün moment kolu katkısı ihmal edilerek güvenli tarafta kalındı.
-  const Mr = (As_mm2 * STEEL_FYD) * (d - a/2);
+  // Sınır Kontrolleri
+  // a, d'yi geçemez (Teorik sınır)
+  if (a > d) a = d; 
+  // a, h'yi geçemez (Fiziksel sınır)
+  if (a > h_mm) a = h_mm;
+
+  // 2. MOMENT HESABI (GEOMETRİK MERKEZE GÖRE)
+  // Referans noktası: Kesit ortası (h/2)
+  const geometric_center = h_mm / 2;
   
-  return Mr / 1e6; // Nmm -> kNm çevrimi
+  // Beton Basınç Bileşkesinin Momenti
+  // Fc kuvveti, üst liften a/2 mesafede etkir.
+  // Merkeze olan mesafe: (h/2) - (a/2)
+  const lever_arm_concrete = geometric_center - (a / 2);
+  const Moment_concrete = Fc_force * lever_arm_concrete;
+
+  // Çekme Donatısının Momenti
+  // Fs kuvveti, üst liften d mesafede etkir.
+  // Merkeze olan mesafe: d - (h/2)
+  const lever_arm_steel = d - geometric_center;
+  const Moment_steel = Fs_tension * lever_arm_steel;
+
+  // Toplam Moment Kapasitesi
+  const Mr_total = Moment_concrete + Moment_steel;
+  
+  return Mr_total / 1e6; // Nmm -> kNm çevrimi
 };
 
 // TBDY 2018 Madde 7.3.4 - Kolon Sarılma Bölgesi Etriye Hesabı
