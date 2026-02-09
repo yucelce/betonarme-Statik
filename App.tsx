@@ -105,10 +105,21 @@ const App: React.FC = () => {
         {/* GİRDİLER - KARTLAR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500"/> Yapı & Temel</h2>
             <div className="space-y-2 text-sm">
-                <div><label className="text-[10px] text-slate-500">Kat Adedi</label><input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                {/* Kat Adedi */}
+                <div>
+                  <label className="text-[10px] text-slate-500">Kat Adedi</label>
+                  <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-1 border rounded" />
+                </div>
+                
+                {/* YENİ EKLENEN KISIM: Kat Yüksekliği */}
+                <div>
+                  <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
+                  <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-1 border rounded bg-blue-50 font-bold text-blue-900" />
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                    <div><label className="text-[10px] text-slate-500">Lx (m)</label><input type="number" value={state.dimensions.lx} onChange={e => handleChange('dimensions', 'lx', +e.target.value)} className="w-full p-1 border rounded" /></div>
                    <div><label className="text-[10px] text-slate-500">Ly (m)</label><input type="number" value={state.dimensions.ly} onChange={e => handleChange('dimensions', 'ly', +e.target.value)} className="w-full p-1 border rounded" /></div>
@@ -120,6 +131,7 @@ const App: React.FC = () => {
                 <div><label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label><input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-1 border rounded" /></div>
             </div>
           </div>
+         
 
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Scale className="w-4 h-4 text-purple-500"/> Kesitler</h2>
