@@ -664,7 +664,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         ),
         slendernessCheck: createStatus(
             lambda <= 100, // TS500'e göre narinlik 100'ü geçmemeli
-            isSlender ? 'Narin (β>1)' : 'Kısa Kolon', // Güvenli ise mesaj
+            isSlender ? 'Narin (β>1)' : 'Güvenli', // Güvenli ise mesaj
             'Çok Narin', // Güvensiz ise mesaj
             `λ=${lambda.toFixed(1)} > 100` // Hata sebebi
         )
