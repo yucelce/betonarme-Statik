@@ -526,7 +526,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       // Types.ts: confinement: { Ash_req, Ash_prov, s_max, s_opt }
       confinement: {
         Ash_req: ash_req_check, // Hesaplanan s_final'e göre gereken alan
-        Ash_prov: Ash_prov,     // Seçilen etriyenin alanı
+        Ash_prov: stirrupAreaTotal,     // Seçilen etriyenin alanı
         s_max: s_geom_max,      // Geometrik sınır (100mm)
         s_opt: confinementStatus.s_application // Bizim hesapladığımız (örn: 70mm)
       },
@@ -546,7 +546,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK'),
         minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK', 'Yetersiz', '%1 Altı'),
         maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK', 'Fazla Donatı', '%4 Üstü'),
-        confinement: createStatus(Ash_prov >= ash_req_check, 'Sargı Yeterli', 'Sargı Yetersiz', `Ash<${ash_req_check.toFixed(0)}`)
+        confinement: createStatus(stirrupAreaTotal >= ash_req_check, 'Sargı Yeterli')
       }
     },
     seismic: {
