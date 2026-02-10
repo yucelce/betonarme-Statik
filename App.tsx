@@ -366,260 +366,303 @@ const App: React.FC = () => {
               <div className="mt-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-slate-200">
 
+                  {/* 1. DÖŞEME HESAPLARI */}
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-blue-600 uppercase mb-4 border-b pb-2">1. DÖŞEME HESAPLARI (TS500)</h4>
                     <div className="space-y-1">
                       <ReportRow
                         label="Tasarım Yükü (Pd)"
-                        value={results.slab.pd.toFixed(2)}
-                        unit="kN/m²"
+                        value={results.slab.pd.toFixed(2)} unit="kN/m²"
                         formula="Pd = 1.4G + 1.6Q"
-                        calc={`1.4*${((state.dimensions.slabThickness / 100 * CONCRETE_DENSITY) + (state.loads.deadLoadCoatingsKg * 0.00981)).toFixed(2)} + 1.6*${(state.loads.liveLoadKg * 0.00981).toFixed(2)}`}
+                      />
+                      <ReportRow
+                        label="Min. Kalınlık (TS500)"
+                        value={`${results.slab.min_thickness_calculated.toFixed(1)} cm`}
+                        subtext={`Limit: ${results.slab.min_thickness_limit} cm`}
+                        status={results.slab.thicknessStatus.isSafe}
+                        formula="h_min = ln / 25"
                       />
                       <ReportRow
                         label="Moment Katsayısı (α)"
                         value={results.slab.alpha.toFixed(3)}
-                        subtext={`m = ${Math.max(state.dimensions.lx, state.dimensions.ly)}/${Math.min(state.dimensions.lx, state.dimensions.ly)} = ${(Math.max(state.dimensions.lx, state.dimensions.ly) / Math.min(state.dimensions.lx, state.dimensions.ly)).toFixed(2)}`}
+                        subtext={`Kenar Oranı: ${(Math.max(state.dimensions.lx, state.dimensions.ly) / Math.min(state.dimensions.lx, state.dimensions.ly)).toFixed(2)}`}
                       />
                       <ReportRow
                         label="Hesap Momenti (Md)"
-                        value={results.slab.m_x.toFixed(2)}
-                        unit="kNm"
+                        value={results.slab.m_x.toFixed(2)} unit="kNm"
                         formula="Md = α * Pd * Lx²"
-                        calc={`${results.slab.alpha} * ${results.slab.pd.toFixed(2)} * ${state.dimensions.lx}²`}
                       />
                       <ReportRow
                         label="Gereken Donatı (As)"
-                        value={results.slab.as_req.toFixed(2)}
-                        unit="cm²/m"
+                        value={results.slab.as_req.toFixed(2)} unit="cm²/m"
+                        subtext={`Min: ${results.slab.as_min.toFixed(2)} cm²`}
                         formula="As = Md / (0.9 * fyd * d)"
-                        calc={`${(results.slab.m_x * 1000).toFixed(0)} / (0.9 * ${STEEL_FYD.toFixed(0)} * ${(results.slab.d / 10).toFixed(2)})`}
+                      />
+                      <ReportRow
+                        label="Donatı Oranı (ρ)"
+                        value={(results.slab.rho * 100).toFixed(3)} unit="%"
+                        subtext="Süneklik Kontrolü"
                       />
                       <div className="mt-2 pt-2 border-t border-dashed font-bold text-blue-700 text-sm flex justify-between">
-                        <span>SONUÇ:</span>
+                        <span>SEÇİLEN:</span>
                         <span>Ø{state.rebars.slabDia} / {results.slab.spacing} cm</span>
                       </div>
                     </div>
                   </div>
 
+                  {/* 2. KİRİŞ HESAPLARI */}
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
                     <div className="space-y-1">
-                      <div className="py-2 px-2 bg-purple-50 rounded border border-purple-100 my-2">
-                        <div className="flex justify-between text-xs font-bold text-purple-800 mb-1 border-b border-purple-200 pb-1">
-                          <span>Etriye Seçimi (Ø{results.beams.stirrup_result.dia})</span>
-                          <span>TS500</span>
-                        </div>
-                        <div className="flex justify-between text-[11px] text-purple-700">
-                          <span>Sıklaştırma (Mesnet):</span>
-                          <span className="font-mono font-bold">{results.beams.stirrup_result.text_support}</span>
-                        </div>
-                        <div className="text-[9px] text-purple-400 text-right mb-1">
-                          (Max s = min(h/4, 8Ø, 15cm))
-                        </div>
-                        <div className="flex justify-between text-[11px] text-slate-600">
-                          <span>Orta Bölge:</span>
-                          <span className="font-mono font-bold">{results.beams.stirrup_result.text_span}</span>
-                        </div>
-                        <div className="text-[9px] text-slate-400 text-right">
-                          (Max s = min(d/2, 20cm))
-                        </div>
-                      </div>
                       <ReportRow
-                        label="Kesme Dayanımı (Vcr)"
-                        value={results.beams.shear_cracking.toFixed(2)}
-                        unit="kN"
-                        subtext="Çatlama Sınırı"
-                        formula="Vcr = 0.65 * fctd * b * d"
-                        calc={`0.65 * ${fctd} * ${state.sections.beamWidth * 10} * ${state.sections.beamDepth * 10 - 30} / 1000`}
+                        label="Mesnet Momenti"
+                        value={results.beams.moment_support.toFixed(1)} unit="kNm"
+                        formula="M ≈ q * L² / 12"
+                      />
+                      {/* EKLENDİ: Açıklık Momenti */}
+                      <ReportRow
+                        label="Açıklık Momenti"
+                        value={results.beams.moment_span.toFixed(1)} unit="kNm"
+                        formula="M ≈ q * L² / 14" // Yaklaşık TS500 katsayısı
+                      />
+
+                      <div className="my-2 border-t border-slate-100"></div>
+
+                      {/* EKLENDİ: Kesme Kuvveti Detayları (Vc ve Vw ayrı ayrı) */}
+                      <ReportRow
+                        label="Tasarım Kesmesi (Vd)"
+                        value={results.beams.shear_design.toFixed(2)} unit="kN"
+                      />
+                      <ReportRow
+                        label="Beton Dayanımı (Vc)"
+                        value={results.beams.shear_Vc.toFixed(2)} unit="kN"
+                        subtext="0.80 * Vcr"
+                        formula="Vc = 0.8 * 0.65 * fctd * b * d"
+                      />
+                      <ReportRow
+                        label="Etriye Dayanımı (Vw)"
+                        value={results.beams.shear_Vw.toFixed(2)} unit="kN"
+                        formula="Vw = Asw * fyd * d / s"
                       />
                       <ReportRow
                         label="Maksimum Kesme (Vmax)"
-                        value={results.beams.shear_limit.toFixed(2)}
-                        unit="kN"
-                        subtext="Kesit Ezilme Sınırı"
+                        value={results.beams.shear_limit.toFixed(2)} unit="kN"
                         status={results.beams.checks.shear.isSafe}
-                        formula="Vmax = 0.22 * fcd * b * d"
-                        calc={`0.22 * ${fcd.toFixed(1)} * ${state.sections.beamWidth * 10} * ${state.sections.beamDepth * 10 - 30} / 1000`}
+                        subtext="Kesit Ezilme Sınırı"
                       />
+
+                      <div className="my-2 border-t border-slate-100"></div>
+
+                      {/* EKLENDİ: Donatı Oranları */}
                       <ReportRow
-                        label="Mesnet Momenti"
-                        value={results.beams.moment_support.toFixed(1)}
-                        unit="kNm"
-                        formula="M ≈ q * L² / 12"
+                        label="Donatı Oranı (Mesnet)"
+                        value={(results.beams.rho_support * 100).toFixed(2)} unit="%"
+                        subtext={`Min: %${(results.beams.rho_min * 100).toFixed(2)} / Max: %2.0`}
+                        status={results.beams.checks.min_reinf.isSafe && results.beams.checks.max_reinf.isSafe}
                       />
+
                       <ReportRow
                         label="Sehim (δ)"
-                        value={results.beams.deflection.toFixed(2)}
-                        unit="mm"
+                        value={results.beams.deflection.toFixed(2)} unit="mm"
                         subtext={`Limit: ${results.beams.deflection_limit.toFixed(1)} mm`}
                         status={results.beams.checks.deflection.isSafe}
-                        formula="δ = (5 * q * L^4) / (384 * E * Ieff) * 3"
-                        calc={`Elastik x 3 (Sünme)`}
                       />
                     </div>
                   </div>
 
+                  {/* 3. KOLON HESAPLARI */}
                   <div className="bg-white p-6 col-span-1 lg:col-span-2">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON DETAYLI ANALİZİ (TBDY 2018 & TS500)</h4>
+                    <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON DETAYLI ANALİZİ</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
+                      {/* Eksenel ve Narinlik */}
                       <div className="space-y-1">
-                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">A. EKSENEL KUVVET VE EĞİLME</h5>
-
+                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">A. EKSENEL KUVVET VE NARİNLİK</h5>
                         <ReportRow
                           label="Eksenel Yük (Nd)"
                           value={results.columns.axial_load_design.toFixed(0)} unit="kN"
-                          formula="Nd = 1.0G + 1.0Q + 1.0E"
                         />
                         <ReportRow
-                          label="Eksenel Sınır (0.40 Ac)"
+                          label="Maks Kapasite (Nmax)"
                           value={results.columns.axial_capacity_max.toFixed(0)} unit="kN"
+                          subtext="0.40 * fck * Ac"
                           status={results.columns.checks.axial_limit.isSafe}
-                          formula="Nmax = 0.40 * fck * Ac"
-                          subtext="Süneklik Sınırı"
+                        />
+
+                        {/* EKLENDİ: Atalet Yarıçapı */}
+                        <ReportRow
+                          label="Atalet Yarıçapı (i)"
+                          value={results.columns.slenderness.i_rad.toFixed(1)} unit="mm"
+                          formula="i ≈ 0.3 * h"
                         />
                         <ReportRow
-                          label="Narinlik Oranı (λ)"
+                          label="Narinlik (λ)"
                           value={results.columns.slenderness.lambda.toFixed(2)}
-                          subtext={`Limit: ${results.columns.slenderness.lambda_lim.toFixed(1)}`}
-                          formula="λ = ln / i"
+                          subtext={`Limit: ${results.columns.slenderness.lambda_lim}`}
                           status={!results.columns.slenderness.isSlender}
+                        />
+
+                        <ReportRow
+                          label="Analiz Momenti (Md)"
+                          value={results.columns.moment_design.toFixed(1)} unit="kNm"
+                          subtext="Yanal ötelemesiz"
                         />
                         {results.columns.slenderness.isSlender && (
                           <ReportRow
-                            label="Moment Büyütme (β)"
+                            label="Büyütme Katsayısı (β)"
                             value={results.columns.slenderness.beta.toFixed(2)}
-                            formula="β = Cm / (1 - Nd/Nc)"
-                            subtext="Narin kolon etkisi"
+                            formula="Burkulma Etkisi"
                           />
                         )}
                         <ReportRow
-                          label="Tasarım Momenti (Md)"
+                          label="Tasarım Momenti (Md*)"
                           value={results.columns.moment_magnified.toFixed(1)} unit="kNm"
-                          formula={results.columns.slenderness.isSlender ? "Md = β * M_analiz" : "Md = M_analiz"}
                           status={results.columns.checks.moment_capacity.isSafe}
+                          subtext="Moment Kapasitesi Kontrolü"
                         />
                       </div>
 
+                      {/* Kesme ve Sargı */}
                       <div className="space-y-1">
-                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">B. KESME VE SARGI (KAPASİTE TASARIMI)</h5>
+                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">B. KESME VE SARGI</h5>
 
                         <ReportRow
                           label="Kapasite Kesmesi (Ve)"
                           value={results.columns.shear.Ve.toFixed(1)} unit="kN"
-                          formula="Ve = (Mra + Mrü) / ln"
-                          subtext="Moment kapasitesinden türetildi"
+                          formula="(Mra+Mrü)/ln"
                         />
+
+                        {/* EKLENDİ: Vc, Vw ve Vr_max detayları */}
+                        <div className="bg-slate-50 p-2 rounded border border-slate-100 text-xs space-y-1 my-1">
+                          <div className="flex justify-between">
+                            <span>Beton (Vc):</span>
+                            <b>{results.columns.shear.Vc.toFixed(1)} kN</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Etriye (Vw):</span>
+                            <b>{results.columns.shear.Vw.toFixed(1)} kN</b>
+                          </div>
+                          <div className="flex justify-between text-slate-400">
+                            <span>Üst Sınır (Vr_max):</span>
+                            <span>{results.columns.shear.Vr_max.toFixed(1)} kN</span>
+                          </div>
+                        </div>
+
                         <ReportRow
-                          label="Kesme Dayanımı (Vr)"
+                          label="Toplam Dayanım (Vr)"
                           value={results.columns.shear.Vr.toFixed(1)} unit="kN"
                           status={results.columns.checks.shear_capacity.isSafe}
-                          formula="Vr = Vc + Vw"
-                          subtext={`Beton: ${results.columns.shear.Vc.toFixed(1)} + Etriye: ${results.columns.shear.Vw.toFixed(1)}`}
+                          formula="Vr = min(Vc+Vw, Vr_max)"
                         />
 
                         <div className="my-2 border-t border-slate-100"></div>
 
                         <ReportRow
-                          label="Sargı Etriyesi (Ash)"
+                          label="Sargı Donatısı (Ash)"
                           value={results.columns.confinement.Ash_prov.toFixed(0)} unit="mm²"
-                          subtext={`Gereken: ${results.columns.confinement.Ash_req.toFixed(0)} mm²`}
+                          subtext={`Gereken: ${results.columns.confinement.Ash_req.toFixed(0)}`}
                           status={results.columns.checks.confinement.isSafe}
-                          formula="Ash ≥ 0.3 s b (fck/fywk)..."
-                        />
-                        <ReportRow
-                          label="Max Donatı Oranı"
-                          value={(results.columns.rho_provided * 100).toFixed(2)} unit="%"
-                          status={results.columns.checks.maxRebar.isSafe}
-                          subtext="Limit: %4.0"
                         />
                         <ReportRow
                           label="Güçlü Kolon Oranı"
                           value={results.columns.strong_col_ratio.toFixed(2)}
-                          subtext="(Mra+Mrü) / (Mri+Mrj) ≥ 1.2"
                           status={results.columns.checks.strongColumn.isSafe}
+                          subtext="Limit ≥ 1.20"
                         />
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
-                    <div className="space-y-1">
-                      <ReportRow
-                        label="Birleşim Kesme (Ve)"
-                        value={results.joint.shear_force.toFixed(2)}
-                        unit="kN"
-                        formula="Ve = 1.25 * fyk * As - Vkol"
-                      />
-                      <ReportRow
-                        label="Birleşim Dayanımı (Vmax)"
-                        value={results.joint.shear_limit.toFixed(2)}
-                        unit="kN"
-                        subtext="Kuşatılmamış Kabulü"
-                        formula="1.0 * √fck * bj * h"
-                        status={results.joint.isSafe}
-                      />
-                    </div>
-                  </div>
-
+                  {/* 4. DEPREM PARAMETRELERİ */}
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. TBDY 2018 DEPREM ANALİZİ</h4>
                     <div className="space-y-1">
-                      <ReportRow label="Spektral İvme (Sds)" value={results.seismic.param_sds.toFixed(3)} formula="Sds = Ss * Fs" />
-                      <ReportRow label="Periyot (S1)" value={results.seismic.param_sd1.toFixed(3)} formula="Sd1 = S1 * F1" />
-                      <ReportRow label="Bina Doğal Periyodu (T1)" value={results.seismic.period_t1.toFixed(2)} unit="s" formula="T1 = Ct * H^(0.75)" />
-                      <ReportRow label="Tasarım İvmesi Sae(T)" value={results.seismic.spectrum_sae.toFixed(3)} unit="g" formula="Sae(T) (Spektrum Fonksiyonu)" />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <ReportRow label="Spektral İvme (Sds)" value={results.seismic.param_sds.toFixed(3)} />
+                          <ReportRow label="Periyot (T1)" value={results.seismic.period_t1.toFixed(2)} unit="s" />
+                        </div>
+                        <div>
+                          {/* EKLENDİ: R ve I katsayıları */}
+                          <ReportRow label="R Katsayısı" value={results.seismic.R_coefficient} />
+                          <ReportRow label="I Katsayısı" value={results.seismic.I_coefficient} />
+                        </div>
+                      </div>
+                      <ReportRow
+                        label="Bina Ağırlığı (W)"
+                        value={results.seismic.building_weight.toFixed(0)} unit="kN"
+                      />
                       <ReportRow
                         label="Taban Kesme (Vt)"
-                        value={results.seismic.base_shear.toFixed(0)}
-                        unit="kN"
-                        subtext={`Ağırlık W = ${results.seismic.building_weight.toFixed(0)} kN`}
-                        formula="Vt = (W * Sae * I) / Ra"
-                        calc={`(${results.seismic.building_weight.toFixed(0)} * ${results.seismic.spectrum_sae.toFixed(2)} * ${state.seismic.I}) / ${state.seismic.Rx}`}
+                        value={results.seismic.base_shear.toFixed(0)} unit="kN"
+                        formula="Vt = m * Sae(T)"
+                        calc="Eşdeğer Deprem Yükü"
                       />
                     </div>
                   </div>
 
+                  {/* 5. RADYE TEMEL */}
                   <div className="bg-white p-6 col-span-1 lg:col-span-2">
                     <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">5. RADYE TEMEL KONTROLLERİ</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1">
                         <ReportRow
-                          label="Temel Alanı"
-                          value={((state.dimensions.lx + 2 * state.dimensions.foundationCantilever / 100) * (state.dimensions.ly + 2 * state.dimensions.foundationCantilever / 100)).toFixed(1)}
-                          unit="m²"
+                          label="Min Kalınlık Kontrolü"
+                          value={`${state.dimensions.foundationHeight} cm`}
+                          subtext="Limit: 30 cm (TBDY)"
+                          status={results.foundation.min_thickness_check}
                         />
                         <ReportRow
                           label="Zemin Gerilmesi"
-                          value={results.foundation.stress_actual.toFixed(1)}
-                          unit="kN/m²"
+                          value={results.foundation.stress_actual.toFixed(1)} unit="kN/m²"
                           subtext={`Emniyet: ${results.foundation.stress_limit}`}
                           status={results.foundation.checks.bearing.isSafe}
-                          formula="σ = N_total / A_temel"
-                          calc={`${(results.seismic.building_weight + (state.dimensions.foundationHeight / 100 * CONCRETE_DENSITY * 40)).toFixed(0)} / A`}
+                        />
+                        {/* EKLENDİ: Eğilme Momenti */}
+                        <ReportRow
+                          label="Konsol Eğilme Momenti"
+                          value={results.foundation.moment_design.toFixed(1)} unit="kNm"
+                          formula="M = q * L² / 2"
                         />
                       </div>
                       <div className="space-y-1">
-                        <ReportRow label="Zımbalama Yükü (Vpd)" value={results.foundation.punching_force.toFixed(0)} unit="N" formula="Vpd = Nd_kolon" />
                         <ReportRow
-                          label="Zımbalama Gerilmesi"
-                          value={results.foundation.punching_stress.toFixed(2)}
-                          unit="MPa"
-                          formula="τ = Vpd / (Up * d)"
+                          label="Zımbalama Kuvveti (Vpd)"
+                          value={results.foundation.punching_force.toFixed(1)} unit="kN"
                         />
                         <ReportRow
-                          label="Zımbalama Sınırı"
-                          value={results.foundation.punching_capacity.toFixed(2)}
-                          unit="MPa"
+                          label="Zımbalama Gerilmesi"
+                          value={results.foundation.punching_stress.toFixed(2)} unit="MPa"
+                          subtext={`Kapasite: ${results.foundation.punching_capacity.toFixed(2)} MPa`}
                           status={results.foundation.checks.punching.isSafe}
-                          formula="fctd (Beton Çekme Dayanımı)"
                         />
                         <div className="mt-2 text-right font-bold text-orange-700 text-sm">
                           Donatı: Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm
                         </div>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* EK: BİRLEŞİM GÜVENLİĞİ */}
+                  <div className="bg-white p-6">
+                    <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
+                    <div className="space-y-1">
+                      {/* EKLENDİ: Birleşim Genişliği */}
+                      <ReportRow
+                        label="Birleşim Genişliği (bj)"
+                        value={results.joint.bj} unit="mm"
+                      />
+                      <ReportRow
+                        label="Birleşim Kesme (Ve)"
+                        value={results.joint.shear_force.toFixed(2)} unit="kN"
+                        formula="Ve = 1.25 * fyk * As - Vkol"
+                      />
+                      <ReportRow
+                        label="Birleşim Dayanımı (Vmax)"
+                        value={results.joint.shear_limit.toFixed(2)} unit="kN"
+                        status={results.joint.isSafe}
+                        formula="1.0 * √fck * bj * h"
+                      />
                     </div>
                   </div>
 
