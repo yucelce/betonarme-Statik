@@ -258,9 +258,10 @@ const App: React.FC = () => {
            <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
          </div>
          <div className="flex justify-between">
-            <span>Sargı:</span> 
+            <span>Sargı (Sık/Orta):</span> 
             <b className="text-emerald-600">
-              Ø{state.rebars.colStirrupDia} / {Math.floor(results.columns.confinement.s_opt / 10)} cm
+               {/* Gerçek kullanılan çapı gösterelim */}
+              Ø{results.columns.confinement.dia_used} / {results.columns.confinement.s_conf / 10} / {results.columns.confinement.s_middle / 10}
             </b>
          </div>
          

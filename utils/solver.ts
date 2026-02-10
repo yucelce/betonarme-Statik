@@ -211,15 +211,17 @@ const calculateColumnCapacityForAxialLoad = (
  * KOLON SARILMA (ETRİYE) KONTROLÜ - GÜNCELLENDİ (OTOMATİK ÇAP ARTIRMA)
  * TBDY 2018 Madde 7.3.4
  */
+// MEVCUT checkColumnConfinement FONKSİYONUNU TAMAMEN SİLİN VE AŞAĞIDAKİ İLE DEĞİŞTİRİN:
+
 const checkColumnConfinement = (
   bw_mm: number,
   hw_mm: number,
   fck: number,
-  userStirrupDia_mm: number, // Kullanıcının seçtiği
+  userStirrupDia_mm: number,
   colMainDia_mm: number
-): { isSafe: boolean; message: string; s_opt: number; Ash_prov: number; Ash_req: number; s_max_code: number; dia_used: number } => {
+): { isSafe: boolean; message: string; s_conf: number; s_middle: number; Ash_prov: number; Ash_req: number; s_max_code: number; dia_used: number } => {
 
-  const fywk = 420; 
+  const fywk = 420;
   const paspayi_mm = 25;
 
   const bk_x = bw_mm - 2 * paspayi_mm;
@@ -228,26 +230,24 @@ const checkColumnConfinement = (
 
   const Ac = bw_mm * hw_mm;
   const Ack = bk_x * bk_y;
+  const b_min = Math.min(bw_mm, hw_mm);
 
-  // Etriye kol sayısı (b veya h >= 400mm ise en az 3 kol, değilse 2 kol)
-  // 40x40 bir kolonda çiroz ile 3 kol çalışır.
+  // Etriye kol sayısı
   const n_legs = (Math.max(bw_mm, hw_mm) >= 400) ? 3 : 2;
 
-  // Denenecek çaplar: Kullanıcının seçtiği, yetmezse 10, yetmezse 12
   let diametersToTry = [userStirrupDia_mm];
   if (userStirrupDia_mm < 10) diametersToTry.push(10);
   if (userStirrupDia_mm < 12) diametersToTry.push(12);
-  // Çift kayıtları temizle (örn kullanıcı 10 seçtiyse [10, 10, 12] olmasın)
   diametersToTry = [...new Set(diametersToTry)].sort((a, b) => a - b);
 
-  // Değişkenler
   let best_result = {
     isSafe: false,
     message: 'Hesaplanamadı',
-    s_opt: 50,
+    s_conf: 50,
+    s_middle: 100,
     Ash_prov: 0,
     Ash_req: 0,
-    s_max_code: 150,
+    s_max_code: 100,
     dia_used: userStirrupDia_mm
   };
 
@@ -256,55 +256,59 @@ const checkColumnConfinement = (
     const A_stirrup_one = Math.PI * Math.pow(currentDia / 2, 2);
     const Ash_provided_per_set = n_legs * A_stirrup_one;
 
-    // Maksimum Aralık Koşulları
-    const s_max_1 = Math.min(bw_mm, hw_mm) / 3;
-    const s_max_2 = 150; 
-    const s_max_3 = 6 * colMainDia_mm; 
-    const s_geom_limit = Math.min(s_max_1, s_max_2, s_max_3);
-    const search_limit = Math.min(s_geom_limit, 150);
+    // --- 1. SIKLAŞTIRMA BÖLGESİ (TBDY 7.3.4.1) ---
+    // s <= b_min/3, s <= 150mm, s <= 6*phi_l
+    const s_conf_limit_1 = b_min / 3;
+    const s_conf_limit_2 = 150;
+    const s_conf_limit_3 = 6 * colMainDia_mm;
+    const s_conf_geom_limit = Math.floor(Math.min(s_conf_limit_1, s_conf_limit_2, s_conf_limit_3) / 10) * 10;
 
-    let current_s = 50;
+    // --- 2. ORTA BÖLGE (TBDY 7.3.4.2) ---
+    // s <= b_min/2, s <= 200mm
+    const s_mid_limit_1 = b_min / 2;
+    const s_mid_limit_2 = 200;
+    const s_middle_calc = Math.floor(Math.min(s_mid_limit_1, s_mid_limit_2) / 10) * 10;
+
+    let found_s_conf = 50;
     let isFound = false;
     let calculated_Ash_req = 0;
 
-    // Aralık taraması (Büyükten küçüğe - en ekonomik aralığı bulmak için)
-    const start_s = Math.floor(search_limit / 10) * 10;
-    
+    // Sıklaştırma aralığı taraması (Ash kontrolü burada yapılır)
+    const start_s = Math.max(50, s_conf_geom_limit); // Geometrik sınırdan başla, aşağı in
+
     // Eğer geometrik sınır 50mm'den küçükse bu çapla fiziksel olarak sığmaz
     if (start_s < 50) {
-        continue; // Bir sonraki çapa geç
+      continue;
     }
 
     for (let s = start_s; s >= 50; s -= 10) {
-      // TBDY Denklem 7.1 ve 7.2
+      // TBDY Denklem 7.1 ve 7.2 (Ash Gereksinimi)
       const Ash_req_1 = 0.30 * s * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
       const Ash_req_2 = 0.075 * s * bk_max * (fck / fywk);
       const val_Ash_req = Math.max(Ash_req_1, Ash_req_2);
 
       if (Ash_provided_per_set >= val_Ash_req) {
-        current_s = s;
+        found_s_conf = s;
         calculated_Ash_req = val_Ash_req;
         isFound = true;
-        break; 
+        break;
       }
-      // Bulunamadıysa en son hesaplanan (en sık aralıktaki) gereksinimi sakla
-      calculated_Ash_req = val_Ash_req; 
+      calculated_Ash_req = val_Ash_req;
     }
 
-    // Sonuçları kaydet
     best_result = {
       isSafe: isFound,
-      message: isFound 
-        ? (currentDia > userStirrupDia_mm ? `Otomatik Artırıldı: Ø${currentDia}/${current_s/10}cm` : `Uygun (s=${current_s/10}cm)`) 
+      message: isFound
+        ? (currentDia > userStirrupDia_mm ? `Otomatik: Ø${currentDia}/${found_s_conf / 10}/${s_middle_calc / 10}` : `Uygun`)
         : 'Yetersiz Donatı',
-      s_opt: isFound ? current_s : 50,
+      s_conf: isFound ? found_s_conf : 50,
+      s_middle: s_middle_calc, // Orta bölge geometrik sınıra göre belirlendi
       Ash_prov: Ash_provided_per_set,
-      Ash_req: calculated_Ash_req, // Artık 0 dönmez, en azından son iterasyon değerini döner
-      s_max_code: s_geom_limit,
+      Ash_req: calculated_Ash_req,
+      s_max_code: s_conf_geom_limit,
       dia_used: currentDia
     };
 
-    // Eğer bu çapla güvenli bulunduysa döngüden çık, daha büyük çapa bakma
     if (isFound) break;
   }
 
@@ -377,6 +381,16 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const As_min_slab = 0.002 * 1000 * (dimensions.slabThickness * 10);
   const As_slab_design = Math.max(As_req_slab, As_min_slab);
 
+  // +++ BURAYI EKLEYİN (RAPOR İÇİN GEREKLİ VERİLER) +++
+  // 1. Donatı Oranı (Rho)
+  const rho_slab = As_slab_design / (1000 * d_slab_mm);
+  // 2. Min Kalınlık Kontrolü (TS500 Madde 11.2 - ln/25)
+  // ln: Serbest açıklık (kısa kenar). Temiz açıklık için kabaca aks aralığını alıyoruz.
+  const ln_slab_cm = Math.min(dimensions.lx, dimensions.ly) * 100; 
+  const min_thick_calc = ln_slab_cm / 25; 
+  const min_thick_limit = 8; // cm (Minimum sınır)
+  // +++ EKLEME BİTTİ +++
+
   // Aralık
   const barAreaSlab = Math.PI * Math.pow(rebars.slabDia / 2, 2);
   const spacingSlab = Math.floor(Math.min((barAreaSlab * 1000) / As_slab_design, 200) / 10) * 10;
@@ -402,6 +416,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   const As_beam_supp_final = Math.max(As_beam_supp_req, As_min_beam);
   const As_beam_span_final = Math.max(As_beam_span_req, As_min_beam);
+  const rho_beam_supp = As_beam_supp_final / (bw_mm * d_beam_mm);
+  const rho_beam_span = As_beam_span_final / (bw_mm * d_beam_mm);
+  const rho_beam_min = As_min_beam / (bw_mm * d_beam_mm);
+  const rho_beam_max = 0.02; // TS500 standardı maks sınır
 
   const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia / 2, 2);
   const countSupp = Math.ceil(As_beam_supp_final / barAreaBeam);
@@ -418,6 +436,15 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // Kesme Dayanımları (N)
   const Vcr_N = 0.65 * fctd * bw_mm * d_beam_mm; // TS500
   const Vmax_N = 0.22 * fcd * bw_mm * d_beam_mm;
+
+  // Beton Katkısı (Vc) - Basitleştirilmiş TS500 yaklaşımı (0.8 Vcr)
+  const Vc_beam_N = 0.8 * Vcr_N;
+  
+  // Etriye Katkısı (Vw)
+  let Vw_beam_N = 0;
+  if (V_beam_design_N > Vcr_N) {
+     Vw_beam_N = V_beam_design_N - Vc_beam_N;
+  }
 
   // Kiriş Etriye Hesabı (Aynı mantık, birimler düzgün)
   const stirrupDia = rebars.beamStirrupDia || 8;
@@ -555,15 +582,25 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const confResult = checkColumnConfinement(
     sections.colWidth * 10, sections.colDepth * 10, fck, colStirrupDia, rebars.colMainDia
   );
- // Sıklaştırma bölgesindeki aralık kullanılarak Vw hesabı
-  const s_used_col = confResult.s_opt;
-  const Asw_col = confResult.Ash_prov; 
+
+  // Sıklaştırma bölgesindeki aralık kullanılarak Kesme (Vw) hesabı yapılır (Kritik Kesit)
+  const s_used_col = confResult.s_conf; // DEĞİŞTİ: s_opt yerine s_conf
+  const Asw_col = confResult.Ash_prov;
   const d_col = hc_mm - 30;
 
   const Vw_col_N = (Asw_col * 420 * d_col) / s_used_col;
 
   const Vr_max_N = 0.22 * fcd * Ac_col_mm2;
   const Vr_col_N = Math.min(Vc_col_N + Vw_col_N, Vr_max_N);
+
+  // 1. TBDY Kesme Üst Sınırı (Vr_max) rapor değişkeni olarak da tutalım
+  const Vr_max_col = 0.22 * fcd * Ac_col_mm2; 
+
+  // 2. Sargı bölgesindeki çekirdek boyutunu (bk) raporda göstermek için hesaplayalım
+  const paspayi_col_r = 25; // Net beton örtüsü
+  const bk_x = (sections.colWidth * 10) - 2 * paspayi_col_r;
+  const bk_y = (sections.colDepth * 10) - 2 * paspayi_col_r;
+  const bk_max_val = Math.max(bk_x, bk_y);
 
   // Narinlik Kontrolü
   const Ic = (bc_mm * Math.pow(hc_mm, 3)) / 12;
@@ -654,31 +691,50 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   return {
     slab: {
-      pd: pd_N_m2 / 1000, // kN/m2
+      pd: pd_N_m2 / 1000, 
       alpha,
       d: d_slab_mm,
-      m_x: M_slab_Nm / 1000, // kNm
+      m_x: M_slab_Nm / 1000, 
       as_req: As_req_slab,
       as_min: As_min_slab,
       spacing: spacingSlab,
-      min_thickness: (lx_m * 100) / 25,
-      thicknessStatus: createStatus(dimensions.slabThickness >= 10, 'Uygun'),
+      
+      // +++ YENİ EKLENENLER +++
+      min_thickness_calculated: min_thick_calc,
+      min_thickness_limit: min_thick_limit,
+      rho: rho_slab,
+      // +++ ---------------- +++
+
+      // thicknessStatus GÜNCELLENDİ:
+ 
+      thicknessStatus: createStatus(dimensions.slabThickness >= min_thick_calc && dimensions.slabThickness >= min_thick_limit, 'Uygun'),
       status: createStatus(true)
     },
     beams: {
-      load_design: q_beam_design_N_m / 1000, // kN/m
-      moment_support: M_beam_supp_Nmm / 1e6, // kNm
-      moment_span: M_beam_span_Nmm / 1e6, // kNm
+      load_design: q_beam_design_N_m / 1000,
+      moment_support: M_beam_supp_Nmm / 1e6,
+      moment_span: M_beam_span_Nmm / 1e6,
       as_support_req: As_beam_supp_req,
       as_span_req: As_beam_span_req,
       count_support: countSupp,
       count_span: countSpan,
-      shear_design: V_beam_design_N / 1000, // kN
+      shear_design: V_beam_design_N / 1000, 
       shear_cracking: Vcr_N / 1000,
       shear_limit: Vmax_N / 1000,
+      
+      // +++ YENİ EKLENENLER +++
+      shear_Vc: Vc_beam_N / 1000,
+      shear_Vw: Vw_beam_N / 1000,
+
+      rho_support: rho_beam_supp,
+      rho_span: rho_beam_span,
+      rho_min: rho_beam_min,
+      rho_max: rho_beam_max,
+      // +++ ---------------- +++
+
       stirrup_result: {
         dia: stirrupDia,
-        s_support: s_supp_final_beam / 10, // cm
+        s_support: s_supp_final_beam / 10,
         s_span: s_span_beam / 10,
         text_support: `Ø${stirrupDia}/${s_supp_final_beam / 10}`,
         text_span: `Ø${stirrupDia}/${s_span_beam / 10}`
@@ -689,34 +745,38 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       checks: {
         shear: createStatus(V_beam_design_N < Vmax_N, 'Kesme Güvenli', 'Gevrek Kırılma Riski'),
         deflection: createStatus(delta_total < delta_limit, 'Sehim Uygun', 'Sehim Aşıldı'),
-        min_reinf: createStatus(As_beam_supp_final >= As_min_beam, 'Min Donatı OK'),
-        max_reinf: createStatus(As_beam_supp_final <= As_max_beam, 'Max Donatı OK', 'Max Sınır Aşıldı')
+        // min/max donatı kontrollerini yeni rho değişkenlerine bağladık:
+        min_reinf: createStatus(rho_beam_supp >= rho_beam_min, 'Min Donatı OK'),
+        max_reinf: createStatus(rho_beam_supp <= rho_beam_max, 'Max Donatı OK', 'Max Sınır Aşıldı')
       }
     },
     columns: {
-      axial_load_design: Nd_design_N / 1000, // kN
-      axial_capacity_max: colCapacity.N_max_N / 1000, // kN
-      moment_design: Md_design_Nmm / 1e6, // kNm
-      moment_magnified: Md_col_magnified_Nmm / 1e6, // kNm
+      axial_load_design: Nd_design_N / 1000, 
+      axial_capacity_max: colCapacity.N_max_N / 1000, 
+      moment_design: Md_design_Nmm / 1e6,
+      moment_magnified: Md_col_magnified_Nmm / 1e6,
 
       slenderness: {
         lambda,
         lambda_lim: 34,
         beta,
-        isSlender
+        isSlender,
+        i_rad: i_rad // +++ YENİ (Mevcut değişkenden alındı)
       },
       shear: {
         Ve: Ve_col_N / 1000,
         Vr: Vr_col_N / 1000,
         Vc: Vc_col_N / 1000,
-        Vw: Vw_col_N / 1000
+        Vw: Vw_col_N / 1000,
+        Vr_max: Vr_max_col / 1000 // +++ YENİ
       },
       confinement: {
         Ash_req: confResult.Ash_req,
         Ash_prov: confResult.Ash_prov,
         s_max: confResult.s_max_code,
-        s_opt: confResult.s_opt,
-        dia_used: confResult.dia_used // <--- EKLENDİ
+        s_opt: confResult.s_conf, // s_conf değerini s_opt alanına eşliyoruz
+        dia_used: confResult.dia_used, // +++ YENİ
+        bk_max: bk_max_val // +++ YENİ
       },
       interaction_ratio: colCapacity.capacity_ratio,
       strong_col_ratio: strongColRatio,
@@ -724,6 +784,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       rho_provided: rho_col,
       count_main: countCol,
       checks: {
+        // ... (Mevcut checkler aynı kalacak) ...
         axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', `%${(colCapacity.capacity_ratio * 100).toFixed(0)} Kapasite`),
         moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)} kNm`),
         shear_capacity: createStatus(Ve_col_N <= Vr_col_N, 'Kesme Güvenli', 'Kesme Yetersiz', 'Ve > Vr'),
@@ -740,9 +801,12 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       param_sd1: Sd1,
       period_t1: T1,
       spectrum_sae: Sae_coeff,
-      building_weight: W_total_N / 1000, // kN
-      base_shear: Vt_design_N / 1000, // kN
-      story_drift_check: createStatus(true, 'Göreli Öteleme Kontrol Edilmeli')
+      building_weight: W_total_N / 1000, 
+      base_shear: Vt_design_N / 1000, 
+      story_drift_check: createStatus(true, 'Göreli Öteleme Kontrol Edilmeli'),
+      // +++ YENİ +++
+      R_coefficient: seismic.Rx,
+      I_coefficient: seismic.I
     },
     foundation: {
       stress_actual: sigma_zemin_kPa,
@@ -753,7 +817,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       moment_design: M_found_Nmm / 1e6,
       as_req: As_found_final,
       as_provided_spacing: spacingFound,
+      // +++ YENİ +++
+      min_thickness_check: dimensions.foundationHeight >= 30, // TBDY Min radye kalınlığı
       checks: {
+         // ... Mevcut checkler aynı ...
         bearing: createStatus(sigma_zemin_kPa <= 200, 'Zemin Emniyetli', 'Zemin Yetersiz'),
         punching: createStatus(tau_pd <= fctd, 'Zımbalama OK', 'Zımbalama Riski', `τ=${tau_pd.toFixed(2)} MPa`),
         bending: createStatus(true, 'Eğilme Donatısı OK')
@@ -762,7 +829,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     joint: {
       shear_force: Ve_joint_N / 1000,
       shear_limit: Vmax_joint_N / 1000,
-      isSafe: Ve_joint_N <= Vmax_joint_N
+      isSafe: Ve_joint_N <= Vmax_joint_N,
+      // +++ YENİ +++
+      bj: bj_mm // Birleşim genişliği
     }
   };
-};
+}
