@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, CheckStatus } from './types';
 import { calculateStructure } from './utils/solver';
-import { getConcreteProperties, STEEL_FYD, CONCRETE_DENSITY } from './constants'; // Hesap detaylarını göstermek için eklendi
+import { getConcreteProperties, STEEL_FYD, CONCRETE_DENSITY } from './constants'; 
 import Visualizer from './components/Visualizer';
 import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings, AlertTriangle } from 'lucide-react';
 
@@ -12,14 +12,12 @@ const App: React.FC = () => {
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 }, 
     materials: { concreteClass: ConcreteClass.C30 },
-    // BURAYA colStirrupDia: 8 EKLENDİ
     rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
   const [showReport, setShowReport] = useState(false);
 
-  // Beton özelliklerini formüllerde göstermek için alıyoruz
   const { fck, fctd, fcd } = getConcreteProperties(state.materials.concreteClass);
 
   useEffect(() => {
@@ -33,11 +31,9 @@ const App: React.FC = () => {
     }));
   };
 
-  // Tüm kontrolleri tarayıp en kritik durumu döndüren yardımcı fonksiyon
   const getOverallStatus = (checks: Record<string, CheckStatus>): CheckStatus => {
     const failures = Object.values(checks).filter(c => !c.isSafe);
     if (failures.length > 0) {
-      // İlk bulunan hatayı döndür
       return failures[0];
     }
     return { isSafe: true, message: 'Tüm Kontroller Uygun' };
@@ -55,7 +51,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  // GÜNCELLENMİŞ ReportRow: Formül ve Hesap Adımı desteği eklendi
   const ReportRow = ({ label, value, unit, subtext, status, formula, calc }: 
     { label: string, value: string | number, unit?: string, subtext?: string, status?: boolean, formula?: string, calc?: string }) => (
     <div className="flex flex-col py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 px-2 rounded group">
@@ -71,11 +66,8 @@ const App: React.FC = () => {
           )}
         </div>
       </div>
-      
-      {/* Alt Bilgi ve Formül Kısmı */}
       <div className="flex flex-col mt-1 gap-1">
         {subtext && <span className="text-[10px] text-slate-400">{subtext}</span>}
-        
         {(formula || calc) && (
           <div className="bg-slate-50 p-2 rounded border border-slate-100 mt-1 text-[10px] font-mono text-slate-500 hidden group-hover:block animate-in fade-in duration-200">
             {formula && <div className="text-blue-600 mb-0.5"><span className="font-bold">Formül:</span> {formula}</div>}
@@ -88,7 +80,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 p-2 md:p-6 font-sans pb-20">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-4">
         
         {/* HEADER */}
         <header className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
@@ -102,224 +94,237 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* GİRDİLER - KARTLAR */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* TOP SECTION: YAPI & TEMEL (LEFT) - VISUALIZER (RIGHT) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
           
-         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500"/> Yapı & Temel</h2>
-            <div className="space-y-2 text-sm">
-                {/* Kat Adedi */}
-                <div>
-                  <label className="text-[10px] text-slate-500">Kat Adedi</label>
-                  <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-1 border rounded" />
-                </div>
-                
-                {/* YENİ EKLENEN KISIM: Kat Yüksekliği */}
-                <div>
-                  <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
-                  <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-1 border rounded bg-blue-50 font-bold text-blue-900" />
-                </div>
+          {/* LEFT COLUMN: Structure & Foundation Input */}
+          <div className="lg:col-span-3 flex flex-col h-full">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
+                <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500"/> Yapı & Temel</h2>
+                <div className="space-y-3 text-sm">
+                    {/* Kat Adedi */}
+                    <div>
+                      <label className="text-[10px] text-slate-500">Kat Adedi</label>
+                      <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-2 border rounded" />
+                    </div>
+                    
+                    {/* Kat Yüksekliği */}
+                    <div>
+                      <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
+                      <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-2 border rounded bg-blue-50 font-bold text-blue-900" />
+                    </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Lx (m)</label><input type="number" value={state.dimensions.lx} onChange={e => handleChange('dimensions', 'lx', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">Ly (m)</label><input type="number" value={state.dimensions.ly} onChange={e => handleChange('dimensions', 'ly', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                    <div className="grid grid-cols-2 gap-2">
+                       <div><label className="text-[10px] text-slate-500">Lx (m)</label><input type="number" value={state.dimensions.lx} onChange={e => handleChange('dimensions', 'lx', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                       <div><label className="text-[10px] text-slate-500">Ly (m)</label><input type="number" value={state.dimensions.ly} onChange={e => handleChange('dimensions', 'ly', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                       <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                       <div><label className="text-[10px] text-slate-500">Radye H</label><input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-2 border bg-emerald-50 rounded" /></div>
+                    </div>
+                    <div><label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label><input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-2 border rounded" /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">Radye H</label><input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-1 border bg-emerald-50 rounded" /></div>
-                </div>
-                <div><label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label><input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-1 border rounded" /></div>
             </div>
           </div>
-         
 
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          {/* RIGHT COLUMN: Visualizer */}
+          <div className="lg:col-span-9 h-full">
+             <div className="h-full">
+                <Visualizer dimensions={state.dimensions} sections={state.sections} />
+             </div>
+          </div>
+
+        </div>
+
+        {/* MIDDLE SECTION: OTHER INPUTS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          
+          {/* Kesitler */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Scale className="w-4 h-4 text-purple-500"/> Kesitler</h2>
-             <div className="space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Kiriş B</label><input type="number" value={state.sections.beamWidth} onChange={e => handleChange('sections', 'beamWidth', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">Kiriş H</label><input type="number" value={state.sections.beamDepth} onChange={e => handleChange('sections', 'beamDepth', +e.target.value)} className="w-full p-1 border rounded" /></div>
+             <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                   <div><label className="text-[10px] text-slate-500">Kiriş B</label><input type="number" value={state.sections.beamWidth} onChange={e => handleChange('sections', 'beamWidth', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">Kiriş H</label><input type="number" value={state.sections.beamDepth} onChange={e => handleChange('sections', 'beamDepth', +e.target.value)} className="w-full p-2 border rounded" /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Kolon B</label><input type="number" value={state.sections.colWidth} onChange={e => handleChange('sections', 'colWidth', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">Kolon H</label><input type="number" value={state.sections.colDepth} onChange={e => handleChange('sections', 'colDepth', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                   <div><label className="text-[10px] text-slate-500">Kolon B</label><input type="number" value={state.sections.colWidth} onChange={e => handleChange('sections', 'colWidth', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">Kolon H</label><input type="number" value={state.sections.colDepth} onChange={e => handleChange('sections', 'colDepth', +e.target.value)} className="w-full p-2 border rounded" /></div>
                 </div>
              </div>
           </div>
 
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          {/* Deprem & Yükler */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Deprem & Yükler</h2>
-             <div className="space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                   <div><label className="text-[10px] text-slate-500">Ss</label><input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-1 border rounded" /></div>
-                   <div><label className="text-[10px] text-slate-500">S1</label><input type="number" step="0.1" value={state.seismic.s1} onChange={e => handleChange('seismic', 's1', +e.target.value)} className="w-full p-1 border rounded bg-yellow-50" /></div>
+             <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                   <div><label className="text-[10px] text-slate-500">Ss</label><input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">S1</label><input type="number" step="0.1" value={state.seismic.s1} onChange={e => handleChange('seismic', 's1', +e.target.value)} className="w-full p-2 border rounded bg-yellow-50" /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                    <div>
                      <label className="text-[10px] text-slate-500">Zemin</label>
-                     <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-1 border rounded bg-slate-50 text-xs">
+                     <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-2 border rounded bg-slate-50 text-xs">
                          {Object.values(SoilClass).map(sc => <option key={sc} value={sc}>{sc}</option>)}
                      </select>
                    </div>
-                   <div><label className="text-[10px] text-slate-500">Rx (Sistem)</label><input type="number" value={state.seismic.Rx} onChange={e => handleChange('seismic', 'Rx', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                   <div><label className="text-[10px] text-slate-500">Rx (Sistem)</label><input type="number" value={state.seismic.Rx} onChange={e => handleChange('seismic', 'Rx', +e.target.value)} className="w-full p-2 border rounded" /></div>
                 </div>
-                <div><label className="text-[10px] text-slate-500">Hareketli Yük (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-1 border rounded" /></div>
+                <div><label className="text-[10px] text-slate-500">Hareketli Yük (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-2 border rounded" /></div>
              </div>
           </div>
 
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          {/* Donatı Çapları */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
             <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-600"/> Donatı Çapları</h2>
-             <div className="space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-1 text-xs">
+             <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-3 text-xs">
                    <div>
                      <label className="text-[9px] text-slate-400 block">Döşeme</label>
-                     <select value={state.rebars.slabDia} onChange={e => handleChange('rebars', 'slabDia', +e.target.value)} className="w-full border rounded">
+                     <select value={state.rebars.slabDia} onChange={e => handleChange('rebars', 'slabDia', +e.target.value)} className="w-full p-2 border rounded">
                         {[8, 10, 12].map(d => <option key={d} value={d}>Ø{d}</option>)}
                      </select>
                    </div>
                    <div>
                      <label className="text-[9px] text-slate-400 block">Kiriş</label>
-                     <select value={state.rebars.beamMainDia} onChange={e => handleChange('rebars', 'beamMainDia', +e.target.value)} className="w-full border rounded">
+                     <select value={state.rebars.beamMainDia} onChange={e => handleChange('rebars', 'beamMainDia', +e.target.value)} className="w-full p-2 border rounded">
                         {[12, 14, 16, 20].map(d => <option key={d} value={d}>Ø{d}</option>)}
                      </select>
                    </div>
                    <div>
                      <label className="text-[9px] text-slate-400 block">Kolon</label>
-                     <select value={state.rebars.colMainDia} onChange={e => handleChange('rebars', 'colMainDia', +e.target.value)} className="w-full border rounded">
+                     <select value={state.rebars.colMainDia} onChange={e => handleChange('rebars', 'colMainDia', +e.target.value)} className="w-full p-2 border rounded">
                         {[14, 16, 20, 22].map(d => <option key={d} value={d}>Ø{d}</option>)}
                      </select>
                    </div>
                    <div>
                      <label className="text-[9px] text-slate-400 block">Radye</label>
-                     <select value={state.rebars.foundationDia} onChange={e => handleChange('rebars', 'foundationDia', +e.target.value)} className="w-full border rounded bg-emerald-50">
+                     <select value={state.rebars.foundationDia} onChange={e => handleChange('rebars', 'foundationDia', +e.target.value)} className="w-full p-2 border rounded bg-emerald-50">
                         {[12, 14, 16, 20].map(d => <option key={d} value={d}>Ø{d}</option>)}
                      </select>
                    </div>
                 </div>
              </div>
           </div>
-
         </div>
-
-        {/* GÖRSELLER */}
-        <div><Visualizer dimensions={state.dimensions} sections={state.sections} /></div>
 
       {/* SONUÇ KARTLARI - TAM LİSTE (HİÇBİR ŞEY SİLİNMEDEN) */}
-{results && (
-  <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
-    
-    {/* 1. Döşeme Kartı */}
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-       <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
-       <h3 className="font-bold text-slate-700 mb-2 text-sm">DÖŞEME</h3>
-       <div className="space-y-1 text-xs text-slate-600 relative z-10">
-         <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
-         <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
-         <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
-         <StatusBadge status={getOverallStatus({ thickness: results.slab.thicknessStatus, general: results.slab.status })} />
-       </div>
-    </div>
+      {results && (
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          
+          {/* 1. Döşeme Kartı */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
+             <h3 className="font-bold text-slate-700 mb-2 text-sm">DÖŞEME</h3>
+             <div className="space-y-1 text-xs text-slate-600 relative z-10">
+               <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
+               <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
+               <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
+               <StatusBadge status={getOverallStatus({ thickness: results.slab.thicknessStatus, general: results.slab.status })} />
+             </div>
+          </div>
 
-    {/* 2. Kiriş Kartı - Boyuna + Etriye */}
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-       <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
-       <h3 className="font-bold text-slate-700 mb-2 text-sm">KİRİŞ</h3>
-       <div className="space-y-1 text-xs text-slate-600 relative z-10">
-         <div className="flex justify-between">
-           <span>Boyuna:</span> 
-           <b className="text-slate-900">{results.beams.count_span}Ø{state.rebars.beamMainDia}</b>
-         </div>
-         <div className="flex flex-col gap-1 my-1 border-t border-b border-dashed py-1">
-            <div className="flex justify-between">
-               <span className="text-purple-600 font-medium">Sıklaştırma:</span>
-               <b className="text-purple-700">{results.beams.stirrup_result.text_support}</b>
+          {/* 2. Kiriş Kartı - Boyuna + Etriye */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
+             <h3 className="font-bold text-slate-700 mb-2 text-sm">KİRİŞ</h3>
+             <div className="space-y-1 text-xs text-slate-600 relative z-10">
+               <div className="flex justify-between">
+                 <span>Boyuna:</span> 
+                 <b className="text-slate-900">{results.beams.count_span}Ø{state.rebars.beamMainDia}</b>
+               </div>
+               <div className="flex flex-col gap-1 my-1 border-t border-b border-dashed py-1">
+                  <div className="flex justify-between">
+                     <span className="text-purple-600 font-medium">Sıklaştırma:</span>
+                     <b className="text-purple-700">{results.beams.stirrup_result.text_support}</b>
+                  </div>
+                  <div className="flex justify-between">
+                     <span className="text-slate-500">Orta Bölge:</span>
+                     <b className="text-slate-700">{results.beams.stirrup_result.text_span}</b>
+                  </div>
+               </div>
+            
+               <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
+                  <span>Vd: {results.beams.shear_design.toFixed(1)} kN</span>
+                  <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
+               </div>
+               <StatusBadge status={getOverallStatus(results.beams.checks)} />
+             </div>
+          </div>
+
+          {/* 3. Kolon Kartı - Boyuna + Sargı (Etriye) */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
+             <h3 className="font-bold text-slate-700 mb-2 text-sm">KOLON</h3>
+             <div className="space-y-1 text-xs text-slate-600 relative z-10">
+               <div className="flex justify-between">
+                 <span>Boyuna:</span> 
+                 <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
+               </div>
+               <div className="flex justify-between">
+                  <span>Sargı (Sık/Orta):</span> 
+                  <b className="text-emerald-600">
+                     {/* Gerçek kullanılan çapı gösterelim */}
+                    Ø{results.columns.confinement.dia_used} / {results.columns.confinement.s_conf / 10} / {results.columns.confinement.s_middle / 10}
+                  </b>
+               </div>
+               
+               {/* YENİ EKLENEN NARİNLİK SATIRI */}
+               <div className="flex justify-between border-t border-dashed pt-1 mt-1">
+                  <span>Narinlik:</span>
+                  <b className={`${results.columns.checks.slendernessCheck.isSafe ? (results.columns.slenderness.isSlender ? 'text-orange-500' : 'text-slate-700') : 'text-red-600'}`}>
+                     {results.columns.checks.slendernessCheck.message}
+                  </b>
+               </div>
+
+               <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
+                  <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
+                  <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>
+               </div>
+               
+               {/* getOverallStatus artık slendernessCheck'i de kapsayacak */}
+               <StatusBadge status={getOverallStatus(results.columns.checks)} />
+             </div>
+          </div>
+
+          {/* 4. Radye Kartı */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
+             <h3 className="font-bold text-slate-700 mb-2 text-sm">RADYE</h3>
+             <div className="space-y-1 text-xs text-slate-600 relative z-10">
+               <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
+               <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
+               <StatusBadge status={getOverallStatus(results.foundation.checks)} />
+             </div>
+          </div>
+
+          {/* 5. Birleşim (Joint) Kartı */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
+            <h3 className="font-bold text-slate-700 mb-2 text-sm">BİRLEŞİM (JOINT)</h3>
+            <div className="space-y-1 text-xs text-slate-600 relative z-10">
+              <div className="flex justify-between">
+                  <span>Ve:</span> 
+                  <b>{results.joint.shear_force.toFixed(1)} kN</b>
+              </div>
+              <div className="flex justify-between">
+                  <span>Vmax:</span> 
+                  <b>{results.joint.shear_limit.toFixed(1)} kN</b>
+              </div>
+              <div className="flex justify-between border-t pt-1 mt-1">
+                  <span>Durum:</span>
+                  <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
+                      {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
+                  </span>
+              </div>
             </div>
-            <div className="flex justify-between">
-               <span className="text-slate-500">Orta Bölge:</span>
-               <b className="text-slate-700">{results.beams.stirrup_result.text_span}</b>
-            </div>
-         </div>
-      
-         <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
-            <span>Vd: {results.beams.shear_design.toFixed(1)} kN</span>
-            <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
-         </div>
-         <StatusBadge status={getOverallStatus(results.beams.checks)} />
-       </div>
-    </div>
+          </div>
 
-    {/* 3. Kolon Kartı - Boyuna + Sargı (Etriye) */}
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-       <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
-       <h3 className="font-bold text-slate-700 mb-2 text-sm">KOLON</h3>
-       <div className="space-y-1 text-xs text-slate-600 relative z-10">
-         <div className="flex justify-between">
-           <span>Boyuna:</span> 
-           <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
-         </div>
-         <div className="flex justify-between">
-            <span>Sargı (Sık/Orta):</span> 
-            <b className="text-emerald-600">
-               {/* Gerçek kullanılan çapı gösterelim */}
-              Ø{results.columns.confinement.dia_used} / {results.columns.confinement.s_conf / 10} / {results.columns.confinement.s_middle / 10}
-            </b>
-         </div>
-         
-         {/* YENİ EKLENEN NARİNLİK SATIRI */}
-         <div className="flex justify-between border-t border-dashed pt-1 mt-1">
-            <span>Narinlik:</span>
-            <b className={`${results.columns.checks.slendernessCheck.isSafe ? (results.columns.slenderness.isSlender ? 'text-orange-500' : 'text-slate-700') : 'text-red-600'}`}>
-               {results.columns.checks.slendernessCheck.message}
-            </b>
-         </div>
-
-         <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
-            <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
-            <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>
-         </div>
-         
-         {/* getOverallStatus artık slendernessCheck'i de kapsayacak */}
-         <StatusBadge status={getOverallStatus(results.columns.checks)} />
-       </div>
-    </div>
-
-    {/* 4. Radye Kartı */}
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-       <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
-       <h3 className="font-bold text-slate-700 mb-2 text-sm">RADYE</h3>
-       <div className="space-y-1 text-xs text-slate-600 relative z-10">
-         <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
-         <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
-         <StatusBadge status={getOverallStatus(results.foundation.checks)} />
-       </div>
-    </div>
-
-    {/* 5. Birleşim (Joint) Kartı - (Geri Eklendi) */}
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
-      <h3 className="font-bold text-slate-700 mb-2 text-sm">BİRLEŞİM (JOINT)</h3>
-      <div className="space-y-1 text-xs text-slate-600 relative z-10">
-        <div className="flex justify-between">
-            <span>Ve:</span> 
-            <b>{results.joint.shear_force.toFixed(1)} kN</b>
         </div>
-        <div className="flex justify-between">
-            <span>Vmax:</span> 
-            <b>{results.joint.shear_limit.toFixed(1)} kN</b>
-        </div>
-        <div className="flex justify-between border-t pt-1 mt-1">
-            <span>Durum:</span>
-            <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
-                {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
-            </span>
-        </div>
-      </div>
-    </div>
+      )}
 
-  </div>
-)}
-
-        {/* DETAYLI MÜHENDİSLİK RAPORU - GÜNCELLENDİ (Formüllerle) */}
+        {/* DETAYLI MÜHENDİSLİK RAPORU */}
         {results && (
           <div>
             <button 
@@ -331,7 +336,6 @@ const App: React.FC = () => {
               {showReport ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
             </button>
             
-            {/* Bilgilendirme notu */}
             {showReport && (
                <div className="mt-2 text-center text-xs text-slate-500 italic">
                   * Detaylı formülleri görmek için satırların üzerine geliniz.
@@ -381,7 +385,6 @@ const App: React.FC = () => {
                   <div className="bg-white p-6">
                     <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
                     <div className="space-y-1">
-                      {/* YENİ ETRİYE DETAYI */}
                        <div className="py-2 px-2 bg-purple-50 rounded border border-purple-100 my-2">
                           <div className="flex justify-between text-xs font-bold text-purple-800 mb-1 border-b border-purple-200 pb-1">
                              <span>Etriye Seçimi (Ø{results.beams.stirrup_result.dia})</span>
@@ -437,12 +440,10 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* YENİ KOLON RAPORU BAŞLANGICI */}
                   <div className="bg-white p-6 col-span-1 lg:col-span-2">
                      <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON DETAYLI ANALİZİ (TBDY 2018 & TS500)</h4>
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                        
-                       {/* SOL SÜTUN: EKSENEL, MOMENT, NARİNLİK */}
                        <div className="space-y-1">
                           <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">A. EKSENEL KUVVET VE EĞİLME</h5>
                           
@@ -481,7 +482,6 @@ const App: React.FC = () => {
                           />
                        </div>
 
-                       {/* SAĞ SÜTUN: KESME, SARGI, GÜÇLÜ KOLON */}
                        <div className="space-y-1">
                           <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">B. KESME VE SARGI (KAPASİTE TASARIMI)</h5>
                           
@@ -523,7 +523,6 @@ const App: React.FC = () => {
                        </div>
                      </div>
                   </div>
-                  {/* YENİ KOLON RAPORU BİTİŞİ */}
 
                   <div className="bg-white p-6">
                   <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
@@ -544,8 +543,6 @@ const App: React.FC = () => {
                       />
                   </div>
                   </div>
-
-
 
                    <div className="bg-white p-6">
                      <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. TBDY 2018 DEPREM ANALİZİ</h4>

@@ -151,9 +151,9 @@ confinement: {
       Ash_req: number;
       Ash_prov: number;
       s_max: number;
-      s_opt: number;
+      s_conf: number;   // DEĞİŞTİ: Eskiden s_opt idi, s_conf yaptık
+      s_middle: number; // YENİ EKLENDİ: Orta bölge aralığı
       dia_used: number;
-      // YENİ: Hesap parametreleri gösterimi için
       bk_max: number;
     };
 
