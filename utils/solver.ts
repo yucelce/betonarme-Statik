@@ -386,8 +386,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const rho_slab = As_slab_design / (1000 * d_slab_mm);
   // 2. Min Kalınlık Kontrolü (TS500 Madde 11.2 - ln/25)
   // ln: Serbest açıklık (kısa kenar). Temiz açıklık için kabaca aks aralığını alıyoruz.
-  const ln_slab_cm = Math.min(dimensions.lx, dimensions.ly) * 100; 
-  const min_thick_calc = ln_slab_cm / 25; 
+  const ln_slab_cm = Math.min(dimensions.lx, dimensions.ly) * 100;
+  const min_thick_calc = ln_slab_cm / 25;
   const min_thick_limit = 8; // cm (Minimum sınır)
   // +++ EKLEME BİTTİ +++
 
@@ -439,11 +439,11 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   // Beton Katkısı (Vc) - Basitleştirilmiş TS500 yaklaşımı (0.8 Vcr)
   const Vc_beam_N = 0.8 * Vcr_N;
-  
+
   // Etriye Katkısı (Vw)
   let Vw_beam_N = 0;
   if (V_beam_design_N > Vcr_N) {
-     Vw_beam_N = V_beam_design_N - Vc_beam_N;
+    Vw_beam_N = V_beam_design_N - Vc_beam_N;
   }
 
   // Kiriş Etriye Hesabı (Aynı mantık, birimler düzgün)
@@ -594,7 +594,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const Vr_col_N = Math.min(Vc_col_N + Vw_col_N, Vr_max_N);
 
   // 1. TBDY Kesme Üst Sınırı (Vr_max) rapor değişkeni olarak da tutalım
-  const Vr_max_col = 0.22 * fcd * Ac_col_mm2; 
+  const Vr_max_col = 0.22 * fcd * Ac_col_mm2;
 
   // 2. Sargı bölgesindeki çekirdek boyutunu (bk) raporda göstermek için hesaplayalım
   const paspayi_col_r = 25; // Net beton örtüsü
@@ -691,23 +691,26 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   return {
     slab: {
-      pd: pd_N_m2 / 1000, 
+      pd: pd_N_m2 / 1000,
       alpha,
       d: d_slab_mm,
-      m_x: M_slab_Nm / 1000, 
+      m_x: M_slab_Nm / 1000,
       as_req: As_req_slab,
       as_min: As_min_slab,
       spacing: spacingSlab,
-      
+
       // +++ YENİ EKLENENLER +++
       min_thickness_calculated: min_thick_calc,
       min_thickness_limit: min_thick_limit,
       rho: rho_slab,
       // +++ ---------------- +++
 
-      // thicknessStatus GÜNCELLENDİ:
- 
-      thicknessStatus: createStatus(dimensions.slabThickness >= min_thick_calc && dimensions.slabThickness >= min_thick_limit, 'Uygun'),
+      thicknessStatus: createStatus(
+        dimensions.slabThickness >= min_thick_calc && dimensions.slabThickness >= min_thick_limit,
+        'Uygun',
+        'Kalınlık Yetersiz',
+        `Gereken: ${Math.max(min_thick_calc, min_thick_limit).toFixed(1)} cm`
+      ),
       status: createStatus(true)
     },
     beams: {
@@ -718,10 +721,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       as_span_req: As_beam_span_req,
       count_support: countSupp,
       count_span: countSpan,
-      shear_design: V_beam_design_N / 1000, 
+      shear_design: V_beam_design_N / 1000,
       shear_cracking: Vcr_N / 1000,
       shear_limit: Vmax_N / 1000,
-      
+
       // +++ YENİ EKLENENLER +++
       shear_Vc: Vc_beam_N / 1000,
       shear_Vw: Vw_beam_N / 1000,
@@ -751,8 +754,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       }
     },
     columns: {
-      axial_load_design: Nd_design_N / 1000, 
-      axial_capacity_max: colCapacity.N_max_N / 1000, 
+      axial_load_design: Nd_design_N / 1000,
+      axial_capacity_max: colCapacity.N_max_N / 1000,
       moment_design: Md_design_Nmm / 1e6,
       moment_magnified: Md_col_magnified_Nmm / 1e6,
 
@@ -802,8 +805,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       param_sd1: Sd1,
       period_t1: T1,
       spectrum_sae: Sae_coeff,
-      building_weight: W_total_N / 1000, 
-      base_shear: Vt_design_N / 1000, 
+      building_weight: W_total_N / 1000,
+      base_shear: Vt_design_N / 1000,
       story_drift_check: createStatus(true, 'Göreli Öteleme Kontrol Edilmeli'),
       // +++ YENİ +++
       R_coefficient: seismic.Rx,
@@ -821,7 +824,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       // +++ YENİ +++
       min_thickness_check: dimensions.foundationHeight >= 30, // TBDY Min radye kalınlığı
       checks: {
-         // ... Mevcut checkler aynı ...
+        // ... Mevcut checkler aynı ...
         bearing: createStatus(sigma_zemin_kPa <= 200, 'Zemin Emniyetli', 'Zemin Yetersiz'),
         punching: createStatus(tau_pd <= fctd, 'Zımbalama OK', 'Zımbalama Riski', `τ=${tau_pd.toFixed(2)} MPa`),
         bending: createStatus(true, 'Eğilme Donatısı OK')
