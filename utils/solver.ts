@@ -232,12 +232,12 @@ const checkColumnConfinement = (
   const Ack = bk_x * bk_y;
   const b_min = Math.min(bw_mm, hw_mm);
 
-let n_legs_estimate = 2;
-const max_dim = Math.max(bw_mm, hw_mm);
+  let n_legs_estimate = 2;
+  const max_dim = Math.max(bw_mm, hw_mm);
 
-if (max_dim <= 350) n_legs_estimate = 2;       // 25, 30, 35 lik kolonlar (Sadece dış etriye)
-else if (max_dim <= 600) n_legs_estimate = 3;  // 40, 50, 60 lık (1 adet çiroz)
-else n_legs_estimate = 4;                      // 70+ (Çift çiroz veya iç içe etriye)
+  if (max_dim <= 350) n_legs_estimate = 2;       // 25, 30, 35 lik kolonlar (Sadece dış etriye)
+  else if (max_dim <= 600) n_legs_estimate = 3;  // 40, 50, 60 lık (1 adet çiroz)
+  else n_legs_estimate = 4;                      // 70+ (Çift çiroz veya iç içe etriye)
 
   let diametersToTry = [userStirrupDia_mm];
   if (userStirrupDia_mm < 10) diametersToTry.push(10);
@@ -523,13 +523,30 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const hc_mm = sections.colDepth * 10;
   const Ac_col_mm2 = bc_mm * hc_mm;
 
-  // Eksenel Yükler (N)
-  const N_gravity_N = W_total_N / 4; // 4 Kolonlu varsayım
-  const M_overturn_Nm = Vt_design_N * (0.65 * totalHeight_m);
-  const N_seismic_N = M_overturn_Nm / (lx_m * 2); // Kabaca devrilme etkisi
+  // --- A. Statik Düşey Yükler (1.4G + 1.6Q) ---
+  // Toplam G ve Q'yu ayrı ayrı bulalım
+  const W_dead_total = (g_slab_N_m2 + g_coating_N_m2) * area_m2 * storyCount
+    + (g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly)) * storyCount
+    + W_col_N * storyCount
+    + W_wall_N * storyCount;
 
-  // Tasarım Eksenel Yükü (G+Q+E)
-  const Nd_design_N = 1.0 * N_gravity_N + 1.0 * N_seismic_N;
+  const W_live_total = (q_live_N_m2 * area_m2) * storyCount;
+
+  // Bir kolona düşen yük (Basitleştirilmiş: Toplam / 4)
+  const N_dead_per_col = W_dead_total / 4;
+  const N_live_per_col = W_live_total / 4;
+
+  const Nd_static_N = 1.4 * N_dead_per_col + 1.6 * N_live_per_col;
+
+  // --- B. Deprem Durumu (1.0G + 0.3Q + 1.0E) ---
+  const N_gravity_seismic_N = W_total_N / 4; // W_total zaten G + 0.3Q içeriyor
+  const M_overturn_Nm = Vt_design_N * (0.65 * totalHeight_m);
+  const N_seismic_N = M_overturn_Nm / (lx_m * 2);
+
+  const Nd_seismic_combo_N = N_gravity_seismic_N + N_seismic_N;
+
+  // TASARIM YÜKÜ (En elverişsiz olanı seç)
+  const Nd_design_N = Math.max(Nd_static_N, Nd_seismic_combo_N);
 
   // Moment Etkisi (Nmm)
   // Deprem Kesmesi kolona düşen (Tek kolon)
@@ -561,7 +578,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // Kolonların toplam kapasitesi = Mr_col_alt + Mr_col_üst (Simetrik kabul: 2 * Mr_col)
   // Kirişlerin toplam kapasitesi = Mr_beam_sol + Mr_beam_sağ (Simetrik kabul: 2 * Mr_beam)
   const sum_M_col = 2 * Mr_col_Nmm;
-  const sum_M_beam = 1 * Mr_beam_Nmm; 
+  const sum_M_beam = 1 * Mr_beam_Nmm;
   // DÜZELTME: Kiriş pekleşme momenti (1.4 * Mr) dikkate alınmalı (TBDY Madde 7.3)
   const sum_M_beam_hardening = sum_M_beam * 1.4;
   const strongColRatio = sum_M_col / (sum_M_beam_hardening + 1);
