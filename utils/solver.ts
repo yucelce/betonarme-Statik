@@ -232,8 +232,12 @@ const checkColumnConfinement = (
   const Ack = bk_x * bk_y;
   const b_min = Math.min(bw_mm, hw_mm);
 
-  // Etriye kol sayısı
-  const n_legs = (Math.max(bw_mm, hw_mm) >= 400) ? 3 : 2;
+let n_legs_estimate = 2;
+const max_dim = Math.max(bw_mm, hw_mm);
+
+if (max_dim <= 350) n_legs_estimate = 2;       // 25, 30, 35 lik kolonlar (Sadece dış etriye)
+else if (max_dim <= 600) n_legs_estimate = 3;  // 40, 50, 60 lık (1 adet çiroz)
+else n_legs_estimate = 4;                      // 70+ (Çift çiroz veya iç içe etriye)
 
   let diametersToTry = [userStirrupDia_mm];
   if (userStirrupDia_mm < 10) diametersToTry.push(10);
@@ -254,7 +258,7 @@ const checkColumnConfinement = (
   // ÇAP DÖNGÜSÜ
   for (const currentDia of diametersToTry) {
     const A_stirrup_one = Math.PI * Math.pow(currentDia / 2, 2);
-    const Ash_provided_per_set = n_legs * A_stirrup_one;
+    const Ash_provided_per_set = n_legs_estimate * A_stirrup_one;
 
     // --- 1. SIKLAŞTIRMA BÖLGESİ (TBDY 7.3.4.1) ---
     // s <= b_min/3, s <= 150mm, s <= 6*phi_l
