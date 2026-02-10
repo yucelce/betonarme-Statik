@@ -387,7 +387,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // 2. Min Kalınlık Kontrolü (TS500 Madde 11.2 - ln/25)
   // ln: Serbest açıklık (kısa kenar). Temiz açıklık için kabaca aks aralığını alıyoruz.
   const ln_slab_cm = Math.min(dimensions.lx, dimensions.ly) * 100;
-  const min_thick_calc = ln_slab_cm / 25;
+  const min_thick_calc = ln_slab_cm / 30;
   const min_thick_limit = 8; // cm (Minimum sınır)
   // +++ EKLEME BİTTİ +++
 
