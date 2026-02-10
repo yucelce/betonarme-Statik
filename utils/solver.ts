@@ -774,9 +774,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         Ash_req: confResult.Ash_req,
         Ash_prov: confResult.Ash_prov,
         s_max: confResult.s_max_code,
-        s_opt: confResult.s_conf, // s_conf değerini s_opt alanına eşliyoruz
-        dia_used: confResult.dia_used, // +++ YENİ
-        bk_max: bk_max_val // +++ YENİ
+        s_conf: confResult.s_conf,        // EKLENDİ: Sıklaştırma aralığı
+        s_middle: confResult.s_middle,    // EKLENDİ: Orta bölge aralığı
+        dia_used: confResult.dia_used,
+        bk_max: bk_max_val
       },
       interaction_ratio: colCapacity.capacity_ratio,
       strong_col_ratio: strongColRatio,
