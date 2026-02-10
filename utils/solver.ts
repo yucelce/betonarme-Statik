@@ -557,7 +557,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // Kolonların toplam kapasitesi = Mr_col_alt + Mr_col_üst (Simetrik kabul: 2 * Mr_col)
   // Kirişlerin toplam kapasitesi = Mr_beam_sol + Mr_beam_sağ (Simetrik kabul: 2 * Mr_beam)
   const sum_M_col = 2 * Mr_col_Nmm;
-  const sum_M_beam = 1 * Mr_beam_Nmm; // HATA DÜZELTİLDİ: Tek kiriş yerine 2 kiriş etkisi
+  const sum_M_beam = 1 * Mr_beam_Nmm; 
   // DÜZELTME: Kiriş pekleşme momenti (1.4 * Mr) dikkate alınmalı (TBDY Madde 7.3)
   const sum_M_beam_hardening = sum_M_beam * 1.4;
   const strongColRatio = sum_M_col / (sum_M_beam_hardening + 1);
