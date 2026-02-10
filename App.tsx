@@ -98,20 +98,20 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
 
           {/* LEFT COLUMN: Structure & Foundation Input */}
-          <div className="lg:col-span-3 flex flex-col h-full">
+          <div className="lg:col-span-4 flex flex-col h-full">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
               <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500" /> Yapı & Temel</h2>
               <div className="space-y-3 text-sm">
-                {/* Kat Adedi */}
-                <div>
-                  <label className="text-[10px] text-slate-500">Kat Adedi</label>
-                  <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-2 border rounded" />
-                </div>
-
-                {/* Kat Yüksekliği */}
-                <div>
-                  <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
-                  <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-2 border rounded bg-blue-50 font-bold text-blue-900" />
+                {/* Kat Adedi ve Yükseklik */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Kat Adedi</label>
+                    <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
+                    <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-2 border rounded bg-blue-50 font-bold text-blue-900" />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -122,13 +122,33 @@ const App: React.FC = () => {
                   <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-2 border rounded" /></div>
                   <div><label className="text-[10px] text-slate-500">Radye H</label><input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-2 border bg-emerald-50 rounded" /></div>
                 </div>
-                <div><label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label><input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-2 border rounded" /></div>
+
+                {/* YENİ DÜZEN: Radye Ampatman ve Beton Sınıfı Yan Yana */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label>
+                    <input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold text-blue-600">Beton Sınıfı</label>
+                    <select
+                      value={state.materials.concreteClass}
+                      onChange={e => handleChange('materials', 'concreteClass', e.target.value)}
+                      className="w-full p-2 border rounded bg-blue-50 text-blue-900 font-bold text-xs"
+                    >
+                      {Object.values(ConcreteClass).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Visualizer */}
-          <div className="lg:col-span-9 h-full">
+          {/* RIGHT COLUMN: Visualizer - DARALTILDI (col-span-9 -> col-span-8) */}
+          <div className="lg:col-span-8 h-full">
             <div className="h-full">
               <Visualizer dimensions={state.dimensions} sections={state.sections} />
             </div>
@@ -163,18 +183,6 @@ const App: React.FC = () => {
                 <div><label className="text-[10px] text-slate-500">S1</label><input type="number" step="0.1" value={state.seismic.s1} onChange={e => handleChange('seismic', 's1', +e.target.value)} className="w-full p-2 border rounded bg-yellow-50" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] text-slate-500 font-bold text-blue-600">Beton Sınıfı</label>
-                  <select
-                    value={state.materials.concreteClass}
-                    onChange={e => handleChange('materials', 'concreteClass', e.target.value)}
-                    className="w-full p-2 border rounded bg-blue-50 text-blue-900 font-bold text-xs"
-                  >
-                    {Object.values(ConcreteClass).map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
                 <div>
                   <label className="text-[10px] text-slate-500">Zemin</label>
                   <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-2 border rounded bg-slate-50 text-xs">
