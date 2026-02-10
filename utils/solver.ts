@@ -207,75 +207,110 @@ const calculateColumnCapacityForAxialLoad = (
  * KOLON SARILMA (ETRİYE) KONTROLÜ
  * TBDY 2018 Madde 7.3.4
  */
+/**
+ * KOLON SARILMA (ETRİYE) KONTROLÜ - GÜNCELLENDİ (OTOMATİK ÇAP ARTIRMA)
+ * TBDY 2018 Madde 7.3.4
+ */
 const checkColumnConfinement = (
   bw_mm: number,
   hw_mm: number,
   fck: number,
-  stirrupDia_mm: number,
+  userStirrupDia_mm: number, // Kullanıcının seçtiği
   colMainDia_mm: number
-): { isSafe: boolean; message: string; s_opt: number; Ash_prov: number; Ash_req: number; s_max_code: number } => {
+): { isSafe: boolean; message: string; s_opt: number; Ash_prov: number; Ash_req: number; s_max_code: number; dia_used: number } => {
 
-  const fywk = 420; // Etriye akma dayanımı (MPa)
+  const fywk = 420; 
   const paspayi_mm = 25;
 
   const bk_x = bw_mm - 2 * paspayi_mm;
   const bk_y = hw_mm - 2 * paspayi_mm;
-  const bk_max = Math.max(bk_x, bk_y); // En büyük çekirdek boyutu
+  const bk_max = Math.max(bk_x, bk_y);
 
-  const Ac = bw_mm * hw_mm; // Brüt alan
-  const Ack = bk_x * bk_y;  // Çekirdek alanı
+  const Ac = bw_mm * hw_mm;
+  const Ack = bk_x * bk_y;
 
-  // Etriye kol sayısı (b veya h > 400mm ise en az 3 kol, değilse 2 kol varsayımı)
+  // Etriye kol sayısı (b veya h >= 400mm ise en az 3 kol, değilse 2 kol)
+  // 40x40 bir kolonda çiroz ile 3 kol çalışır.
   const n_legs = (Math.max(bw_mm, hw_mm) >= 400) ? 3 : 2;
 
-  const A_stirrup_one = Math.PI * Math.pow(stirrupDia_mm / 2, 2);
-  const Ash_provided_per_set = n_legs * A_stirrup_one; // Bir setteki toplam etriye alanı (mm2)
+  // Denenecek çaplar: Kullanıcının seçtiği, yetmezse 10, yetmezse 12
+  let diametersToTry = [userStirrupDia_mm];
+  if (userStirrupDia_mm < 10) diametersToTry.push(10);
+  if (userStirrupDia_mm < 12) diametersToTry.push(12);
+  // Çift kayıtları temizle (örn kullanıcı 10 seçtiyse [10, 10, 12] olmasın)
+  diametersToTry = [...new Set(diametersToTry)].sort((a, b) => a - b);
 
-  // Maksimum Aralık Koşulları (TBDY 2018)
-  const s_max_1 = Math.min(bw_mm, hw_mm) / 3; // En küçük boyutun 1/3'ü
-  const s_max_2 = 150; // 150 mm
-  const s_max_3 = 6 * colMainDia_mm; // Boyuna donatı çapının 6 katı
-  const s_geom_limit = Math.min(s_max_1, s_max_2, s_max_3);
-  // Min aralık 50mm, max 150mm (sarılma bölgesi için 100mm genelde pratiktir)
-  const search_limit = Math.min(s_geom_limit, 150);
+  // Değişkenler
+  let best_result = {
+    isSafe: false,
+    message: 'Hesaplanamadı',
+    s_opt: 50,
+    Ash_prov: 0,
+    Ash_req: 0,
+    s_max_code: 150,
+    dia_used: userStirrupDia_mm
+  };
 
-  let best_s = 50;
-  let isFound = false;
-  let final_Ash_req = 0;
+  // ÇAP DÖNGÜSÜ
+  for (const currentDia of diametersToTry) {
+    const A_stirrup_one = Math.PI * Math.pow(currentDia / 2, 2);
+    const Ash_provided_per_set = n_legs * A_stirrup_one;
 
-  // 50mm'den başlayıp geom_limit'e kadar 10mm artışla tara
-  // Ancak biz tersten gidip en geniş (ekonomik) aralığı bulmaya çalışalım
-  // Max limitten aşağı doğru iniyoruz:
+    // Maksimum Aralık Koşulları
+    const s_max_1 = Math.min(bw_mm, hw_mm) / 3;
+    const s_max_2 = 150; 
+    const s_max_3 = 6 * colMainDia_mm; 
+    const s_geom_limit = Math.min(s_max_1, s_max_2, s_max_3);
+    const search_limit = Math.min(s_geom_limit, 150);
 
-  const start_s = Math.floor(search_limit / 10) * 10;
+    let current_s = 50;
+    let isFound = false;
+    let calculated_Ash_req = 0;
 
-  for (let s = start_s; s >= 50; s -= 10) {
-    // TBDY Denklem 7.1 ve 7.2
-    // Ash >= 0.30 * s * bk * (fck/fywk) * (Ac/Ack - 1)
-    // Ash >= 0.075 * s * bk * (fck/fywk)
-
-    const Ash_req_1 = 0.30 * s * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
-    const Ash_req_2 = 0.075 * s * bk_max * (fck / fywk);
-    const Ash_req_calc = Math.max(Ash_req_1, Ash_req_2);
-
-    if (Ash_provided_per_set >= Ash_req_calc) {
-      best_s = s;
-      final_Ash_req = Ash_req_calc;
-      isFound = true;
-      break; // En büyük uygun aralığı bulduk
+    // Aralık taraması (Büyükten küçüğe - en ekonomik aralığı bulmak için)
+    const start_s = Math.floor(search_limit / 10) * 10;
+    
+    // Eğer geometrik sınır 50mm'den küçükse bu çapla fiziksel olarak sığmaz
+    if (start_s < 50) {
+        continue; // Bir sonraki çapa geç
     }
-    final_Ash_req = Ash_req_calc; // Döngü biterse son hesaplanan (yetersiz olan) kalsın
+
+    for (let s = start_s; s >= 50; s -= 10) {
+      // TBDY Denklem 7.1 ve 7.2
+      const Ash_req_1 = 0.30 * s * bk_max * (fck / fywk) * ((Ac / Ack) - 1);
+      const Ash_req_2 = 0.075 * s * bk_max * (fck / fywk);
+      const val_Ash_req = Math.max(Ash_req_1, Ash_req_2);
+
+      if (Ash_provided_per_set >= val_Ash_req) {
+        current_s = s;
+        calculated_Ash_req = val_Ash_req;
+        isFound = true;
+        break; 
+      }
+      // Bulunamadıysa en son hesaplanan (en sık aralıktaki) gereksinimi sakla
+      calculated_Ash_req = val_Ash_req; 
+    }
+
+    // Sonuçları kaydet
+    best_result = {
+      isSafe: isFound,
+      message: isFound 
+        ? (currentDia > userStirrupDia_mm ? `Otomatik Artırıldı: Ø${currentDia}/${current_s/10}cm` : `Uygun (s=${current_s/10}cm)`) 
+        : 'Yetersiz Donatı',
+      s_opt: isFound ? current_s : 50,
+      Ash_prov: Ash_provided_per_set,
+      Ash_req: calculated_Ash_req, // Artık 0 dönmez, en azından son iterasyon değerini döner
+      s_max_code: s_geom_limit,
+      dia_used: currentDia
+    };
+
+    // Eğer bu çapla güvenli bulunduysa döngüden çık, daha büyük çapa bakma
+    if (isFound) break;
   }
 
-  return {
-    isSafe: isFound,
-    message: isFound ? `Uygun (s=${best_s / 10}cm)` : 'Yetersiz Donatı',
-    s_opt: isFound ? best_s : 50,
-    Ash_prov: Ash_provided_per_set,
-    Ash_req: final_Ash_req,
-    s_max_code: s_geom_limit
-  };
+  return best_result;
 };
+
 
 /**
  * ANA HESAPLAMA FONKSİYONU
@@ -518,11 +553,11 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // Vw (Etriye Katkısı)
   const colStirrupDia = rebars.colStirrupDia || 8;
   const confResult = checkColumnConfinement(
-    sections.colWidth, sections.colDepth, fck, colStirrupDia, rebars.colMainDia
+    sections.colWidth * 10, sections.colDepth * 10, fck, colStirrupDia, rebars.colMainDia
   );
-  // Sıklaştırma bölgesindeki aralık kullanılarak Vw hesabı
+ // Sıklaştırma bölgesindeki aralık kullanılarak Vw hesabı
   const s_used_col = confResult.s_opt;
-  const Asw_col = confResult.Ash_prov; // Seçilen etriye alanı
+  const Asw_col = confResult.Ash_prov; 
   const d_col = hc_mm - 30;
 
   const Vw_col_N = (Asw_col * 420 * d_col) / s_used_col;
@@ -680,7 +715,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         Ash_req: confResult.Ash_req,
         Ash_prov: confResult.Ash_prov,
         s_max: confResult.s_max_code,
-        s_opt: confResult.s_opt
+        s_opt: confResult.s_opt,
+        dia_used: confResult.dia_used // <--- EKLENDİ
       },
       interaction_ratio: colCapacity.capacity_ratio,
       strong_col_ratio: strongColRatio,

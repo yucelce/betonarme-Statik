@@ -139,6 +139,7 @@ export interface CalculationResult {
       Ash_prov: number; // Mevcut alan
       s_max: number; // Maksimum aralık
       s_opt: number; // Seçilen/Önerilen aralık
+      dia_used: number; // <--- YENİ EKLENDİ: Hesapta kullanılan gerçek çap
     };
 
     interaction_ratio: number;
