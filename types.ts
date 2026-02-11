@@ -61,6 +61,49 @@ export interface AppState {
   rebars: RebarSettings;
 }
 
+// --- MODEL TİPLERİ (YENİ EKLENDİ) ---
+
+export interface NodeEntity {
+  id: string;
+  x: number;
+  y: number;
+  axisX: string;
+  axisY: string;
+}
+
+export interface ColumnEntity {
+  id: string;
+  nodeId: string;
+  b: number;
+  h: number;
+}
+
+export interface BeamEntity {
+  id: string;
+  startNodeId: string;
+  endNodeId: string;
+  length: number;
+  axisId: string;
+  direction: 'X' | 'Y';
+  bw: number;
+  h: number;
+}
+
+export interface SlabEntity {
+  id: string;
+  nodes: string[];
+  lx: number;
+  ly: number;
+  thickness: number;
+}
+
+export interface StructuralModel {
+  nodes: NodeEntity[];
+  columns: ColumnEntity[];
+  beams: BeamEntity[];
+  slabs: SlabEntity[];
+}
+
 // --- SONUÇ TİPLERİ ---
 
 export interface CheckStatus {

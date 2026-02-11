@@ -26,6 +26,10 @@ const Visualizer: React.FC<Props> = ({ state }) => {
   // Event Handlers (Zoom & Pan)
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
+    // Zoom limitleri
+    if (zoom < 0.5 && e.deltaY > 0) return;
+    if (zoom > 5 && e.deltaY < 0) return;
+    
     const scaleFactor = 1.1;
     setZoom(prev => e.deltaY < 0 ? prev * scaleFactor : prev / scaleFactor);
   };
@@ -47,10 +51,11 @@ const Visualizer: React.FC<Props> = ({ state }) => {
 
   // --- ÇİZİM AYARLARI ---
   const canvasSize = 220;
-  const padding = 40; // Aks etiketleri için boşluk
+  const padding = 30; 
   
-  const maxDim = Math.max(dimensions.lx, dimensions.ly);
-  const scale = (canvasSize - padding * 2) / (maxDim || 1); // 0 bölme hatasını önle
+  // Grid boyutları (0 kontrolü ile NaN hatasını önle)
+  const maxDim = Math.max(dimensions.lx, dimensions.ly) || 1;
+  const scale = (canvasSize - padding * 2) / maxDim;
 
   // Çizimi merkeze al
   const drawingWidth = dimensions.lx * scale;
@@ -61,28 +66,39 @@ const Visualizer: React.FC<Props> = ({ state }) => {
   // Koordinat Dönüştürücü (Metre -> Piksel)
   const toPx = (val: number) => val * scale;
 
-  // Boyutlar (Piksel)
-  const colW = Math.max(sections.colWidth * scale / 100, 4); // Min 4px
+  // Boyutlar (Piksel cinsinden, minimum değerlerle)
+  const colW = Math.max(sections.colWidth * scale / 100, 4); 
   const colD = Math.max(sections.colDepth * scale / 100, 4);
   const beamW = Math.max(sections.beamWidth * scale / 100, 2);
+
+  // --- KESİT GÖRÜNÜMÜ AYARLARI (Basitleştirilmiş Yan Görünüş) ---
+  // İlk aks boyunca (X Yönü) bir kesit alıyoruz
+  const sectionHeight = dimensions.h * dimensions.storyCount;
+  const maxSectionDim = Math.max(dimensions.lx, sectionHeight) || 1;
+  const sectionScale = (canvasSize - 40) / maxSectionDim;
+  const sectionGroundY = canvasSize - 30; // Zemin çizgisi Y koordinatı
+  const sectionStartX = (canvasSize - dimensions.lx * sectionScale) / 2;
 
   // --- 3D GÖRÜNÜŞ AYARLARI ---
   const storyCount = dimensions.storyCount || 1;
   const hStory = dimensions.h;
   const totalH = hStory * storyCount;
   
-  const isoScale = (canvasSize - 60) / (dimensions.lx + dimensions.ly + totalH * 0.8 || 1);
+  // 3D için daha güvenli bir ölçekleme faktörü
+  const isoScale = (canvasSize - 80) / (dimensions.lx + dimensions.ly + totalH * 0.5 || 1);
   
   // 3D Merkezleme
   const isoCenterX = canvasSize / 2;
-  const isoCenterY = canvasSize / 2 + (totalH * isoScale) / 3;
+  // Binayı biraz aşağı it (Y ekseni aşağı doğru artar)
+  const isoCenterY = canvasSize / 2 + (totalH * isoScale) / 4; 
 
   const toIso = (x: number, y: number, z: number) => {
     const isoCos = 0.866; // cos(30)
     const isoSin = 0.5;   // sin(30)
     
+    // İzometrik dönüşüm
     const xIso = (x - y) * isoCos;
-    const yIso = (x + y) * isoSin - z;
+    const yIso = (x + y) * isoSin - z; // z yukarı doğru, svg y aşağı doğru
 
     return {
       x: isoCenterX + xIso * isoScale,
@@ -95,8 +111,7 @@ const Visualizer: React.FC<Props> = ({ state }) => {
     style: { transition: isDragging ? 'none' : 'transform 0.1s ease-out', transformOrigin: 'center' }
   };
 
-  // Grid Çizgileri için unique koordinatlar
-  // TypeScript hatasını önlemek için explicit tip belirtimi
+  // Grid Çizgileri
   const xGridCoords: number[] = [...new Set(model.nodes.map(n => n.x))].sort((a,b)=>a-b);
   const yGridCoords: number[] = [...new Set(model.nodes.map(n => n.y))].sort((a,b)=>a-b);
 
@@ -125,7 +140,7 @@ const Visualizer: React.FC<Props> = ({ state }) => {
           <rect width="100%" height="100%" fill="url(#grid)" />
 
           <g {...interactiveGroupProps}>
-             {/* AKS ÇİZGİLERİ VE ETİKETLERİ */}
+             {/* AKS ÇİZGİLERİ */}
              {xGridCoords.map((gridX, i) => (
                 <g key={`axis-x-${i}`}>
                    <line 
@@ -159,15 +174,11 @@ const Visualizer: React.FC<Props> = ({ state }) => {
                const n2 = nodeMap.get(beam.endNodeId);
                if(!n1 || !n2) return null;
                
-               const x1 = startX + toPx(n1.x);
-               const y1 = startY + toPx(n1.y);
-               const x2 = startX + toPx(n2.x);
-               const y2 = startY + toPx(n2.y);
-
                return (
                  <line 
                    key={beam.id}
-                   x1={x1} y1={y1} x2={x2} y2={y2}
+                   x1={startX + toPx(n1.x)} y1={startY + toPx(n1.y)} 
+                   x2={startX + toPx(n2.x)} y2={startY + toPx(n2.y)}
                    stroke="#e9d5ff"
                    strokeWidth={beamW}
                    strokeLinecap="square"
@@ -193,7 +204,7 @@ const Visualizer: React.FC<Props> = ({ state }) => {
                );
              })}
 
-            {/* KİRİŞ KENARLARI (Görsellik için üstüne çizgi) */}
+            {/* KİRİŞ ORTA EKSENLERİ */}
              {model.beams.map(beam => {
                const n1 = nodeMap.get(beam.startNodeId);
                const n2 = nodeMap.get(beam.endNodeId);
@@ -215,10 +226,57 @@ const Visualizer: React.FC<Props> = ({ state }) => {
       <div className="flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 p-2 min-h-[240px] relative overflow-hidden">
          <h3 className="absolute top-2 left-2 text-slate-500 text-[10px] font-bold z-10 tracking-wider uppercase flex items-center gap-2 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-          Kesit (Şematik)
+          Kesit (Aks-1)
         </h3>
         <svg width="100%" height="100%" viewBox={`0 0 ${canvasSize} ${canvasSize}`} className="bg-slate-50/50">
-             <text x="50%" y="50%" textAnchor="middle" fill="#94a3b8" fontSize="10">Plan Görünümü Aktif</text>
+          <g {...interactiveGroupProps}>
+             {/* Zemin Çizgisi */}
+             <line x1="0" y1={sectionGroundY} x2={canvasSize} y2={sectionGroundY} stroke="#94a3b8" strokeWidth="1" strokeDasharray="5,5" />
+             
+             {/* Katlar */}
+             {Array.from({ length: storyCount }).map((_, i) => {
+                const floorY = sectionGroundY - ((i + 1) * hStory * sectionScale);
+                return (
+                  <g key={`sec-floor-${i}`}>
+                    {/* Kat Çizgisi */}
+                    <line 
+                      x1={sectionStartX - 20} y1={floorY} 
+                      x2={sectionStartX + dimensions.lx * sectionScale + 20} y2={floorY} 
+                      stroke="#cbd5e1" strokeWidth="0.5" 
+                    />
+                    <text x={sectionStartX - 25} y={floorY + 3} textAnchor="end" fontSize="8" fill="#64748b">{i+1}. Kat</text>
+                  </g>
+                );
+             })}
+
+             {/* Kolonlar (Sadece X aksındaki izler) */}
+             {xGridCoords.map((xVal, i) => (
+                <rect 
+                  key={`sec-col-${i}`}
+                  x={sectionStartX + xVal * sectionScale - (colW/2)}
+                  y={sectionGroundY - (totalH * sectionScale)}
+                  width={colW}
+                  height={totalH * sectionScale}
+                  fill="#1e293b"
+                  opacity="0.8"
+                />
+             ))}
+
+             {/* Kirişler (Basit) */}
+             {Array.from({ length: storyCount }).map((_, floorIndex) => {
+                 const floorY = sectionGroundY - ((floorIndex + 1) * hStory * sectionScale);
+                 return (
+                    <rect 
+                      key={`sec-beam-${floorIndex}`}
+                      x={sectionStartX}
+                      y={floorY} // Kiriş üstü kat seviyesinde
+                      width={dimensions.lx * sectionScale}
+                      height={beamW} // Kiriş derinliği yerine görsel genişlik kullandık
+                      fill="#e9d5ff"
+                    />
+                 );
+             })}
+          </g>
         </svg>
       </div>
 
@@ -260,14 +318,14 @@ const Visualizer: React.FC<Props> = ({ state }) => {
                       const t = toIso(n.x, n.y, zTop);
                       return (
                         <line 
-                          key={`c3d-${col.id}`}
+                          key={`c3d-${col.id}-${floorIndex}`}
                           x1={b.x} y1={b.y} x2={t.x} y2={t.y}
                           stroke="#475569" strokeWidth={colW * 0.8} strokeLinecap="round"
                         />
                       );
                    })}
 
-                   {/* KİRİŞLER */}
+                   {/* KİRİŞLER (Katın üst kotunda) */}
                    {model.beams.map(beam => {
                       const n1 = nodeMap.get(beam.startNodeId);
                       const n2 = nodeMap.get(beam.endNodeId);
@@ -277,14 +335,14 @@ const Visualizer: React.FC<Props> = ({ state }) => {
                       
                       return (
                         <line 
-                          key={`b3d-${beam.id}`}
+                          key={`b3d-${beam.id}-${floorIndex}`}
                           x1={start.x} y1={start.y} x2={end.x} y2={end.y}
                           stroke="#f97316" strokeWidth={beamW * 0.8}
                         />
                       );
                    })}
                    
-                   {/* DÖŞEME */}
+                   {/* DÖŞEME (Hafif saydam) */}
                    <path 
                      d={`M${toIso(0,0,zTop).x} ${toIso(0,0,zTop).y} L${toIso(dimensions.lx,0,zTop).x} ${toIso(dimensions.lx,0,zTop).y} L${toIso(dimensions.lx,dimensions.ly,zTop).x} ${toIso(dimensions.lx,dimensions.ly,zTop).y} L${toIso(0,dimensions.ly,zTop).x} ${toIso(0,dimensions.ly,zTop).y} Z`}
                      fill="#fb923c" fillOpacity="0.1" stroke="none"

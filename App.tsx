@@ -38,7 +38,6 @@ const App: React.FC = () => {
     rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
-  // HATA DÜZELTİLDİ: AnalysisSummary yerine CalculationResult kullanıldı
   const [results, setResults] = useState<CalculationResult | null>(null);
 
   // Helper to update dimensions when grid changes
@@ -98,13 +97,12 @@ const App: React.FC = () => {
   };
 
   const runAnalysis = () => {
-    // HATA DÜZELTİLDİ: calculateFullStructure yerine calculateStructure çağrıldı
     setResults(calculateStructure(state));
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
         <header className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
@@ -114,25 +112,24 @@ const App: React.FC = () => {
           </button>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
 
-          {/* Sol Panel: Akslar ve Ayarlar */}
-          <div className="space-y-4">
-
+          {/* Sol Panel: Akslar ve Ayarlar (3/12 width) */}
+          <div className="xl:col-span-3 space-y-4">
             {/* AKS EDİTÖRÜ */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-              <h2 className="font-bold text-slate-700 mb-4">Aks Sistemi (Açıklıklar)</h2>
+              <h2 className="font-bold text-slate-700 mb-4">Aks Sistemi</h2>
 
               {/* X Aksları */}
               <div className="mb-4">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-blue-600">X Yönü Açıklıkları (m)</span>
+                  <span className="text-xs font-bold text-blue-600">X Yönü (m)</span>
                   <button onClick={() => handleAddAxis('x')} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus className="w-4 h-4" /></button>
                 </div>
                 <div className="space-y-2">
                   {state.grid.xAxis.map((axis, i) => (
                     <div key={axis.id} className="flex gap-2 items-center">
-                      <span className="text-xs text-slate-400 w-6">A{i + 1}-A{i + 2}</span>
+                      <span className="text-xs text-slate-400 w-6">A{i + 1}</span>
                       <input
                         type="number"
                         value={axis.spacing}
@@ -148,13 +145,13 @@ const App: React.FC = () => {
               {/* Y Aksları */}
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-green-600">Y Yönü Açıklıkları (m)</span>
+                  <span className="text-xs font-bold text-green-600">Y Yönü (m)</span>
                   <button onClick={() => handleAddAxis('y')} className="text-green-600 hover:bg-green-50 p-1 rounded"><Plus className="w-4 h-4" /></button>
                 </div>
                 <div className="space-y-2">
                   {state.grid.yAxis.map((axis, i) => (
                     <div key={axis.id} className="flex gap-2 items-center">
-                      <span className="text-xs text-slate-400 w-6">B{i + 1}-B{i + 2}</span>
+                      <span className="text-xs text-slate-400 w-6">B{i + 1}</span>
                       <input
                         type="number"
                         value={axis.spacing}
@@ -177,43 +174,54 @@ const App: React.FC = () => {
                   <input type="number" value={state.dimensions.storyCount} onChange={e => setState({ ...state, dimensions: { ...state.dimensions, storyCount: +e.target.value } })} className="w-full border rounded p-1" />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-500">Kiriş Boyut</label>
+                  <label className="text-[10px] text-slate-500">Kiriş (cm)</label>
                   <div className="flex gap-1">
-                    <input type="number" value={state.sections.beamWidth} className="w-1/2 border rounded p-1" readOnly />
-                    <input type="number" value={state.sections.beamDepth} className="w-1/2 border rounded p-1" readOnly />
+                    <input type="number" title="Genişlik" value={state.sections.beamWidth} onChange={e => setState({ ...state, sections: { ...state.sections, beamWidth: +e.target.value } })} className="w-1/2 border rounded p-1" />
+                    <input type="number" title="Yükseklik" value={state.sections.beamDepth} onChange={e => setState({ ...state, sections: { ...state.sections, beamDepth: +e.target.value } })} className="w-1/2 border rounded p-1" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500">Kolon (cm)</label>
+                  <div className="flex gap-1">
+                    <input type="number" title="Genişlik" value={state.sections.colWidth} onChange={e => setState({ ...state, sections: { ...state.sections, colWidth: +e.target.value } })} className="w-1/2 border rounded p-1" />
+                    <input type="number" title="Derinlik" value={state.sections.colDepth} onChange={e => setState({ ...state, sections: { ...state.sections, colDepth: +e.target.value } })} className="w-1/2 border rounded p-1" />
                   </div>
                 </div>
               </div>
             </div>
-
           </div>
 
-          {/* Orta Panel: Sonuçlar */}
-          <div className="lg:col-span-2 space-y-4">
+          {/* Sağ Panel: Görselleştirme ve Sonuçlar (9/12 width) */}
+          <div className="xl:col-span-9 space-y-4">
+            
+            {/* 1. Görselleştirici (Her zaman görünür) */}
+            <div className="h-[400px] lg:h-[500px]">
+               <Visualizer state={state} />
+            </div>
+
+            {/* 2. Sonuç Kartları (Hesaplandıysa görünür) */}
             {results ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {/* HATA DÜZELTİLDİ: Sonuç objesinin doğru fieldlarına erişim sağlandı */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white p-4 rounded-xl border-l-4 border-blue-500 shadow-sm">
-                  <div className="text-xs text-slate-500">Toplam Bina Ağırlığı</div>
-                  <div className="text-2xl font-bold text-slate-800">{results.seismic.building_weight.toFixed(1)} kN</div>
+                  <div className="text-xs text-slate-500">Bina Ağırlığı</div>
+                  <div className="text-xl font-bold text-slate-800">{results.seismic.building_weight.toFixed(1)} kN</div>
                 </div>
                 <div className="bg-white p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
                   <div className="text-xs text-slate-500">Taban Kesme Kuvveti</div>
-                  <div className="text-2xl font-bold text-slate-800">{results.seismic.base_shear.toFixed(1)} kN</div>
+                  <div className="text-xl font-bold text-slate-800">{results.seismic.base_shear.toFixed(1)} kN</div>
                 </div>
                 <div className="bg-white p-4 rounded-xl border-l-4 border-purple-500 shadow-sm">
                   <div className="text-xs text-slate-500">Max Kiriş Momenti</div>
-                  <div className="text-2xl font-bold text-slate-800">{results.beams.moment_support.toFixed(1)} kNm</div>
+                  <div className="text-xl font-bold text-slate-800">{results.beams.moment_support.toFixed(1)} kNm</div>
                 </div>
-
-                <div className="col-span-full h-[500px]">
-                  {/* YENİSİ: */}
-                  <Visualizer state={state} />
+                <div className="bg-white p-4 rounded-xl border-l-4 border-green-500 shadow-sm">
+                  <div className="text-xs text-slate-500">Periyot (T1)</div>
+                  <div className="text-xl font-bold text-slate-800">{results.seismic.period_t1.toFixed(3)} s</div>
                 </div>
               </div>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 bg-white rounded-xl border border-dashed">
-                Hesaplama yapmak için butona basın.
+              <div className="p-4 text-center text-slate-400 bg-white rounded-xl border border-dashed">
+                Detaylı sonuçlar için "Hesapla" butonuna basın.
               </div>
             )}
           </div>
