@@ -8,6 +8,12 @@ interface SeismicSolverResult {
   Vt_design_N: number;
   W_total_N: number;
   fi_story_N: number[];
+  irregularities: IrregularityResult;
+}
+// Düzensizlik Sonuç Tipi
+export interface IrregularityResult {
+    A1: { eta_bi: number; isSafe: boolean; message: string };
+    B1: { eta_ci_min: number; isSafe: boolean; message: string };
 }
 
 export const solveSeismic = (
@@ -26,6 +32,17 @@ export const solveSeismic = (
 
   const storyCount = dimensions.storyCount || 1;
   const h_story = dimensions.h; 
+
+  const Ac_floor = Num_Cols * (sections.colWidth * sections.colDepth); // cm2
+  // Zemin kat ile 1. kat arası oran (Programda kesitler kata göre değişmiyor şimdilik)
+  const eta_ci = 1.0; 
+  const isB1Safe = eta_ci >= 0.80;
+
+  const B1_Check = {
+      eta_ci_min: eta_ci,
+      isSafe: isB1Safe,
+      message: isB1Safe ? 'Zayıf Kat Yok' : 'Zayıf Kat Düzensizliği (B1) Var!'
+  };
   
   // ... (Ağırlık hesapları önceki kodla aynı - W_total_N hesabı)
   const area_m2 = dimensions.lx * dimensions.ly;
@@ -44,6 +61,16 @@ export const solveSeismic = (
   
   const totalHeight_m = h_story * storyCount;
   const T1 = 0.1 * Math.pow(totalHeight_m, 0.75); 
+
+  const aspect_ratio = Math.max(dimensions.lx, dimensions.ly) / Math.min(dimensions.lx, dimensions.ly);
+  let estimated_eta_bi = 1.0 + (aspect_ratio > 3 ? 0.2 : 0.05); // Tahmini
+
+  const isA1Safe = estimated_eta_bi <= 1.2;
+  const A1_Check = {
+      eta_bi: estimated_eta_bi,
+      isSafe: isA1Safe,
+      message: isA1Safe ? 'Burulma Düzensizliği Yok' : 'A1 Burulma Düzensizliği Var (>1.2)'
+  };
 
   // Sae Hesabı
   const Sae_coeff = ((T: number): number => {

@@ -9,6 +9,8 @@ import Report from './utils/report';
 
 const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
 
+
+
 const App: React.FC = () => {
   const initialXAxis = [{ id: 'x1', spacing: 4 }, { id: 'x2', spacing: 5 }];
   const initialYAxis = [{ id: 'y1', spacing: 4 }, { id: 'y2', spacing: 4 }];

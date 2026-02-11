@@ -215,3 +215,89 @@ export const checkColumnConfinement = (
   }
   return best_result;
 };
+
+// utils/shared.ts içine ekleyin
+
+export interface InteractionPoint {
+  M: number; // kNm
+  N: number; // kN
+  label?: string;
+}
+
+/**
+ * P-M Etkileşim Diyagramı Verisi Üretir
+ */
+export const generateInteractionDiagramData = (
+  b_mm: number,
+  h_mm: number,
+  As_total_mm2: number,
+  fcd: number,
+  fck: number
+): InteractionPoint[] => {
+  const points: InteractionPoint[] = [];
+  const paspayi = 40; 
+  const d = h_mm - paspayi;
+  const d_prime = paspayi;
+  const As_s1 = As_total_mm2 / 2; // Çekme/Basınç tarafı donatısı
+  const As_s2 = As_total_mm2 / 2;
+
+  // Adımlar: Tarafsız eksen derinliğini (c) sonsuzdan (çekme) maksimum basınca kadar değiştir.
+  // 1. Saf Çekme (N_tensile)
+  const N_tensile = -As_total_mm2 * (420 / 1.15); // fyd
+  points.push({ M: 0, N: N_tensile / 1000, label: 'Saf Çekme' });
+
+  // 2. Dengeli Durum ve Ara Noktalar
+  const steps = 30;
+  // c değerini h'ın katları olarak değiştir (0.1h -> 3h)
+  for (let i = 1; i <= steps; i++) {
+    const c = (h_mm * 1.5) * (i / steps);
+    
+    // Beton Basınç Bloğu
+    let k1 = 0.85; 
+    if (fck > 25) k1 = Math.max(0.70, 0.85 - 0.006 * (fck - 25));
+    
+    let a = k1 * c;
+    if (a > h_mm) a = h_mm; // Kesitin tamamı basınçta
+
+    // Donatı Birim Şekil Değiştirmeleri (Benzerlikten)
+    const eps_cu = 0.003;
+    const eps_s1 = eps_cu * (c - d) / c;      // Alt donatı
+    const eps_s2 = eps_cu * (c - d_prime) / c; // Üst donatı
+
+    // Gerilmeler
+    const sigma_s1 = getSteelStress(eps_s1);
+    const sigma_s2 = getSteelStress(eps_s2);
+
+    // Kuvvetler
+    const Fc = 0.85 * fcd * b_mm * a; // Beton basınç kuvveti
+    const Fs1 = As_s1 * sigma_s1;     // Alt donatı kuvveti
+    const Fs2 = As_s2 * sigma_s2;     // Üst donatı kuvveti
+
+    // İç Kuvvetler Dengesi
+    const N_res = Fc + Fs1 + Fs2; // N (Basınç +, Çekme -)
+
+    // Moment Dengesi (Plastik merkeze - h/2'ye göre)
+    const h_half = h_mm / 2;
+    // Fc'nin momenti
+    const M_conc = Fc * (h_half - a / 2);
+    // Fs2 (Üst) momenti
+    const M_s2 = Fs2 * (h_half - d_prime);
+    // Fs1 (Alt) momenti
+    const M_s1 = Fs1 * (h_half - d);
+    
+    const M_res = M_conc + M_s2 + M_s1;
+
+    points.push({ 
+        N: N_res / 1000, // kN
+        M: M_res / 1e6,  // kNm
+    });
+  }
+
+  // 3. Saf Basınç (N_max)
+  const N_max = 0.85 * fcd * (b_mm * h_mm) + As_total_mm2 * (420 / 1.15); // Basitleştirilmiş
+  // Yönetmelik sınırı (Nmax = 0.40 fck Ac genelde tasarım sınırıdır ama diyagram teorik çizilir)
+  points.push({ M: 0, N: N_max / 1000, label: 'Saf Basınç' });
+
+  // Grafiği düzgünleştirmek için N'ye göre sırala
+  return points.sort((a, b) => a.N - b.N);
+};
