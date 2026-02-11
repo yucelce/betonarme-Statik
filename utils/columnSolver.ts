@@ -142,13 +142,33 @@ export const solveColumns = (
     }
   };
 
-  // JOINT (BİRLEŞİM) BÖLGESİ KESME GÜVENLİĞİ
+// ... (Kodun üst kısımları aynı)
+
+  // ==========================================================
+  // 3. JOINT (BİRLEŞİM) BÖLGESİ KESME GÜVENLİĞİ KONTROLÜ
+  // ==========================================================
+  
+  // Düğüm noktasına gelen kiriş donatılarının akma kapasitesi
   const F_tensile_total = 1.25 * STEEL_FYK * (As_beam_supp_final + As_beam_span_final);
-  const Ve_joint_N = Math.max(0, F_tensile_total - V_col_N);
-  const bw_mm = sections.beamWidth * 10;
-  const bj_mm = Math.min(bc_mm, bw_mm);
-  const isConfinedJoint = false; 
+  
+  // Kolon Kesme Kuvveti (Vt_design_N parametresini kullanıyoruz)
+  // Ve_joint = As * 1.25 * fyk - V_col
+  const Ve_joint_N = Math.max(0, F_tensile_total - Vt_design_N); 
+
+  // bw_mm TANIMI BURADA YAPILMALI:
+  const bw_mm = sections.beamWidth * 10; 
+  
+  // Birleşim genişliği (Kiriş ve kolon genişliğinin küçüğü)
+  const bj_mm = Math.min(bc_mm, bw_mm); 
+
+  // Kuşatılmış Birleşim Kontrolü
+  // (Kiriş kolonun en az %75'ini örtüyorsa kuşatılmış sayılır - TBDY 7.5.1)
+  // Şimdilik güvenli tarafta kalmak için false kabul ediyoruz veya basit bir kontrol ekliyoruz:
+  const isConfinedJoint = (bw_mm >= 0.75 * bc_mm); 
   const joint_coeff = isConfinedJoint ? 1.7 : 1.0;
+  
+  // Birleşim Bölgesi Kesme Kapasitesi (Vmax)
+  // TBDY 2018 Denklem 7.11
   const Vmax_joint_N = joint_coeff * Math.sqrt(fck) * bj_mm * hc_mm;
 
   const jointResult = {
