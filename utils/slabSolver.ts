@@ -1,4 +1,3 @@
-
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
 import { createStatus, GRAVITY } from "./shared";
@@ -9,6 +8,8 @@ interface SlabSolverResult {
   pd_N_m2: number; // Deprem hesabına aktarılacak
   g_total_N_m2: number; // Ölü yük toplamı
   q_live_N_m2: number; // Hareketli yük toplamı
+  g_beam_self_N_m: number;
+  g_wall_N_m: number;
 }
 
 export const solveSlab = (state: AppState): SlabSolverResult => {
@@ -81,5 +82,5 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
     status: createStatus(true)
   };
 
-  return { slabResult, q_beam_design_N_m, pd_N_m2, g_total_N_m2, q_live_N_m2 };
+  return { slabResult, q_beam_design_N_m, pd_N_m2, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m };
 };

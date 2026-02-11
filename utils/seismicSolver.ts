@@ -1,6 +1,6 @@
 import { AppState, CalculationResult } from "../types";
 import { getFs, getF1 } from "../constants";
-import { createStatus, GRAVITY } from "./shared";
+import { createStatus } from "./shared";
 
 interface SeismicSolverResult {
   seismicResult: CalculationResult['seismic'];
@@ -11,7 +11,9 @@ interface SeismicSolverResult {
 export const solveSeismic = (
   state: AppState, 
   g_total_N_m2: number, 
-  q_live_N_m2: number
+  q_live_N_m2: number,
+  g_beam_self_N_m: number,
+  g_wall_N_m: number
 ): SeismicSolverResult => {
   const { dimensions, seismic, sections } = state;
 
@@ -20,11 +22,7 @@ export const solveSeismic = (
   
   // Ağırlık Hesabı
   const area_m2 = dimensions.lx * dimensions.ly;
-  const bw_m = sections.beamWidth / 100;
-  const h_beam_m = sections.beamDepth / 100;
-  const g_beam_self_N_m = bw_m * h_beam_m * 25000;
-  const g_wall_N_m = 3500;
-
+  
   const W_slab_N = (g_total_N_m2 + 0.3 * q_live_N_m2) * area_m2;
   const W_beam_N = g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly);
   const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * dimensions.h * 25000) * 4;

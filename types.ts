@@ -1,4 +1,3 @@
-
 // types.ts
 
 export enum SoilClass {
@@ -9,50 +8,23 @@ export enum ConcreteClass {
   C20 = 'C20', C25 = 'C25', C30 = 'C30', C35 = 'C35', C40 = 'C40', C50 = 'C50',
 }
 
-// YENİ: Aks Tanımı
 export interface AxisData {
   id: string;
-  spacing: number; // Önceki aksa olan mesafe (veya açıklık)
-}
-
-// YENİ: Yapısal Eleman Tanımları
-export interface NodeEntity { id: string; x: number; y: number; axisX: string; axisY: string; }
-export interface ColumnEntity { id: string; nodeId: string; b: number; h: number; }
-export interface BeamEntity { 
-  id: string; 
-  startNodeId: string; endNodeId: string; 
-  length: number; 
-  axisId: string; // Hangi aksta olduğu
-  direction: 'X' | 'Y'; 
-  bw: number; h: number;
-}
-export interface SlabEntity {
-  id: string;
-  nodes: string[]; // 4 köşe düğümü
-  lx: number; ly: number;
-  thickness: number;
-}
-
-export interface StructuralModel {
-  nodes: NodeEntity[];
-  columns: ColumnEntity[];
-  beams: BeamEntity[];
-  slabs: SlabEntity[];
+  spacing: number;
 }
 
 export interface Dimensions {
   storyCount: number;
-  h: number; // Kat yüksekliği
+  h: number;
   foundationHeight: number;
   foundationCantilever: number;
-  // Computed properties from Grid
   lx: number;
   ly: number;
 }
 
 export interface GridSettings {
-  xAxis: AxisData[]; // X yönündeki açıklıklar (Örn: 4m, 5m, 3m)
-  yAxis: AxisData[]; // Y yönündeki açıklıklar
+  xAxis: AxisData[];
+  yAxis: AxisData[];
 }
 
 export interface Sections {
@@ -80,7 +52,7 @@ export interface RebarSettings {
 }
 
 export interface AppState {
-  grid: GridSettings; // YENİ
+  grid: GridSettings;
   dimensions: Dimensions;
   sections: Sections;
   loads: Loads;
@@ -89,24 +61,60 @@ export interface AppState {
   rebars: RebarSettings;
 }
 
-// Hesap Sonuç Tipleri (Özet)
-export interface CheckStatus { isSafe: boolean; message: string; reason?: string; }
+// --- SONUÇ TİPLERİ ---
 
-export interface AnalysisSummary {
-  totalWeight_kN: number;
-  baseShear_kN: number;
-  totalSlabArea_m2: number;
-  maxSlabMoment_kNm: number;
-  maxBeamMoment_kNm: number;
-  maxColAxial_kN: number;
-  status: CheckStatus;
+export interface CheckStatus {
+  isSafe: boolean;
+  message: string;
+  reason?: string;
 }
 
 export interface CalculationResult {
-  slab: any;
-  seismic: any;
-  beams: any;
-  columns: any;
-  joint: any;
-  foundation: any;
+  slab: {
+    pd: number; alpha: number; d: number; m_x: number;
+    as_req: number; as_min: number; spacing: number;
+    min_thickness_calculated: number; min_thickness_limit: number; rho: number;
+    thicknessStatus: CheckStatus; status: CheckStatus;
+  };
+  beams: {
+    load_design: number; moment_support: number; moment_span: number;
+    as_support_req: number; as_span_req: number;
+    count_support: number; count_span: number;
+    shear_design: number; shear_cracking: number; shear_limit: number;
+    shear_Vc: number; shear_Vw: number;
+    rho_support: number; rho_span: number; rho_min: number; rho_max: number;
+    stirrup_result: { dia: number; s_support: number; s_span: number; text_support: string; text_span: string };
+    shear_reinf_type: string;
+    deflection: number; deflection_limit: number;
+    checks: { shear: CheckStatus; deflection: CheckStatus; min_reinf: CheckStatus; max_reinf: CheckStatus };
+  };
+  columns: {
+    axial_load_design: number; axial_capacity_max: number;
+    moment_design: number; moment_magnified: number;
+    slenderness: { lambda: number; lambda_lim: number; beta: number; isSlender: boolean; i_rad: number };
+    shear: { Ve: number; Vr: number; Vc: number; Vw: number; Vr_max: number };
+    confinement: { Ash_req: number; Ash_prov: number; s_max: number; s_conf: number; s_middle: number; dia_used: number; bk_max: number };
+    interaction_ratio: number; strong_col_ratio: number;
+    req_area: number; rho_provided: number; count_main: number;
+    checks: {
+      axial_limit: CheckStatus; moment_capacity: CheckStatus; shear_capacity: CheckStatus;
+      strongColumn: CheckStatus; minDimensions: CheckStatus; minRebar: CheckStatus;
+      maxRebar: CheckStatus; confinement: CheckStatus; slendernessCheck: CheckStatus;
+    };
+  };
+  seismic: {
+    param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
+    building_weight: number; base_shear: number; story_drift_check: CheckStatus;
+    R_coefficient: number; I_coefficient: number;
+  };
+  foundation: {
+    stress_actual: number; stress_limit: number;
+    punching_force: number; punching_stress: number; punching_capacity: number;
+    moment_design: number; as_req: number; as_provided_spacing: number;
+    min_thickness_check: boolean;
+    checks: { bearing: CheckStatus; punching: CheckStatus; bending: CheckStatus };
+  };
+  joint: {
+    shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
+  };
 }

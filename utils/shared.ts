@@ -1,4 +1,5 @@
-import { CheckStatus, ConcreteClass } from "../types";
+// utils/shared.ts
+import { CheckStatus } from "../types";
 import { STEEL_FYD, STEEL_ES, STEEL_FYK } from "../constants";
 
 // ============================================================================
