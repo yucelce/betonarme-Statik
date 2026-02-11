@@ -11,18 +11,26 @@ interface BeamSolverResult {
 
 export const solveBeams = (
   state: AppState,
+  spanLength_m: number, // YENİ PARAMETRE: Kirişin gerçek uzunluğu
   q_beam_design_N_m: number,
-  Vt_design_N: number,
+  Vt_total_N: number,
   fcd: number,
   fctd: number,
   Ec: number
 ): BeamSolverResult => {
   const { dimensions, sections, rebars } = state;
-  const ly_m = Math.max(dimensions.lx, dimensions.ly);
+  
+  // ESKİSİ: const ly_m = Math.max(dimensions.lx, dimensions.ly);
+  // YENİSİ: Parametre olarak gelen uzunluğu kullan
+  const ly_m = spanLength_m; 
   const L_beam_mm = ly_m * 1000;
 
   // --- A. DEPREM ETKİSİ ---
-  const V_col_avg_N = Vt_design_N / 4; 
+  // Kesme kuvvetini basitçe kolon/kiriş sayısına oranla (Yaklaşık)
+  const V_col_avg_N = Vt_total_N / 4; // Bu hala kabul, detaylı analiz için çerçeve matrisi gerekir.
+  
+  // ... (Geri kalan kod aynı kalabilir, sadece ly_m artık doğru değeri taşıyor)
+  
   const M_col_seismic_Nmm = (V_col_avg_N * (dimensions.h * 1000)) / 2;
   const joint_factor = 1.0; 
   const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor; 

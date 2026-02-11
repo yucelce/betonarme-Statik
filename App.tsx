@@ -2,7 +2,7 @@
 // App.tsx
 import React, { useState, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, AnalysisSummary, AxisData, GridSettings } from './types';
-import { calculateFullStructure } from './utils/solver';
+import { calculateStructure } from './utils/solver';
 import { Plus, Trash2, Activity, Play } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 

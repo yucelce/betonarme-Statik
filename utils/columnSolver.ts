@@ -10,15 +10,12 @@ interface ColumnSolverResult {
 
 export const solveColumns = (
   state: AppState,
-  W_total_N: number,
+  // ARTIK DOĞRUDAN HESAPLANMIŞ YÜKLERİ ALIYORUZ:
+  Nd_design_N: number, 
   Vt_design_N: number,
   Mr_beam_Nmm: number,
   As_beam_supp_final: number,
   As_beam_span_final: number,
-  g_total_N_m2: number,
-  q_live_N_m2: number,
-  g_beam_self_N_m: number,
-  g_wall_N_m: number,
   fck: number,
   fcd: number,
   fctd: number,
@@ -29,37 +26,13 @@ export const solveColumns = (
   const bc_mm = sections.colWidth * 10;
   const hc_mm = sections.colDepth * 10;
   const Ac_col_mm2 = bc_mm * hc_mm;
-  const storyCount = dimensions.storyCount || 1;
-  const area_m2 = dimensions.lx * dimensions.ly;
-  const lx_m = Math.min(dimensions.lx, dimensions.ly);
-  const totalHeight_m = dimensions.h * storyCount;
-  const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * dimensions.h * 25000) * 4;
-  const W_wall_N = g_wall_N_m * 2 * (dimensions.lx + dimensions.ly);
-
-  // --- A. Statik Düşey Yükler ---
-  const W_dead_total = (g_total_N_m2) * area_m2 * storyCount
-    + (g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly)) * storyCount
-    + W_col_N * storyCount
-    + W_wall_N * storyCount;
-
-  const W_live_total = (q_live_N_m2 * area_m2) * storyCount;
-  const N_dead_per_col = W_dead_total / 4;
-  const N_live_per_col = W_live_total / 4;
-  const Nd_static_N = 1.4 * N_dead_per_col + 1.6 * N_live_per_col;
-
-  // --- B. Deprem Durumu ---
-  const N_gravity_seismic_N = W_total_N / 4; 
-  const M_overturn_Nm = Vt_design_N * (0.65 * totalHeight_m);
-  const N_seismic_N = M_overturn_Nm / (lx_m * 2);
-  const Nd_seismic_combo_N = N_gravity_seismic_N + N_seismic_N;
-
-  const Nd_design_N = Math.max(Nd_static_N, Nd_seismic_combo_N);
+  const totalHeight_m = dimensions.h * (dimensions.storyCount || 1);
+  const h_beam_mm = sections.beamDepth * 10;
 
   // Moment Etkisi
-  const V_col_N = Vt_design_N / 4;
-  const M_elastic_Nmm = (V_col_N * (dimensions.h * 1000)) / 2;
+  // Kesme kuvvetinin oluşturduğu elastik moment (Düğüm noktası momenti)
+  const M_elastic_Nmm = (Vt_design_N * (dimensions.h * 1000)) / 2;
   const Md_design_Nmm = M_elastic_Nmm;
-
   // Donatı Düzeni
   const barAreaCol = Math.PI * Math.pow(rebars.colMainDia / 2, 2);
   let countCol = Math.max(4, Math.ceil((Ac_col_mm2 * 0.01) / barAreaCol));
@@ -81,7 +54,6 @@ export const solveColumns = (
 
   // Kesme Güvenliği
   const M_capacity_hardening = Mr_col_Nmm * 1.4;
-  const h_beam_mm = sections.beamDepth * 10;
   const ln_col_mm = (dimensions.h * 1000) - h_beam_mm;
   const Ve_col_N = (2 * M_capacity_hardening) / ln_col_mm;
 
