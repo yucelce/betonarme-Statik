@@ -183,7 +183,22 @@ export interface DiagramPoint {
   V: number;       // Kesme Kuvveti (kN)
   M: number;       // Moment (kNm)
 }
+export interface SectionOverride {
+  width?: number; // Eğer tanımlıysa bunu kullan, yoksa geneli kullan
+  depth?: number;
+}
 
+export interface AppState {
+  grid: GridSettings;
+  dimensions: Dimensions;
+  sections: Sections;
+  loads: Loads;
+  seismic: SeismicParams;
+  materials: MaterialParams;
+  rebars: RebarSettings;
+  // YENİ EKLENEN ALAN:
+  elementOverrides: Record<string, SectionOverride>; 
+}
 export interface DetailedBeamResult {
   beamId: string;
   diagramData: DiagramPoint[]; // Grafik verisi

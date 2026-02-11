@@ -3,12 +3,19 @@
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
 
 export const generateModel = (state: AppState): StructuralModel => {
-  const { grid, sections } = state;
-  
+  const { grid, sections, elementOverrides } = state; // elementOverrides'i buradan al
+  const getDims = (id: string, defaultW: number, defaultD: number) => {
+    const override = elementOverrides?.[id]; // Bu ID için kayıt var mı?
+    return {
+      b: override?.width ?? defaultW, // Varsa özel genişliği, yoksa geneli kullan
+      h: override?.depth ?? defaultD
+    };
+  };
   const nodes: NodeEntity[] = [];
   const columns: ColumnEntity[] = [];
   const beams: BeamEntity[] = [];
   const slabs: SlabEntity[] = [];
+
 
   // 1. Düğümleri (Nodes) ve Kolonları Oluştur
   let currentY = 0;
@@ -28,7 +35,14 @@ export const generateModel = (state: AppState): StructuralModel => {
       const y = yCoords[i];
 
       // Düğüm Ekle
-      nodes.push({ id: nodeId, x, y, axisX: `X${j+1}`, axisY: `Y${i+1}` });
+      nodes.push({ id: nodeId, x, y, axisX: `X${j + 1}`, axisY: `Y${i + 1}` });
+      const colDims = getDims(`C-${j}-${i}`, sections.colWidth, sections.colDepth);
+      columns.push({
+        id: `C-${j}-${i}`,
+        nodeId: nodeId,
+        b: colDims.b, // Güncellendi
+        h: colDims.h  // Güncellendi
+      });
 
       // Kolon Ekle (Her düğüme bir kolon varsayıyoruz)
       columns.push({
@@ -41,22 +55,27 @@ export const generateModel = (state: AppState): StructuralModel => {
   }
 
   // 2. Kirişleri Oluştur (Yatay ve Dikey)
-  
+
   // Yatay Kirişler (X yönünde)
   for (let i = 0; i < yCoords.length; i++) {
     for (let j = 0; j < xCoords.length - 1; j++) {
+      const beamIdX = `Bx-${j}-${i}`;
+      const beamDimsX = getDims(beamIdX, sections.beamWidth, sections.beamDepth);
+
       const startNode = `N-${j}-${i}`;
-      const endNode = `N-${j+1}-${i}`;
+      const endNode = `N-${j + 1}-${i}`;
       beams.push({
-        id: `Bx-${j}-${i}`,
+        id: beamIdX,
         startNodeId: startNode,
         endNodeId: endNode,
         length: grid.xAxis[j].spacing,
-        axisId: `Y${i+1}`,
+        axisId: `Y${i + 1}`,
         direction: 'X',
-        bw: sections.beamWidth,
-        h: sections.beamDepth
+        bw: beamDimsX.b, // Güncellendi
+        h: beamDimsX.h   // Güncellendi
       });
+
+
     }
   }
 
@@ -64,16 +83,18 @@ export const generateModel = (state: AppState): StructuralModel => {
   for (let j = 0; j < xCoords.length; j++) {
     for (let i = 0; i < yCoords.length - 1; i++) {
       const startNode = `N-${j}-${i}`;
-      const endNode = `N-${j}-${i+1}`;
+      const endNode = `N-${j}-${i + 1}`;
+      const beamIdY = `By-${j}-${i}`;
+      const beamDimsY = getDims(beamIdY, sections.beamWidth, sections.beamDepth);
       beams.push({
-        id: `By-${j}-${i}`,
+        id: beamIdY,
         startNodeId: startNode,
         endNodeId: endNode,
         length: grid.yAxis[i].spacing,
-        axisId: `X${j+1}`,
+        axisId: `X${j + 1}`,
         direction: 'Y',
-        bw: sections.beamWidth,
-        h: sections.beamDepth
+        bw: beamDimsY.b, // Güncellendi
+        h: beamDimsY.h   // Güncellendi
       });
     }
   }
@@ -82,9 +103,9 @@ export const generateModel = (state: AppState): StructuralModel => {
   for (let i = 0; i < yCoords.length - 1; i++) {
     for (let j = 0; j < xCoords.length - 1; j++) {
       const n1 = `N-${j}-${i}`;     // Sol Alt
-      const n2 = `N-${j+1}-${i}`;   // Sağ Alt
-      const n3 = `N-${j+1}-${i+1}`; // Sağ Üst
-      const n4 = `N-${j}-${i+1}`;   // Sol Üst
+      const n2 = `N-${j + 1}-${i}`;   // Sağ Alt
+      const n3 = `N-${j + 1}-${i + 1}`; // Sağ Üst
+      const n4 = `N-${j}-${i + 1}`;   // Sol Üst
 
       slabs.push({
         id: `S-${j}-${i}`,

@@ -79,6 +79,35 @@ const App: React.FC = () => {
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
     materials: { concreteClass: ConcreteClass.C30 },
     rebars: { slabDia: 10, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
+    const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+
+// Eleman seçildiğinde çalışacak fonksiyon
+const handleElementSelect = (id: string | null) => {
+    setSelectedElementId(id);
+};
+
+// Eleman boyutunu güncelleme fonksiyonu
+const updateElementSection = (width: number, depth: number) => {
+    if (!selectedElementId) return;
+    
+    setState(prev => ({
+        ...prev,
+        elementOverrides: {
+            ...prev.elementOverrides,
+            [selectedElementId]: { width, depth }
+        }
+    }));
+};
+
+// Özelleştirmeyi silip genele dönme fonksiyonu
+const resetElementSection = () => {
+    if (!selectedElementId) return;
+    
+    const newOverrides = { ...state.elementOverrides };
+    delete newOverrides[selectedElementId];
+    
+    setState(prev => ({ ...prev, elementOverrides: newOverrides }));
+};
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
@@ -310,6 +339,78 @@ const App: React.FC = () => {
                   {/* HATA 2 DÜZELTİLDİ: Visualizer bileşeni sadece 'state' prop'unu kabul ediyor. Diğer prop'lar kaldırıldı. */}
                   <Visualizer state={state} />
                 </div>
+                {/* App.tsx içinde Visualizer'ın olduğu div'in içine, Visualizer'dan sonra ekleyin */}
+
+{selectedElementId && (
+  <div className="absolute top-4 left-4 z-20 bg-white p-4 rounded-xl shadow-xl border border-slate-200 w-64 animate-in fade-in zoom-in duration-200">
+    <div className="flex justify-between items-center mb-3 border-b pb-2">
+      <h3 className="font-bold text-slate-700 text-sm">Eleman Düzenle</h3>
+      <button onClick={() => setSelectedElementId(null)} className="text-slate-400 hover:text-red-500">
+        <X className="w-4 h-4" /> {/* Lucide-react'tan X iconunu import etmeyi unutmayın */}
+      </button>
+    </div>
+    
+    <div className="text-xs font-mono text-slate-500 mb-3 bg-slate-50 p-1 rounded">
+      ID: {selectedElementId}
+    </div>
+
+    <div className="space-y-3">
+      {/* Mevcut Değerleri Bul */}
+      {(() => {
+        // Mevcut override var mı yoksa genelden mi geliyor?
+        const override = state.elementOverrides[selectedElementId];
+        const isColumn = selectedElementId.startsWith('C');
+        // Varsayılan değerler
+        const defaultW = isColumn ? state.sections.colWidth : state.sections.beamWidth;
+        const defaultD = isColumn ? state.sections.colDepth : state.sections.beamDepth;
+        
+        const currentW = override?.width ?? defaultW;
+        const currentD = override?.depth ?? defaultD;
+        const hasOverride = !!override;
+
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1">Genişlik (cm)</label>
+                <input 
+                  type="number" 
+                  className="w-full border rounded p-1 text-sm font-bold text-slate-700"
+                  value={currentW}
+                  onChange={(e) => updateElementSection(Number(e.target.value), currentD)}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1">Derinlik (cm)</label>
+                <input 
+                  type="number" 
+                  className="w-full border rounded p-1 text-sm font-bold text-slate-700"
+                  value={currentD}
+                  onChange={(e) => updateElementSection(currentW, Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            {hasOverride && (
+              <button 
+                onClick={resetElementSection}
+                className="w-full mt-2 text-xs text-red-600 bg-red-50 hover:bg-red-100 py-1 rounded border border-red-200 transition-colors"
+              >
+                Varsayılanlara Dön
+              </button>
+            )}
+            
+            <div className="text-[10px] text-slate-400 mt-2">
+              {hasOverride 
+                ? "Bu eleman için özel boyut tanımlı." 
+                : "Genel kesit ayarları kullanılıyor."}
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  </div>
+)}
               </div>
 
               {/* Özet Kartlar */}
