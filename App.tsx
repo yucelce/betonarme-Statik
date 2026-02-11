@@ -1,9 +1,8 @@
-
 // App.tsx
-import React, { useState, useEffect } from 'react';
-import { AppState, SoilClass, ConcreteClass, AnalysisSummary, AxisData, GridSettings } from './types';
+import React, { useState } from 'react';
+import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Activity, Play } from 'lucide-react';
+import { Plus, Trash2, Play } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 
 const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
@@ -39,7 +38,8 @@ const App: React.FC = () => {
     rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
-  const [results, setResults] = useState<AnalysisSummary | null>(null);
+  // HATA DÜZELTİLDİ: AnalysisSummary yerine CalculationResult kullanıldı
+  const [results, setResults] = useState<CalculationResult | null>(null);
 
   // Helper to update dimensions when grid changes
   const updateGridAndDimensions = (newGrid: GridSettings) => {
@@ -98,7 +98,8 @@ const App: React.FC = () => {
   };
 
   const runAnalysis = () => {
-    setResults(calculateFullStructure(state));
+    // HATA DÜZELTİLDİ: calculateFullStructure yerine calculateStructure çağrıldı
+    setResults(calculateStructure(state));
   };
 
   return (
@@ -191,17 +192,18 @@ const App: React.FC = () => {
           <div className="lg:col-span-2 space-y-4">
              {results ? (
                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                 {/* HATA DÜZELTİLDİ: Sonuç objesinin doğru fieldlarına erişim sağlandı */}
                  <div className="bg-white p-4 rounded-xl border-l-4 border-blue-500 shadow-sm">
                    <div className="text-xs text-slate-500">Toplam Bina Ağırlığı</div>
-                   <div className="text-2xl font-bold text-slate-800">{results.totalWeight_kN.toFixed(1)} kN</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.seismic.building_weight.toFixed(1)} kN</div>
                  </div>
                  <div className="bg-white p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
                    <div className="text-xs text-slate-500">Taban Kesme Kuvveti</div>
-                   <div className="text-2xl font-bold text-slate-800">{results.baseShear_kN.toFixed(1)} kN</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.seismic.base_shear.toFixed(1)} kN</div>
                  </div>
                  <div className="bg-white p-4 rounded-xl border-l-4 border-purple-500 shadow-sm">
                    <div className="text-xs text-slate-500">Max Kiriş Momenti</div>
-                   <div className="text-2xl font-bold text-slate-800">{results.maxBeamMoment_kNm.toFixed(1)} kNm</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.beams.moment_support.toFixed(1)} kNm</div>
                  </div>
                  
                  <div className="col-span-full h-[500px]">
