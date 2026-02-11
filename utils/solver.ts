@@ -1,5 +1,4 @@
-// utils/solver.ts dosyasını güncelleyelim
-
+// utils/solver.ts
 import { AppState, CalculationResult } from "../types";
 import { getConcreteProperties } from "../constants";
 import { solveSlab } from "./slabSolver";
@@ -22,12 +21,13 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // 3. DEPREM HESABI
   const { seismicResult, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m);
 
-  // 4. KİRİŞLERİN HESABI VE KRİTİK KİRİŞ SEÇİMİ
+  // 4. KİRİŞLERİN HESABI VE VERİ TABANI OLUŞTURMA
+  // Tüm kirişlerin sonuçlarını saklayacağız, böylece kolonlar "bana kim bağlı?" diye sorabilecek.
   let criticalBeamResult: CalculationResult['beams'] | null = null;
   let maxBeamMoment = 0;
   
-  // Kolon hesabı için kiriş kapasitelerini sakla (Güçlü Kolon Kontrolü için)
-  let beamCapacityMap = new Map<string, { Mr: number, As_supp: number, As_span: number }>();
+  // BeamID -> { Mr, As_supp, As_span }
+  const beamDataMap = new Map<string, { Mr: number, As_supp: number, As_span: number }>();
 
   model.beams.forEach(beam => {
      const result = solveBeams(
@@ -39,7 +39,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      );
 
      // Sonuçları Map'e kaydet
-     beamCapacityMap.set(beam.id, {
+     beamDataMap.set(beam.id, {
         Mr: result.Mr_beam_Nmm,
         As_supp: result.As_beam_supp_final,
         As_span: result.As_beam_span_final
@@ -57,53 +57,55 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      criticalBeamResult = defaultRes.beamsResult;
   }
 
-  // 5. KOLONLARIN TARANMASI (GELİŞTİRİLMİŞ MANTIK)
-  // Her kolonu ayrı ayrı hesaplayıp en kritiğini (Kapasite oranı en yüksek olanı) raporlayacağız.
+  // 5. KOLONLARIN TARANMASI (AKILLI BAĞLANTI)
   
   let criticalColumnResult: CalculationResult['columns'] | null = null;
   let criticalJointResult: CalculationResult['joint'] | null = null;
   let maxColInteractionRatio = 0;
 
-  // Bir katın toplam yükü (yaklaşık)
-  const singleFloorLoad_N = W_total_N / (dimensions.storyCount || 1);
-  
   model.columns.forEach(col => {
-      // A. KOLON YÜK ALANI TAHMİNİ (Tributary Area)
-      // Basitlik için: Toplam alan / Kolon sayısı (İdealde Voronoi veya grid aralığına göre yapılmalı)
-      // Ancak köşe ve kenar kolonları ayırt etmek için grid pozisyonuna bakabiliriz.
-      // Şimdilik "Ortalama Yük" mantığını koruyalım ama güvenlik katsayısı ile oynayalım.
-      // Kenar kolonlarda moment fazla eksenel yük az olur, orta kolonlarda eksenel yük fazla olur.
+      // A. KOLONA BAĞLANAN KİRİŞLERİ BUL (Node ID eşleştirmesi)
+      const connectedBeams = model.beams.filter(b => b.startNodeId === col.nodeId || b.endNodeId === col.nodeId);
       
-      const tributaryAreaShare = 1 / Math.max(model.columns.length, 1); 
-      // Orta kolonlar için yükü biraz artıralım (%20)
-      const loadFactor = 1.2; 
+      // B. BAĞLI KİRİŞLERİN KAPASİTELERİ TOPLAMI (Güçlü Kolon Hesabı İçin)
+      let sum_Mr_beams_Nmm = 0;
+      let max_As_supp = 0;
+      let max_As_span = 0;
       
-      const Nd_gravity_N = (W_total_N * tributaryAreaShare * loadFactor); 
-      // Yük Katsayıları (1.4G + 1.6Q) -> Kabaca 1.45 ortalama ile çarpılmış W_total zaten.
-      // Sadece 1.5 güvenlik katsayısı ekleyelim.
-      const Nd_design_N = Nd_gravity_N * 1.5; // Eski koddaki mantık, ama kolon bazlı döngüdeyiz.
+      connectedBeams.forEach(b => {
+          const data = beamDataMap.get(b.id);
+          if (data) {
+              sum_Mr_beams_Nmm += data.Mr;
+              max_As_supp = Math.max(max_As_supp, data.As_supp);
+              max_As_span = Math.max(max_As_span, data.As_span);
+          }
+      });
 
-      // B. DEPREM KESME KUVVETİ PAYLAŞIMI
-      // Her kolonun rijitliği eşit kabul edilirse (boyutlar aynı):
-      // Zemin kattaki kesme kuvvetini kolon sayısına böl.
-      const baseShearFloor = fi_story_N.reduce((a,b)=>a+b, 0); // Toplam taban kesme
-      const V_col_design_N = baseShearFloor / model.columns.length;
+      // C. DÜĞÜM NOKTASI TÜRÜ (Kuşatılmış mı?)
+      // Eğer 3 veya daha fazla kiriş saplanıyorsa Kuşatılmış kabul et (Basit yaklaşım)
+      const isJointConfined = connectedBeams.length >= 3;
 
-      // Bu kolona bağlanan kirişlerin kapasitesini bul (Ortalama bir değer al veya bağlı olanı bul)
-      // Şimdilik en kritik kirişin kapasitesini kullanmak güvenli tarafta kalır.
-      const connectedBeamMr = beamCapacityMap.get(`Bx-0-0`)?.Mr || criticalBeamResult!.moment_support * 1e6; // Basitleştirme
+      // D. KOLON YÜKLERİ
+      const tributaryAreaShare = 1 / Math.max(model.columns.length, 1);
+      const Nd_gravity_N = (W_total_N * tributaryAreaShare * 1.2); 
+      const Nd_design_N = Nd_gravity_N * 1.5; 
 
+      // Deprem kesme kuvveti paylaşımı
+      const V_col_design_N = Vt_design_N / Math.max(model.columns.length, 1);
+
+      // E. KOLON HESABI
       const colRes = solveColumns(
         state,
         Nd_design_N,
         V_col_design_N,
-        connectedBeamMr, 
-        beamCapacityMap.get('Bx-0-0')?.As_supp || 0,
-        beamCapacityMap.get('Bx-0-0')?.As_span || 0,
+        sum_Mr_beams_Nmm, // Gerçek kiriş moment toplamı
+        max_As_supp,
+        max_As_span,
+        isJointConfined, // Otomatik belirlenen kuşatılmışlık
         fck, fcd, fctd, Ec
       );
 
-      // En zorlanan kolonu bul (Interaction ratio'ya göre)
+      // En zorlanan kolonu bul
       if (!criticalColumnResult || colRes.columnsResult.interaction_ratio > maxColInteractionRatio) {
           maxColInteractionRatio = colRes.columnsResult.interaction_ratio;
           criticalColumnResult = colRes.columnsResult;
@@ -113,18 +115,12 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   // Fallback
   if (!criticalColumnResult) {
-       // ... (Eski fallback kodu)
-       // Hata durumunda kod patlamasın diye eski default değerler döndürülebilir
-       // Ancak yukarıdaki döngü en az 1 kere çalışacağı için buraya nadiren düşer.
-       // Güvenlik için dummy call yapılabilir.
-       const dummy = solveColumns(state, 100000, 10000, 0, 0, 0, fck, fcd, fctd, Ec);
+       const dummy = solveColumns(state, 100000, 10000, 0, 0, 0, false, fck, fcd, fctd, Ec);
        criticalColumnResult = dummy.columnsResult;
        criticalJointResult = dummy.jointResult;
   }
 
   // 6. TEMEL HESABI
-  // Temel hesabı için en büyük eksenel yüke sahip kolonu kullanmak daha doğru olur.
-  // Şu an için toplam bina ağırlığı üzerinden gidiyor (Rady temel gibi).
   const { foundationResult } = solveFoundation(state, W_total_N, criticalColumnResult!.axial_load_design * 1000, fctd);
 
   return {

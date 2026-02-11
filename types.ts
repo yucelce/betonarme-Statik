@@ -62,7 +62,7 @@ export interface AppState {
   rebars: RebarSettings;
 }
 
-// --- MODEL TİPLERİ (YENİ EKLENDİ) ---
+// --- MODEL TİPLERİ ---
 
 export interface NodeEntity {
   id: string;
@@ -148,7 +148,14 @@ export interface CalculationResult {
   };
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
-    building_weight: number; base_shear: number; story_drift_check: CheckStatus;
+    building_weight: number; base_shear: number; 
+    // GÜNCELLENEN KISIM: DRİFT DATASI
+    story_drift: {
+        check: CheckStatus;
+        delta_max: number;
+        drift_ratio: number;
+        limit: number;
+    };
     R_coefficient: number; I_coefficient: number;
   };
   foundation: {

@@ -1,6 +1,7 @@
+// utils/report.tsx
 import React from 'react';
 import { AppState, CalculationResult } from '../types';
-import { CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle } from 'lucide-react';
 
 interface Props {
   state: AppState;
@@ -35,10 +36,6 @@ const Report: React.FC<Props> = ({ state, results }) => {
             <span className="font-bold">{state.seismic.soilClass}</span>
           </div>
           <div className="bg-slate-50 p-3 rounded">
-             <span className="block text-xs text-slate-500">Spektral İvmeler</span>
-             <span className="font-bold">Ss={state.seismic.ss}, S1={state.seismic.s1}</span>
-          </div>
-          <div className="bg-slate-50 p-3 rounded">
              <span className="block text-xs text-slate-500">Bina Ağırlığı (W)</span>
              <span className="font-bold">{results.seismic.building_weight.toFixed(1)} kN</span>
           </div>
@@ -46,9 +43,14 @@ const Report: React.FC<Props> = ({ state, results }) => {
              <span className="block text-xs text-slate-500">Taban Kesme (Vt)</span>
              <span className="font-bold">{results.seismic.base_shear.toFixed(1)} kN</span>
           </div>
-        </div>
-        <div className="mt-2 text-xs text-slate-500">
-           Spektrum Karakteristik Periyotları: TA=0.20s, TB=0.85s (Otomatik) | Yapı Periyodu T1: {results.seismic.period_t1.toFixed(3)}s
+          {/* YENİ: DRIFT KARTI */}
+          <div className={`p-3 rounded border ${results.seismic.story_drift.check.isSafe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+             <span className="block text-xs text-slate-500">Göreli Öteleme (Drift)</span>
+             <span className="font-bold block">{results.seismic.story_drift.drift_ratio.toFixed(5)}</span>
+             <span className={`text-[10px] font-bold ${results.seismic.story_drift.check.isSafe ? 'text-green-600' : 'text-red-600'}`}>
+                 {results.seismic.story_drift.check.isSafe ? '✔ UYGUN' : '❌ AŞILDI'}
+             </span>
+          </div>
         </div>
       </section>
 
