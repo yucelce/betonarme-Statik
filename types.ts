@@ -174,5 +174,3 @@ export interface CalculationResult {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
 }
-`
-}

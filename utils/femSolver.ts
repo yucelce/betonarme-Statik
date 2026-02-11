@@ -2,6 +2,7 @@
 import { matrix, multiply, inv, zeros, Matrix, index, transpose, subtract } from 'mathjs';
 import { AppState } from '../types';
 import { getConcreteProperties } from '../constants';
+import * as math from 'mathjs';
 
 // --- TİPLER ---
 interface Node3D {
