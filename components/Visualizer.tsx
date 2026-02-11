@@ -1,19 +1,29 @@
-import React, { useState, useRef } from 'react';
-import { Dimensions, Sections } from '../types';
+import React, { useState, useRef, useMemo } from 'react';
+import { AppState } from '../types';
+import { generateModel } from '../utils/modelGenerator';
 
 interface Props {
-  dimensions: Dimensions;
-  sections: Sections;
+  state: AppState;
 }
 
-const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
+const Visualizer: React.FC<Props> = ({ state }) => {
+  const { dimensions, sections } = state;
+
+  // Modeli oluştur (Grid değiştiğinde yeniden hesaplar)
+  const model = useMemo(() => generateModel(state), [state]);
+  
+  // Node'lara hızlı erişim için Map oluştur
+  const nodeMap = useMemo(() => {
+    return new Map(model.nodes.map(node => [node.id, node]));
+  }, [model]);
+
   // State for interactivity
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
 
-  // Event Handlers
+  // Event Handlers (Zoom & Pan)
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
     const scaleFactor = 1.1;
@@ -35,80 +45,63 @@ const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
 
   const handleMouseUp = () => setIsDragging(false);
 
-  // --- ORTAK AYARLAR ---
-  const canvasSize = 220; 
-  const padding = 20;
-
-  // 1. PLAN GÖRÜNÜŞ AYARLARI
-  const maxDimPlan = Math.max(dimensions.lx, dimensions.ly);
-  const scalePlan = (canvasSize - padding * 2) / maxDimPlan;
+  // --- ÇİZİM AYARLARI ---
+  const canvasSize = 220;
+  const padding = 40; // Aks etiketleri için boşluk
   
-  const widthPx = dimensions.lx * scalePlan;
-  const heightPx = dimensions.ly * scalePlan;
-  const startX_Plan = (canvasSize - widthPx) / 2;
-  const startY_Plan = (canvasSize - heightPx) / 2;
+  const maxDim = Math.max(dimensions.lx, dimensions.ly);
+  const scale = (canvasSize - padding * 2) / (maxDim || 1); // 0 bölme hatasını önle
 
-  // Ölçekli Kolon Boyutları
-  const colW_Plan = Math.max(sections.colWidth * scalePlan / 100, 3);
-  const colH_Plan = Math.max(sections.colDepth * scalePlan / 100, 3);
+  // Çizimi merkeze al
+  const drawingWidth = dimensions.lx * scale;
+  const drawingHeight = dimensions.ly * scale;
+  const startX = (canvasSize - drawingWidth) / 2;
+  const startY = (canvasSize - drawingHeight) / 2;
 
+  // Koordinat Dönüştürücü (Metre -> Piksel)
+  const toPx = (val: number) => val * scale;
 
-  // 2. KESİT GÖRÜNÜŞ AYARLARI
+  // Boyutlar (Piksel)
+  const colW = Math.max(sections.colWidth * scale / 100, 4); // Min 4px
+  const colD = Math.max(sections.colDepth * scale / 100, 4);
+  const beamW = Math.max(sections.beamWidth * scale / 100, 2);
+
+  // --- 3D GÖRÜNÜŞ AYARLARI ---
   const storyCount = dimensions.storyCount || 1;
-  const totalHeight = dimensions.h * storyCount;
-  const elevationHeight = 220; 
+  const hStory = dimensions.h;
+  const totalH = hStory * storyCount;
   
-  const maxDimElev = Math.max(dimensions.lx, totalHeight);
-  const scaleElev = (elevationHeight - 30) / maxDimElev;
-
-  const elevWidthPx = dimensions.lx * scaleElev;
-  const storyHPx = dimensions.h * scaleElev;
-  const elevTotalHPx = totalHeight * scaleElev;
-
-  const elevStartX = (canvasSize - elevWidthPx) / 2;
+  const isoScale = (canvasSize - 60) / (dimensions.lx + dimensions.ly + totalH * 0.8 || 1);
   
-  const beamDepthPx = Math.max(sections.beamDepth * scaleElev / 100, 2);
-  const colWidthPx_Elev = Math.max(sections.colWidth * scaleElev / 100, 2);
+  // 3D Merkezleme
+  const isoCenterX = canvasSize / 2;
+  const isoCenterY = canvasSize / 2 + (totalH * isoScale) / 3;
 
-
-  // 3. 3D (İZOMETRİK) GÖRÜNÜŞ HESAPLARI
-  const isoCos = Math.cos(Math.PI / 6);
-  const isoSin = Math.sin(Math.PI / 6);
-
-  // Ölçek Faktörü
-  const isoScale = (canvasSize - 40) / (dimensions.lx + dimensions.ly + totalHeight * 0.8);
-
-  // --- MERKEZLEME (DİKEY ORTALAMA) ---
-  const totalDrawingHeight = totalHeight * isoScale;
-  const centerY = (canvasSize / 2) + (totalDrawingHeight / 2) * 0.9;
-  
   const toIso = (x: number, y: number, z: number) => {
-    const centerX = canvasSize / 2;
+    const isoCos = 0.866; // cos(30)
+    const isoSin = 0.5;   // sin(30)
     
     const xIso = (x - y) * isoCos;
     const yIso = (x + y) * isoSin - z;
 
     return {
-      x: centerX + xIso * isoScale,
-      y: centerY + yIso * isoScale
+      x: isoCenterX + xIso * isoScale,
+      y: isoCenterY + yIso * isoScale
     };
   };
 
-  // Dinamik Kalınlıklar
-  const colStroke3D = Math.max((sections.colWidth / 100) * isoScale, 2);
-  const beamStroke3D = Math.max((sections.beamDepth / 100) * isoScale, 2); 
-
-  const lx = dimensions.lx;
-  const ly = dimensions.ly;
-  const h = dimensions.h;
-
   const interactiveGroupProps = {
     transform: `translate(${offset.x}, ${offset.y}) scale(${zoom})`,
-    style: { transition: isDragging ? 'none' : 'transform 0.1s ease-out' }
+    style: { transition: isDragging ? 'none' : 'transform 0.1s ease-out', transformOrigin: 'center' }
   };
 
+  // Grid Çizgileri için unique koordinatlar
+  // TypeScript hatasını önlemek için explicit tip belirtimi
+  const xGridCoords: number[] = [...new Set(model.nodes.map(n => n.x))].sort((a,b)=>a-b);
+  const yGridCoords: number[] = [...new Set(model.nodes.map(n => n.y))].sort((a,b)=>a-b);
+
   return (
-    <div className="w-full h-full grid grid-cols-1 md:grid-cols-3 gap-2 items-stretch overflow-hidden">
+    <div className="w-full h-full grid grid-cols-1 md:grid-cols-3 gap-2 items-stretch overflow-hidden select-none">
       
       {/* 1. KART: KAT PLANI */}
       <div 
@@ -124,83 +117,112 @@ const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
           Kat Planı
         </h3>
         <svg width="100%" height="100%" viewBox={`0 0 ${canvasSize} ${canvasSize}`} className="bg-slate-50/50">
-          <defs>
+           <defs>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.5"/>
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
 
-          <g {...interactiveGroupProps} transform-origin="center">
-             <rect 
-                x={startX_Plan} 
-                y={startY_Plan} 
-                width={widthPx} 
-                height={heightPx} 
-                fill="#eff6ff" 
-                stroke="#3b82f6" 
-                strokeWidth="1.5" 
-                strokeOpacity="0.5"
-             />
-             <rect x={startX_Plan - colW_Plan/2} y={startY_Plan - colH_Plan/2} width={colW_Plan} height={colH_Plan} fill="#1e293b" />
-             <rect x={startX_Plan + widthPx - colW_Plan/2} y={startY_Plan - colH_Plan/2} width={colW_Plan} height={colH_Plan} fill="#1e293b" />
-             <rect x={startX_Plan - colW_Plan/2} y={startY_Plan + heightPx - colH_Plan/2} width={colW_Plan} height={colH_Plan} fill="#1e293b" />
-             <rect x={startX_Plan + widthPx - colW_Plan/2} y={startY_Plan + heightPx - colH_Plan/2} width={colW_Plan} height={colH_Plan} fill="#1e293b" />
+          <g {...interactiveGroupProps}>
+             {/* AKS ÇİZGİLERİ VE ETİKETLERİ */}
+             {xGridCoords.map((gridX, i) => (
+                <g key={`axis-x-${i}`}>
+                   <line 
+                     x1={startX + toPx(gridX)} y1={startY - 15} 
+                     x2={startX + toPx(gridX)} y2={startY + drawingHeight + 15} 
+                     stroke="#94a3b8" strokeWidth="0.5" strokeDasharray="4 2"
+                   />
+                   <circle cx={startX + toPx(gridX)} cy={startY - 20} r="6" fill="white" stroke="#64748b" strokeWidth="1"/>
+                   <text x={startX + toPx(gridX)} y={startY - 18} textAnchor="middle" fontSize="8" fill="#475569" className="font-sans font-bold">
+                     {i + 1}
+                   </text>
+                </g>
+             ))}
+             {yGridCoords.map((gridY, i) => (
+                <g key={`axis-y-${i}`}>
+                   <line 
+                     x1={startX - 15} y1={startY + toPx(gridY)} 
+                     x2={startX + drawingWidth + 15} y2={startY + toPx(gridY)} 
+                     stroke="#94a3b8" strokeWidth="0.5" strokeDasharray="4 2"
+                   />
+                   <circle cx={startX - 20} cy={startY + toPx(gridY)} r="6" fill="white" stroke="#64748b" strokeWidth="1"/>
+                   <text x={startX - 20} y={startY + toPx(gridY) + 2} textAnchor="middle" fontSize="8" fill="#475569" className="font-sans font-bold">
+                     {String.fromCharCode(65 + i)}
+                   </text>
+                </g>
+             ))}
+
+             {/* KİRİŞLER */}
+             {model.beams.map(beam => {
+               const n1 = nodeMap.get(beam.startNodeId);
+               const n2 = nodeMap.get(beam.endNodeId);
+               if(!n1 || !n2) return null;
+               
+               const x1 = startX + toPx(n1.x);
+               const y1 = startY + toPx(n1.y);
+               const x2 = startX + toPx(n2.x);
+               const y2 = startY + toPx(n2.y);
+
+               return (
+                 <line 
+                   key={beam.id}
+                   x1={x1} y1={y1} x2={x2} y2={y2}
+                   stroke="#e9d5ff"
+                   strokeWidth={beamW}
+                   strokeLinecap="square"
+                 />
+               );
+             })}
              
-             {/* Ölçüler */}
-             <text x={startX_Plan + widthPx / 2} y={startY_Plan + heightPx + 12} textAnchor="middle" className="text-[9px] fill-slate-500 font-mono" fontSize="8">Lx={dimensions.lx}m</text>
-             <text x={startX_Plan - 8} y={startY_Plan + heightPx / 2} textAnchor="middle" transform={`rotate(-90, ${startX_Plan - 8}, ${startY_Plan + heightPx / 2})`} className="text-[9px] fill-slate-500 font-mono" fontSize="8">Ly={dimensions.ly}m</text>
+             {/* KOLONLAR */}
+             {model.columns.map(col => {
+               const n = nodeMap.get(col.nodeId);
+               if(!n) return null;
+               const cx = startX + toPx(n.x);
+               const cy = startY + toPx(n.y);
+               
+               return (
+                 <rect 
+                    key={col.id}
+                    x={cx - colW/2} y={cy - colD/2}
+                    width={colW} height={colD}
+                    fill="#1e293b"
+                    stroke="none"
+                 />
+               );
+             })}
+
+            {/* KİRİŞ KENARLARI (Görsellik için üstüne çizgi) */}
+             {model.beams.map(beam => {
+               const n1 = nodeMap.get(beam.startNodeId);
+               const n2 = nodeMap.get(beam.endNodeId);
+               if(!n1 || !n2) return null;
+               return (
+                 <line 
+                   key={`ln-${beam.id}`}
+                   x1={startX + toPx(n1.x)} y1={startY + toPx(n1.y)} 
+                   x2={startX + toPx(n2.x)} y2={startY + toPx(n2.y)}
+                   stroke="#9333ea" strokeWidth="0.5"
+                 />
+               );
+             })}
           </g>
         </svg>
       </div>
 
-      {/* 2. KART: KESİT (A-A) */}
-      <div 
-         className="flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 p-2 min-h-[240px] cursor-move relative overflow-hidden"
-         onWheel={handleWheel}
-         onMouseDown={handleMouseDown}
-         onMouseMove={handleMouseMove}
-         onMouseUp={handleMouseUp}
-         onMouseLeave={handleMouseUp}
-      >
-        <h3 className="absolute top-2 left-2 text-slate-500 text-[10px] font-bold z-10 tracking-wider uppercase flex items-center gap-2 pointer-events-none">
+      {/* 2. KART: KESİT (A-A Basit Görünüm) */}
+      <div className="flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 p-2 min-h-[240px] relative overflow-hidden">
+         <h3 className="absolute top-2 left-2 text-slate-500 text-[10px] font-bold z-10 tracking-wider uppercase flex items-center gap-2 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-          A-A Kesiti
+          Kesit (Şematik)
         </h3>
-        <svg width="100%" height="100%" viewBox={`0 0 ${canvasSize} ${elevationHeight}`} className="bg-slate-50/50">
-          <rect width="100%" height="100%" fill="url(#grid)" />
-          
-          <g {...interactiveGroupProps} transform-origin="center">
-            <g transform={`translate(0, ${elevationHeight - 20}) scale(1, -1)`}>
-                <line x1="-1000" y1="0" x2="1000" y2="0" stroke="#94a3b8" strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
-                
-                {Array.from({ length: storyCount }).map((_, i) => {
-                const yPos = i * storyHPx;
-                return (
-                    <g key={i}>
-                    <rect x={elevStartX - colWidthPx_Elev/2} y={yPos} width={colWidthPx_Elev} height={storyHPx} fill="#cbd5e1" stroke="#475569" strokeWidth="0.5"/>
-                    <rect x={elevStartX + elevWidthPx - colWidthPx_Elev/2} y={yPos} width={colWidthPx_Elev} height={storyHPx} fill="#cbd5e1" stroke="#475569" strokeWidth="0.5"/>
-                    <rect x={elevStartX} y={yPos + storyHPx - beamDepthPx} width={elevWidthPx} height={beamDepthPx} fill="#e9d5ff" stroke="#9333ea" strokeWidth="0.5"/>
-                    </g>
-                );
-                })}
-            </g>
-
-            <line x1={elevStartX + elevWidthPx + 10} y1={elevationHeight - 20} x2={elevStartX + elevWidthPx + 10} y2={elevationHeight - 20 - elevTotalHPx} stroke="#94a3b8" strokeWidth="1" />
-            <text 
-                x={elevStartX + elevWidthPx + 18} 
-                y={elevationHeight - 20 - elevTotalHPx / 2} 
-                className="text-[9px] fill-slate-500 font-mono" 
-                transform={`rotate(90, ${elevStartX + elevWidthPx + 18}, ${elevationHeight - 20 - elevTotalHPx / 2})`}
-                fontSize="8"
-            >
-                H={totalHeight}m
-            </text>
-          </g>
+        <svg width="100%" height="100%" viewBox={`0 0 ${canvasSize} ${canvasSize}`} className="bg-slate-50/50">
+             <text x="50%" y="50%" textAnchor="middle" fill="#94a3b8" fontSize="10">Plan Görünümü Aktif</text>
         </svg>
       </div>
 
-      {/* 3. KART: 3D PROFİL */}
+      {/* 3. KART: 3D MODEL */}
       <div 
          className="flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 p-2 min-h-[240px] cursor-move relative overflow-hidden"
          onWheel={handleWheel}
@@ -211,91 +233,66 @@ const Visualizer: React.FC<Props> = ({ dimensions, sections }) => {
       >
         <h3 className="absolute top-2 left-2 text-slate-500 text-[10px] font-bold z-10 tracking-wider uppercase flex items-center gap-2 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-          3D Profil
+          3D Model
         </h3>
         <svg width="100%" height="100%" viewBox={`0 0 ${canvasSize} ${canvasSize}`} className="bg-slate-50/50 overflow-visible">
-           <defs>
-             <radialGradient id="shadowGradient" cx="50%" cy="50%" r="50%">
-               <stop offset="0%" stopColor="#000" stopOpacity="0.1" />
-               <stop offset="100%" stopColor="#000" stopOpacity="0" />
-             </radialGradient>
-           </defs>
+          <g {...interactiveGroupProps}>
+             {/* Taban Gölgesi */}
+             {(() => {
+                 const p1 = toIso(0, 0, 0);
+                 const p2 = toIso(dimensions.lx, 0, 0);
+                 const p3 = toIso(dimensions.lx, dimensions.ly, 0);
+                 const p4 = toIso(0, dimensions.ly, 0);
+                 return <path d={`M${p1.x} ${p1.y} L${p2.x} ${p2.y} L${p3.x} ${p3.y} L${p4.x} ${p4.y} Z`} fill="black" fillOpacity="0.05" />;
+             })()}
 
-          <g {...interactiveGroupProps} transform-origin="center">
-            {/* Gölge */}
-            {(() => {
-                const p1 = toIso(0, 0, 0);
-                const p2 = toIso(lx, 0, 0);
-                const p3 = toIso(lx, ly, 0);
-                const p4 = toIso(0, ly, 0);
-                return (
-                <path 
-                    d={`M${p1.x} ${p1.y} L${p2.x} ${p2.y} L${p3.x} ${p3.y} L${p4.x} ${p4.y} Z`} 
-                    fill="url(#shadowGradient)" 
-                    transform="translate(0, 10)"
-                />
-                );
-            })()}
+             {Array.from({ length: storyCount }).map((_, floorIndex) => {
+               const zBottom = floorIndex * hStory;
+               const zTop = (floorIndex + 1) * hStory;
+               
+               return (
+                 <g key={`floor-${floorIndex}`}>
+                   {/* KOLONLAR */}
+                   {model.columns.map(col => {
+                      const n = nodeMap.get(col.nodeId);
+                      if(!n) return null;
+                      const b = toIso(n.x, n.y, zBottom);
+                      const t = toIso(n.x, n.y, zTop);
+                      return (
+                        <line 
+                          key={`c3d-${col.id}`}
+                          x1={b.x} y1={b.y} x2={t.x} y2={t.y}
+                          stroke="#475569" strokeWidth={colW * 0.8} strokeLinecap="round"
+                        />
+                      );
+                   })}
 
-            {Array.from({ length: storyCount }).map((_, i) => {
-                const currentZ = i * h;
-                const nextZ = (i + 1) * h;
-                
-                const c0_b = toIso(0, 0, currentZ);
-                const c1_b = toIso(lx, 0, currentZ);
-                const c2_b = toIso(lx, ly, currentZ);
-                const c3_b = toIso(0, ly, currentZ);
-
-                const c0_t = toIso(0, 0, nextZ);
-                const c1_t = toIso(lx, 0, nextZ);
-                const c2_t = toIso(lx, ly, nextZ);
-                const c3_t = toIso(0, ly, nextZ);
-
-                const drawBeam = (p1: {x:number, y:number}, p2: {x:number, y:number}) => (
-                <g>
-                    <line 
-                    x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} 
-                    stroke="#fb923c" 
-                    strokeWidth={beamStroke3D} 
-                    strokeOpacity="0.4"
-                    strokeLinecap="butt"
-                    />
-                    <line 
-                    x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} 
-                    stroke="#ea580c" 
-                    strokeWidth={0.5} 
-                    strokeOpacity="0.8"
-                    />
-                </g>
-                );
-
-                return (
-                <g key={`story-${i}`}>
-                    {/* Arka Kolon */}
-                    <line x1={c2_b.x} y1={c2_b.y} x2={c2_t.x} y2={c2_t.y} stroke="#cbd5e1" strokeWidth={colStroke3D} strokeLinecap="round" />
-
-                    {/* Döşeme */}
-                    <path 
-                    d={`M${c0_t.x} ${c0_t.y} L${c1_t.x} ${c1_t.y} L${c2_t.x} ${c2_t.y} L${c3_t.x} ${c3_t.y} Z`} 
-                    fill="#fed7aa" 
-                    fillOpacity="0.1" 
-                    stroke="none"
-                    />
-
-                    {/* Kirişler */}
-                    {drawBeam(c0_t, c1_t)}
-                    {drawBeam(c1_t, c2_t)}
-                    {drawBeam(c2_t, c3_t)}
-                    {drawBeam(c3_t, c0_t)}
-
-                    {/* Ön Kolonlar */}
-                    <line x1={c0_b.x} y1={c0_b.y} x2={c0_t.x} y2={c0_t.y} stroke="#334155" strokeWidth={colStroke3D} strokeLinecap="round" />
-                    <line x1={c1_b.x} y1={c1_b.y} x2={c1_t.x} y2={c1_t.y} stroke="#334155" strokeWidth={colStroke3D} strokeLinecap="round" />
-                    <line x1={c3_b.x} y1={c3_b.y} x2={c3_t.x} y2={c3_t.y} stroke="#334155" strokeWidth={colStroke3D} strokeLinecap="round" />
-                </g>
-                );
-            })}
-           </g>
+                   {/* KİRİŞLER */}
+                   {model.beams.map(beam => {
+                      const n1 = nodeMap.get(beam.startNodeId);
+                      const n2 = nodeMap.get(beam.endNodeId);
+                      if(!n1 || !n2) return null;
+                      const start = toIso(n1.x, n1.y, zTop);
+                      const end = toIso(n2.x, n2.y, zTop);
+                      
+                      return (
+                        <line 
+                          key={`b3d-${beam.id}`}
+                          x1={start.x} y1={start.y} x2={end.x} y2={end.y}
+                          stroke="#f97316" strokeWidth={beamW * 0.8}
+                        />
+                      );
+                   })}
+                   
+                   {/* DÖŞEME */}
+                   <path 
+                     d={`M${toIso(0,0,zTop).x} ${toIso(0,0,zTop).y} L${toIso(dimensions.lx,0,zTop).x} ${toIso(dimensions.lx,0,zTop).y} L${toIso(dimensions.lx,dimensions.ly,zTop).x} ${toIso(dimensions.lx,dimensions.ly,zTop).y} L${toIso(0,dimensions.ly,zTop).x} ${toIso(0,dimensions.ly,zTop).y} Z`}
+                     fill="#fb923c" fillOpacity="0.1" stroke="none"
+                   />
+                 </g>
+               );
+             })}
+          </g>
         </svg>
       </div>
 
