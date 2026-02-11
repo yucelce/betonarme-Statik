@@ -7,114 +7,112 @@ import { solveBeams } from "./beamSolver";
 import { solveColumns } from "./columnSolver";
 import { solveFoundation } from "./foundationSolver";
 import { generateModel } from "./modelGenerator";
-import { solveFEM } from './femSolver';
+import { solveFEM } from './femSolver'; // FEM tekrar aktif
 
 export const calculateStructure = (state: AppState): CalculationResult => {
-  const { materials, dimensions } = state;
+  const { materials } = state;
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
 
-  // 1. MODEL OLUŞTURMA
-  const model = generateModel(state);
-const femResults = solveFEM(state);
-  // 2. DÖŞEME HESABI
+  // 1. DÖŞEME HESABI (Yük analizi için gerekli)
   const { slabResult, q_beam_design_N_m, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m } = solveSlab(state);
 
-  // 3. DEPREM HESABI
-  const { seismicResult, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m);
-
-  // 4. KİRİŞLERİN HESABI VE VERİ TABANI OLUŞTURMA
-  // Tüm kirişlerin sonuçlarını saklayacağız, böylece kolonlar "bana kim bağlı?" diye sorabilecek.
-  let criticalBeamResult: CalculationResult['beams'] | null = null;
-  let maxBeamMoment = 0;
+  // 2. MODEL VE FEM ANALİZİ
+  const model = generateModel(state);
+  // FEM Analizini çalıştır
+  const femResults = solveFEM(state);
   
-  // BeamID -> { Mr, As_supp, As_span }
+  // 3. YAKLAŞIK DEPREM (Sadece spektrum ve rapor değerleri için, kuvvetleri kullanmayacağız)
+  const { seismicResult, Vt_design_N, W_total_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m);
+
+  // 4. KİRİŞ TASARIMI (FEM KUVVETLERİ İLE)
+  let criticalBeamResult: CalculationResult['beams'] | null = null;
   const beamDataMap = new Map<string, { Mr: number, As_supp: number, As_span: number }>();
 
   model.beams.forEach(beam => {
-     const result = solveBeams(
-        state, 
-        beam.length, 
-        q_beam_design_N_m, 
-        Vt_design_N, 
-        fcd, fctd, Ec
-     );
+     // FEM'den gelen kuvvetleri al
+     const femForces = femResults.memberForces.get(beam.id);
+     
+     // Eğer FEM kuvveti varsa (kN -> Nmm dönüşümü ile) onu kullan, yoksa yaklaşık hesabı kullan
+     // Not: FEM'den gelen Mz güçlü eksen momentidir (kNm -> Nmm için * 1e6)
+     const femMoment = femForces ? Math.abs(femForces.mz) * 1e6 : 0;
+     const femShear = femForces ? Math.abs(femForces.fy) * 1000 : 0;
 
-     // Sonuçları Map'e kaydet
+     // Yaklaşık çözüm fonksiyonunu çağırıyoruz ama sonuçlarını FEM ile ezeceğiz
+     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec);
+
+     // FEM SONUÇLARINI ENTEGRE ET:
+     if (femMoment > 0) {
+        // Hesaplanan donatıları FEM momentine göre güncelle (Basit oranlama)
+        const ratio = femMoment / (result.beamsResult.moment_support * 1e6 || 1);
+        result.beamsResult.moment_support = femMoment / 1e6;
+        result.beamsResult.moment_span = femMoment / 2 / 1e6; // Açıklık momenti kabulü
+        result.beamsResult.shear_design = femShear / 1000;
+        
+        // Donatıyı yeni momente göre güncelle
+        result.As_beam_supp_final *= ratio;
+        result.As_beam_span_final *= ratio;
+     }
+
      beamDataMap.set(beam.id, {
         Mr: result.Mr_beam_Nmm,
         As_supp: result.As_beam_supp_final,
         As_span: result.As_beam_span_final
      });
 
-     if (!criticalBeamResult || result.beamsResult.moment_support > maxBeamMoment) {
-        maxBeamMoment = result.beamsResult.moment_support;
+     if (!criticalBeamResult || result.beamsResult.moment_support > criticalBeamResult.moment_support) {
         criticalBeamResult = result.beamsResult;
      }
   });
 
-  // Fallback (Eğer kiriş yoksa)
-  if (!criticalBeamResult) {
-     const defaultRes = solveBeams(state, 5, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec);
-     criticalBeamResult = defaultRes.beamsResult;
-  }
+  // Kiriş yoksa fallback
+  if (!criticalBeamResult) criticalBeamResult = solveBeams(state, 5, 10000, 10000, fcd, fctd, Ec).beamsResult;
 
-  // 5. KOLONLARIN TARANMASI (AKILLI BAĞLANTI)
-  
+  // 5. KOLON TASARIMI (FEM KUVVETLERİ İLE)
   let criticalColumnResult: CalculationResult['columns'] | null = null;
   let criticalJointResult: CalculationResult['joint'] | null = null;
-  let maxColInteractionRatio = 0;
+  let maxColRatio = 0;
 
   model.columns.forEach(col => {
-      // A. KOLONA BAĞLANAN KİRİŞLERİ BUL (Node ID eşleştirmesi)
+      // FEM'den gelen kuvvetler
+      const femForces = femResults.memberForces.get(col.id);
+      
+      // FEM'den Eksenel Yük (fz) ve Moment (mz) al
+      // Normal kuvvet basınca çalışır, FEM'de çekme pozitif olabilir, mutlak değer veya işaret kontrolü
+      const Nd_fem = femForces ? Math.abs(femForces.fz) * 1000 : 0; 
+      const Md_fem = femForces ? Math.abs(femForces.mz) * 1e6 : 0;
+      const V_fem = femForces ? Math.abs(femForces.fy) * 1000 : 0;
+
+      // Yaklaşık yük dağılımı yerine FEM yükünü kullanacağız
+      // Ancak fonksiyon argümanı olarak geçmemiz gerekiyor
+      
       const connectedBeams = model.beams.filter(b => b.startNodeId === col.nodeId || b.endNodeId === col.nodeId);
+      const isConfined = connectedBeams.length >= 3;
       
-      // B. BAĞLI KİRİŞLERİN KAPASİTELERİ TOPLAMI (Güçlü Kolon Hesabı İçin)
-      let sum_Mr_beams_Nmm = 0;
-      let max_As_supp = 0;
-      let max_As_span = 0;
-      
-      connectedBeams.forEach(b => {
-          const data = beamDataMap.get(b.id);
-          if (data) {
-              sum_Mr_beams_Nmm += data.Mr;
-              max_As_supp = Math.max(max_As_supp, data.As_supp);
-              max_As_span = Math.max(max_As_span, data.As_span);
-          }
-      });
-
-      // C. DÜĞÜM NOKTASI TÜRÜ (Kuşatılmış mı?)
-      // Eğer 3 veya daha fazla kiriş saplanıyorsa Kuşatılmış kabul et (Basit yaklaşım)
-      const isJointConfined = connectedBeams.length >= 3;
-
-      // D. KOLON YÜKLERİ
-      const tributaryAreaShare = 1 / Math.max(model.columns.length, 1);
-      const Nd_gravity_N = (W_total_N * tributaryAreaShare * 1.2); 
-      const Nd_design_N = Nd_gravity_N * 1.5; 
-
-      // Deprem kesme kuvveti paylaşımı
-      const V_col_design_N = Vt_design_N / Math.max(model.columns.length, 1);
-
-      // E. KOLON HESABI
+      // Mevcut solver fonksiyonunu çağırıyoruz
       const colRes = solveColumns(
         state,
-        Nd_design_N,
-        V_col_design_N,
-        sum_Mr_beams_Nmm, // Gerçek kiriş moment toplamı
-        max_As_supp,
-        max_As_span,
-        isJointConfined, // Otomatik belirlenen kuşatılmışlık
+        Nd_fem > 0 ? Nd_fem : 100000, // FEM yükü yoksa varsayılan
+        V_fem > 0 ? V_fem : 10000,
+        Md_fem, // Kiriş momenti yerine direkt kolon momenti olarak etki ettiriyoruz
+        0, 0, // Kiriş donatıları detay hesabı
+        isConfined,
         fck, fcd, fctd, Ec
       );
 
-      // En zorlanan kolonu bul
-      if (!criticalColumnResult || colRes.columnsResult.interaction_ratio > maxColInteractionRatio) {
-          maxColInteractionRatio = colRes.columnsResult.interaction_ratio;
+      // Moment değerlerini FEM ile güncelle
+      if(Md_fem > 0) {
+        colRes.columnsResult.moment_design = Md_fem / 1e6;
+        // Magnified moment hesabını FEM momenti üzerinden tekrar oranla
+        colRes.columnsResult.moment_magnified = Math.max(colRes.columnsResult.moment_magnified, Md_fem / 1e6);
+      }
+
+      if (!criticalColumnResult || colRes.columnsResult.interaction_ratio > maxColRatio) {
+          maxColRatio = colRes.columnsResult.interaction_ratio;
           criticalColumnResult = colRes.columnsResult;
           criticalJointResult = colRes.jointResult;
       }
   });
 
-  // Fallback
   if (!criticalColumnResult) {
        const dummy = solveColumns(state, 100000, 10000, 0, 0, 0, false, fck, fcd, fctd, Ec);
        criticalColumnResult = dummy.columnsResult;
