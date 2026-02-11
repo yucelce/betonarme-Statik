@@ -1,3 +1,4 @@
+
 // utils/modelGenerator.ts
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
 
@@ -33,8 +34,8 @@ export const generateModel = (state: AppState): StructuralModel => {
       columns.push({
         id: `C-${j}-${i}`,
         nodeId: nodeId,
-        b: sections.defaultColWidth,
-        h: sections.defaultColDepth
+        b: sections.colWidth,
+        h: sections.colDepth
       });
     }
   }
@@ -53,8 +54,8 @@ export const generateModel = (state: AppState): StructuralModel => {
         length: grid.xAxis[j].spacing,
         axisId: `Y${i+1}`,
         direction: 'X',
-        bw: sections.defaultBeamWidth,
-        h: sections.defaultBeamDepth
+        bw: sections.beamWidth,
+        h: sections.beamDepth
       });
     }
   }
@@ -71,8 +72,8 @@ export const generateModel = (state: AppState): StructuralModel => {
         length: grid.yAxis[i].spacing,
         axisId: `X${j+1}`,
         direction: 'Y',
-        bw: sections.defaultBeamWidth,
-        h: sections.defaultBeamDepth
+        bw: sections.beamWidth,
+        h: sections.beamDepth
       });
     }
   }
@@ -90,7 +91,7 @@ export const generateModel = (state: AppState): StructuralModel => {
         nodes: [n1, n2, n3, n4],
         lx: grid.xAxis[j].spacing,
         ly: grid.yAxis[i].spacing,
-        thickness: sections.defaultSlabThickness
+        thickness: sections.slabThickness
       });
     }
   }

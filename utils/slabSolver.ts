@@ -1,3 +1,4 @@
+
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
 import { createStatus, GRAVITY } from "./shared";
@@ -18,7 +19,7 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
   const m_ratio = ly_m / lx_m;
 
   // 1. YÜK ANALİZİ
-  const h_slab_m = dimensions.slabThickness / 100;
+  const h_slab_m = sections.slabThickness / 100;
   const g_slab_N_m2 = h_slab_m * 25000;
   const g_coating_N_m2 = loads.deadLoadCoatingsKg * GRAVITY;
   const q_live_N_m2 = loads.liveLoadKg * GRAVITY;
@@ -46,10 +47,10 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
   const M_slab_Nm = alpha * pd_N_m2 * Math.pow(lx_m, 2);
   const M_slab_Nmm = M_slab_Nm * 1000;
 
-  const d_slab_mm = dimensions.slabThickness * 10 - 20;
+  const d_slab_mm = sections.slabThickness * 10 - 20;
 
   const As_req_slab = M_slab_Nmm / (0.9 * STEEL_FYD * d_slab_mm);
-  const As_min_slab = 0.002 * 1000 * (dimensions.slabThickness * 10);
+  const As_min_slab = 0.002 * 1000 * (sections.slabThickness * 10);
   const As_slab_design = Math.max(As_req_slab, As_min_slab);
 
   const rho_slab = As_slab_design / (1000 * d_slab_mm);
@@ -72,7 +73,7 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
     min_thickness_limit: min_thick_limit,
     rho: rho_slab,
     thicknessStatus: createStatus(
-      dimensions.slabThickness >= min_thick_calc && dimensions.slabThickness >= min_thick_limit,
+      sections.slabThickness >= min_thick_calc && sections.slabThickness >= min_thick_limit,
       'Uygun',
       'Kalınlık Yetersiz',
       `Gereken: ${Math.max(min_thick_calc, min_thick_limit).toFixed(1)} cm`

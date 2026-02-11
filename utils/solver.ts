@@ -16,7 +16,6 @@ export const calculateFullStructure = (state: AppState): AnalysisSummary => {
   let totalWeight_N = 0;
   let maxSlabMoment = 0;
   let maxBeamMoment = 0;
-  let maxColLoad = 0;
 
   const storyCount = state.dimensions.storyCount;
 
@@ -73,9 +72,9 @@ export const calculateFullStructure = (state: AppState): AnalysisSummary => {
       totalWeight_N += w_col * storyCount;
   });
 
-  const avgLoadPerCol_N = totalWeight_N / totalColCount;
+  const avgLoadPerCol_N = totalWeight_N / Math.max(1, totalColCount);
   const Nd_design = 1.4 * avgLoadPerCol_N; // Kabaca tasarım yükü
-  maxColAxial_kN = Nd_design / 1000;
+  const maxColAxial_kN = Nd_design / 1000;
 
   // --- D. DEPREM HESABI (Tüm Bina) ---
   const { ss, s1, soilClass, Rx, I } = state.seismic;

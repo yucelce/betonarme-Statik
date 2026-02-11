@@ -1,18 +1,38 @@
+
 // App.tsx
 import React, { useState, useEffect } from 'react';
-import { AppState, SoilClass, ConcreteClass, AnalysisSummary, AxisData } from './types';
+import { AppState, SoilClass, ConcreteClass, AnalysisSummary, AxisData, GridSettings } from './types';
 import { calculateFullStructure } from './utils/solver';
 import { Plus, Trash2, Activity, Play } from 'lucide-react';
-import Visualizer from './components/Visualizer'; // Visualizer'ın da güncellenmesi gerekir!
+import Visualizer from './components/Visualizer';
+
+const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
 
 const App: React.FC = () => {
+  // Initial axes
+  const initialXAxis = [{ id: 'x1', spacing: 4 }, { id: 'x2', spacing: 5 }];
+  const initialYAxis = [{ id: 'y1', spacing: 4 }, { id: 'y2', spacing: 4 }];
+
   const [state, setState] = useState<AppState>({
     grid: {
-      xAxis: [{ id: 'x1', spacing: 4 }, { id: 'x2', spacing: 5 }], // Varsayılan 2 açıklık
-      yAxis: [{ id: 'y1', spacing: 4 }, { id: 'y2', spacing: 4 }]
+      xAxis: initialXAxis,
+      yAxis: initialYAxis
     },
-    dimensions: { storyCount: 3, h: 3, foundationHeight: 50, foundationCantilever: 50 },
-    sections: { defaultBeamWidth: 25, defaultBeamDepth: 50, defaultColWidth: 40, defaultColDepth: 40, defaultSlabThickness: 14 },
+    dimensions: { 
+      storyCount: 3, 
+      h: 3, 
+      foundationHeight: 50, 
+      foundationCantilever: 50,
+      lx: calculateTotalLength(initialXAxis),
+      ly: calculateTotalLength(initialYAxis)
+    },
+    sections: { 
+      beamWidth: 25, 
+      beamDepth: 50, 
+      colWidth: 40, 
+      colDepth: 40, 
+      slabThickness: 14 
+    },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
     materials: { concreteClass: ConcreteClass.C30 },
@@ -21,39 +41,60 @@ const App: React.FC = () => {
 
   const [results, setResults] = useState<AnalysisSummary | null>(null);
 
-  const handleAddAxis = (dir: 'x' | 'y') => {
+  // Helper to update dimensions when grid changes
+  const updateGridAndDimensions = (newGrid: GridSettings) => {
     setState(prev => ({
       ...prev,
-      grid: {
-        ...prev.grid,
-        [dir === 'x' ? 'xAxis' : 'yAxis']: [
-          ...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis'],
-          { id: `${dir}${Date.now()}`, spacing: 4 }
-        ]
+      grid: newGrid,
+      dimensions: {
+        ...prev.dimensions,
+        lx: calculateTotalLength(newGrid.xAxis),
+        ly: calculateTotalLength(newGrid.yAxis)
       }
     }));
   };
 
+  const handleAddAxis = (dir: 'x' | 'y') => {
+    const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
+    const newAxes = [
+      ...currentAxes,
+      { id: `${dir}${Date.now()}`, spacing: 4 }
+    ];
+    
+    const newGrid = {
+      ...state.grid,
+      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
+    };
+    
+    updateGridAndDimensions(newGrid);
+  };
+
   const handleRemoveAxis = (dir: 'x' | 'y', idx: number) => {
-    setState(prev => {
-      const newAxes = [...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis']];
-      if (newAxes.length > 1) newAxes.splice(idx, 1);
-      return {
-        ...prev,
-        grid: { ...prev.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes }
-      };
-    });
+    const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
+    if (currentAxes.length <= 1) return;
+
+    const newAxes = [...currentAxes];
+    newAxes.splice(idx, 1);
+
+    const newGrid = {
+      ...state.grid,
+      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
+    };
+    
+    updateGridAndDimensions(newGrid);
   };
 
   const handleAxisChange = (dir: 'x' | 'y', idx: number, val: number) => {
-    setState(prev => {
-      const newAxes = [...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis']];
-      newAxes[idx].spacing = val;
-      return {
-        ...prev,
-        grid: { ...prev.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes }
-      };
-    });
+    const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
+    const newAxes = [...currentAxes];
+    newAxes[idx] = { ...newAxes[idx], spacing: val };
+
+    const newGrid = {
+      ...state.grid,
+      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
+    };
+    
+    updateGridAndDimensions(newGrid);
   };
 
   const runAnalysis = () => {
@@ -137,8 +178,8 @@ const App: React.FC = () => {
                  <div>
                    <label className="text-[10px] text-slate-500">Kiriş Boyut</label>
                    <div className="flex gap-1">
-                     <input type="number" value={state.sections.defaultBeamWidth} className="w-1/2 border rounded p-1" readOnly/>
-                     <input type="number" value={state.sections.defaultBeamDepth} className="w-1/2 border rounded p-1" readOnly/>
+                     <input type="number" value={state.sections.beamWidth} className="w-1/2 border rounded p-1" readOnly/>
+                     <input type="number" value={state.sections.beamDepth} className="w-1/2 border rounded p-1" readOnly/>
                    </div>
                  </div>
                </div>
@@ -163,10 +204,8 @@ const App: React.FC = () => {
                    <div className="text-2xl font-bold text-slate-800">{results.maxBeamMoment_kNm.toFixed(1)} kNm</div>
                  </div>
                  
-                 {/* Buraya Visualizer eklenebilir, ancak Grid'e göre yeniden yazılması gerekir */}
-                 <div className="col-span-full bg-slate-100 p-8 text-center rounded-xl border border-dashed border-slate-300">
-                    <p className="text-slate-500">Grid Görselleştirmesi İçin Visualizer Bileşeni Güncellenmelidir.</p>
-                    <p className="text-xs text-slate-400 mt-2">Model: {state.grid.xAxis.length}x{state.grid.yAxis.length} açıklık</p>
+                 <div className="col-span-full h-[500px]">
+                    <Visualizer dimensions={state.dimensions} sections={state.sections} />
                  </div>
                </div>
              ) : (

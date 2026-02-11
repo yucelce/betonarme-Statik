@@ -1,3 +1,4 @@
+
 // types.ts
 
 export enum SoilClass {
@@ -42,9 +43,11 @@ export interface StructuralModel {
 export interface Dimensions {
   storyCount: number;
   h: number; // Kat yüksekliği
-  // Lx ve Ly artık Grid'den hesaplanacak
   foundationHeight: number;
   foundationCantilever: number;
+  // Computed properties from Grid
+  lx: number;
+  ly: number;
 }
 
 export interface GridSettings {
@@ -53,11 +56,11 @@ export interface GridSettings {
 }
 
 export interface Sections {
-  defaultBeamWidth: number;
-  defaultBeamDepth: number;
-  defaultColWidth: number;
-  defaultColDepth: number;
-  defaultSlabThickness: number;
+  beamWidth: number;
+  beamDepth: number;
+  colWidth: number;
+  colDepth: number;
+  slabThickness: number;
 }
 
 export interface Loads {
@@ -97,4 +100,13 @@ export interface AnalysisSummary {
   maxBeamMoment_kNm: number;
   maxColAxial_kN: number;
   status: CheckStatus;
+}
+
+export interface CalculationResult {
+  slab: any;
+  seismic: any;
+  beams: any;
+  columns: any;
+  joint: any;
+  foundation: any;
 }
