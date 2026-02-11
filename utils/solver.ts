@@ -836,7 +836,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK'),
         maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK'),
         confinement: createStatus(confResult.isSafe, confResult.message, 'Yetersiz Sargı'),
-        slendernessCheck: createStatus(lambda <= 100, isSlender ? 'Narin Kolon' : 'Kısa Kolon', 'Çok Narin')
+        slendernessCheck: createStatus(lambda <= 100, isSlender ? 'Narin Kolon' : 'Narin Değil', 'Çok Narin')
       }
     },
     seismic: {
