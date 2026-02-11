@@ -23,17 +23,24 @@ export const solveSeismic = (
   g_beam_self_N_m: number,
   g_wall_N_m: number
 ): SeismicSolverResult => {
-  const { dimensions, seismic, sections, materials } = state;
+  const { dimensions, seismic, sections, materials, grid } = state;
   const { concreteClass } = materials;
   
-  // Ec (Elastisite Modülü) Tahmini (Basitleştirilmiş)
+  // Ec (Elastisite Modülü) Tahmini
   const Ec_map: Record<string, number> = { 'C20': 28000, 'C25': 30000, 'C30': 32000, 'C35': 33000, 'C40': 34000, 'C50': 37000 };
   const Ec = Ec_map[concreteClass] || 30000;
 
   const storyCount = dimensions.storyCount || 1;
   const h_story = dimensions.h; 
 
+  // DÜZELTME: Kolon sayısı dinamik hesaplanmalı ve değişken yukarı taşınmalı
+  // Aks sayısı (Açıklık + 1) bize düğüm sayısını verir.
+  const numNodesX = grid.xAxis.length + 1;
+  const numNodesY = grid.yAxis.length + 1;
+  const Num_Cols = numNodesX * numNodesY; 
+
   const Ac_floor = Num_Cols * (sections.colWidth * sections.colDepth); // cm2
+  
   // Zemin kat ile 1. kat arası oran (Programda kesitler kata göre değişmiyor şimdilik)
   const eta_ci = 1.0; 
   const isB1Safe = eta_ci >= 0.80;
@@ -44,16 +51,17 @@ export const solveSeismic = (
       message: isB1Safe ? 'Zayıf Kat Yok' : 'Zayıf Kat Düzensizliği (B1) Var!'
   };
   
-  // ... (Ağırlık hesapları önceki kodla aynı - W_total_N hesabı)
+  // Ağırlık Hesapları
   const area_m2 = dimensions.lx * dimensions.ly;
   const W_slab_N = (g_total_N_m2 + 0.3 * q_live_N_m2) * area_m2;
   const W_beam_N = g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly);
-  const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h_story * 25000) * 4; 
+  // DÜZELTME: Kolon ağırlığı hesaplanırken dinamik Num_Cols kullanıldı
+  const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h_story * 25000) * Num_Cols; 
   const W_wall_N = g_wall_N_m * 2 * (dimensions.lx + dimensions.ly);
   const Wi_story_N = W_slab_N + W_beam_N + W_col_N + W_wall_N;
   const W_total_N = Wi_story_N * storyCount;
 
-  // ... (Spektrum ve Vt hesabı önceki kodla aynı)
+  // Spektrum ve Vt hesabı
   const Fs = getFs(seismic.ss, seismic.soilClass);
   const F1 = getF1(seismic.s1, seismic.soilClass);
   const Sds = seismic.ss * Fs;
@@ -98,16 +106,14 @@ export const solveSeismic = (
     fi_story_N.push(Fi);
   }
 
-  // --- YENİ GELİŞTİRME: GÖRELİ ÖTELEME (DRIFT) KONTROLÜ ---
-  // TBDY 2018 Madde 4.9.1 (Lambda * delta / h <= 0.008 veya 0.016)
-  // Basitleştirilmiş Rijitlik Tahmini: Kolonların kesme rijitliği üzerinden
+  // --- GÖRELİ ÖTELEME (DRIFT) KONTROLÜ ---
+  // TBDY 2018 Madde 4.9.1
   
-  // Kolon Atalet Momenti (Yaklaşık toplam) - Izgara sayısına göre dinamik olmalı ama şimdilik 4 köşe kabulü
+  // Kolon Atalet Momenti (Yaklaşık toplam)
   const Ic_one = (Math.pow(sections.colDepth * 10, 3) * (sections.colWidth * 10)) / 12; // mm4
-  const Num_Cols = 4; // Bu modelGenerator'dan dinamik gelebilir ama şimdilik güvenli taraf
   const Sum_Ic = Num_Cols * Ic_one;
   
-  // Kat kesme kuvveti (En alt kat için Vt alınır)
+  // Kat kesme kuvveti
   const V_story = Vt_design_N;
   
   // Elastik yer değiştirme (Delta = V * h^3 / 12 * E * I_toplam) - Ankastre kabulü
@@ -124,8 +130,7 @@ export const solveSeismic = (
   // Göreli Öteleme Oranı
   const drift_ratio = delta_max_mm / h_mm;
   
-  // Sınır Değer (Gevrek malzemeli dolgu duvarlar için 0.008, esnek için 0.016)
-  // Güvenli tarafta kalarak 0.008 alıyoruz.
+  // Sınır Değer (Gevrek malzemeli dolgu duvarlar için 0.008)
   const drift_limit = 0.008;
 
   const seismicResult = {
@@ -137,14 +142,17 @@ export const solveSeismic = (
     base_shear: Vt_design_N / 1000,
     R_coefficient: seismic.Rx,
     I_coefficient: seismic.I,
-    // YENİ DRIFT DATA
     story_drift: {
         check: createStatus(drift_ratio <= drift_limit, 'Öteleme Uygun', 'Öteleme Sınırı Aşıldı'),
         delta_max: delta_max_mm,
         drift_ratio: drift_ratio,
         limit: drift_limit
+    },
+    irregularities: {
+        A1: A1_Check,
+        B1: B1_Check
     }
   };
 
-  return { seismicResult, Vt_design_N, W_total_N, fi_story_N };
+  return { seismicResult, Vt_design_N, W_total_N, fi_story_N, irregularities: { A1: A1_Check, B1: B1_Check } };
 };

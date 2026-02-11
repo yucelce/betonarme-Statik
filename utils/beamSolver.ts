@@ -11,7 +11,7 @@ interface BeamSolverResult {
 
 export const solveBeams = (
   state: AppState,
-  spanLength_m: number, // YENİ PARAMETRE: Kirişin gerçek uzunluğu
+  spanLength_m: number, // Parametre ismi netleştirildi
   q_beam_design_N_m: number,
   Vt_total_N: number,
   fcd: number,
@@ -20,27 +20,24 @@ export const solveBeams = (
 ): BeamSolverResult => {
   const { dimensions, sections, rebars } = state;
   
-  // ESKİSİ: const ly_m = Math.max(dimensions.lx, dimensions.ly);
-  // YENİSİ: Parametre olarak gelen uzunluğu kullan
-  const ly_m = spanLength_m; 
-  const L_beam_mm = ly_m * 1000;
+  // Hesaplarda gelen açıklık değerini kullanıyoruz
+  const L_beam_m = spanLength_m; 
+  const L_beam_mm = L_beam_m * 1000;
 
   // --- A. DEPREM ETKİSİ ---
   // Kesme kuvvetini basitçe kolon/kiriş sayısına oranla (Yaklaşık)
-  const V_col_avg_N = Vt_total_N / 4; // Bu hala kabul, detaylı analiz için çerçeve matrisi gerekir.
-  
-  // ... (Geri kalan kod aynı kalabilir, sadece ly_m artık doğru değeri taşıyor)
+  const V_col_avg_N = Vt_total_N / 4; 
   
   const M_col_seismic_Nmm = (V_col_avg_N * (dimensions.h * 1000)) / 2;
   const joint_factor = 1.0; 
   const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor; 
 
   // --- B. YÜK KOMBİNASYONLARI ---
-  const M_supp_static_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 12) * 1000;
-  const M_span_static_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 14) * 1000;
+  const M_supp_static_Nmm = (q_beam_design_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
+  const M_span_static_Nmm = (q_beam_design_N_m * Math.pow(L_beam_m, 2) / 14) * 1000;
 
   const q_beam_service_N_m = q_beam_design_N_m / 1.45;
-  const M_supp_service_Nmm = (q_beam_service_N_m * Math.pow(ly_m, 2) / 12) * 1000;
+  const M_supp_service_Nmm = (q_beam_service_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
   
   const M_supp_design_Nmm = Math.max(M_supp_static_Nmm, M_supp_service_Nmm + M_beam_seismic_Nmm);
   const M_span_design_Nmm = M_span_static_Nmm;
@@ -73,7 +70,7 @@ export const solveBeams = (
   const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, countSupp * barAreaBeam, fcd);
 
   // --- D. KESME HESABI ---
-  const V_beam_design_N = (q_beam_design_N_m * ly_m / 2); 
+  const V_beam_design_N = (q_beam_design_N_m * L_beam_m / 2); 
   const Vcr_N = 0.65 * fctd * bw_mm * d_beam_mm;
   const Vmax_N = 0.22 * fcd * bw_mm * d_beam_mm;
   const Vc_beam_N = 0.8 * Vcr_N;
