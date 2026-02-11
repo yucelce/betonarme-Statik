@@ -399,83 +399,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const barAreaSlab = Math.PI * Math.pow(rebars.slabDia / 2, 2);
   const spacingSlab = Math.floor(Math.min((barAreaSlab * 1000) / As_slab_design, 200) / 10) * 10;
 
-  // ==========================================================================
-  // 3. KİRİŞ HESABI
-  // ==========================================================================
-
-  const L_beam_mm = ly_m * 1000;
-  const d_beam_mm = sections.beamDepth * 10 - 30;
-  const bw_mm = sections.beamWidth * 10;
-  const h_beam_mm = sections.beamDepth * 10;
-
-  // Momentler (Nmm)
-  const M_beam_supp_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 12) * 1000; // N*m -> Nmm (*1000)
-  const M_beam_span_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 14) * 1000;
-
-  // Donatı Hesabı
-  const As_beam_supp_req = M_beam_supp_Nmm / (0.9 * STEEL_FYD * d_beam_mm);
-  const As_beam_span_req = M_beam_span_Nmm / (0.9 * STEEL_FYD * d_beam_mm);
-  const As_min_beam = 0.8 * (fctd / STEEL_FYD) * bw_mm * d_beam_mm;
-  const As_max_beam = 0.02 * bw_mm * d_beam_mm;
-
-  const As_beam_supp_final = Math.max(As_beam_supp_req, As_min_beam);
-  const As_beam_span_final = Math.max(As_beam_span_req, As_min_beam);
-  const rho_beam_supp = As_beam_supp_final / (bw_mm * d_beam_mm);
-  const rho_beam_span = As_beam_span_final / (bw_mm * d_beam_mm);
-  const rho_beam_min = As_min_beam / (bw_mm * d_beam_mm);
-  const rho_beam_max = 0.02; // TS500 standardı maks sınır
-
-  const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia / 2, 2);
-  const countSupp = Math.ceil(As_beam_supp_final / barAreaBeam);
-  const countSpan = Math.ceil(As_beam_span_final / barAreaBeam);
-
-  // Kiriş Kapasitesi (Nmm) - Güçlü kolon kontrolü için gerekli
-  // "CalculateBeamMomentCapacity" Nmm döner.
-  // Çift donatılı değil tek donatılı gibi basit hesap (güvenli taraf)
-  const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, countSupp * barAreaBeam, fcd);
-
-  // Kesme Hesabı (N)
-  const V_beam_design_N = (q_beam_design_N_m * ly_m / 2); // N
-
-  // Kesme Dayanımları (N)
-  const Vcr_N = 0.65 * fctd * bw_mm * d_beam_mm; // TS500
-  const Vmax_N = 0.22 * fcd * bw_mm * d_beam_mm;
-
-  // Beton Katkısı (Vc) - Basitleştirilmiş TS500 yaklaşımı (0.8 Vcr)
-  const Vc_beam_N = 0.8 * Vcr_N;
-
-  // Etriye Katkısı (Vw)
-  let Vw_beam_N = 0;
-  if (V_beam_design_N > Vcr_N) {
-    Vw_beam_N = V_beam_design_N - Vc_beam_N;
-  }
-
-  // Kiriş Etriye Hesabı (Aynı mantık, birimler düzgün)
-  const stirrupDia = rebars.beamStirrupDia || 8;
-  const stirrupArea2Legs = 2 * (Math.PI * Math.pow(stirrupDia / 2, 2));
-
-  let s_calc_beam = 999;
-  if (V_beam_design_N > Vcr_N) {
-    const Vw_req = V_beam_design_N - 0.8 * Vcr_N;
-    s_calc_beam = (stirrupArea2Legs * STEEL_FYD * d_beam_mm) / Vw_req;
-  }
-
-  // Konstrüktif Kurallar (Kiriş)
-  const s_supp_beam = Math.floor(Math.min(s_calc_beam, h_beam_mm / 4, 8 * rebars.beamMainDia, 150) / 10) * 10;
-  const s_span_beam = Math.floor(Math.min(d_beam_mm / 2, 200) / 10) * 10;
-  const s_supp_final_beam = Math.max(s_supp_beam, 50);
-
-  // Sehim (mm)
-  const I_beam = (bw_mm * Math.pow(h_beam_mm, 3)) / 12;
-  const E_c_MPa = Ec; // MPa = N/mm2
-  // q (N/mm) olarak girmeli
-  const q_line_N_mm = q_beam_design_N_m / 1000;
-
-  const delta_elastic = (5 * q_line_N_mm * Math.pow(L_beam_mm, 4)) / (384 * E_c_MPa * (I_beam * 0.5));
-  const delta_total = delta_elastic * 3;
-  const delta_limit = L_beam_mm / 240;
-
-  // ==========================================================================
   // 4. DEPREM VE KÜTLE HESABI
   // ==========================================================================
 
@@ -515,6 +438,101 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const Vt_min_N = 0.04 * W_total_N * I_bldg * Sds;
   const Vt_design_N = Math.max(Vt_calc_N, Vt_min_N);
 
+ // ==========================================================================
+  // 3. KİRİŞ HESABI (DÜZELTİLMİŞ VE TEMİZLENMİŞ)
+  // ==========================================================================
+
+  // --- A. DEPREM ETKİSİ (KÖŞE KOLON DURUMU) ---
+  const V_col_avg_N = Vt_design_N / 4; 
+  const M_col_seismic_Nmm = (V_col_avg_N * (dimensions.h * 1000)) / 2;
+  const joint_factor = 1.0; // Köşe birleşim olduğu için 1.0
+  const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor; 
+
+  // --- B. YÜK KOMBİNASYONLARI (TASARIM) ---
+  const L_beam_mm = ly_m * 1000;
+  
+  // 1. Statik Momentler
+  const M_supp_static_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 12) * 1000;
+  const M_span_static_Nmm = (q_beam_design_N_m * Math.pow(ly_m, 2) / 14) * 1000;
+
+  // 2. Deprem Kombinasyonu
+  const q_beam_service_N_m = q_beam_design_N_m / 1.45;
+  const M_supp_service_Nmm = (q_beam_service_N_m * Math.pow(ly_m, 2) / 12) * 1000;
+  
+  // TASARIM MOMENTİ (ZARF)
+  const M_supp_design_Nmm = Math.max(
+      M_supp_static_Nmm, 
+      M_supp_service_Nmm + M_beam_seismic_Nmm 
+  );
+  const M_span_design_Nmm = M_span_static_Nmm;
+
+  // --- C. DONATI HESABI ---
+  const d_beam_mm = sections.beamDepth * 10 - 30;
+  const bw_mm = sections.beamWidth * 10;
+  const h_beam_mm = sections.beamDepth * 10;
+
+  // Raporlama için kullanılacak değişkenleri EŞLİYORUZ (Eski kodun çalışması için)
+  const M_beam_supp_Nmm = M_supp_design_Nmm; // <-- KRİTİK EŞLEME
+  const M_beam_span_Nmm = M_span_design_Nmm;
+
+  // Donatı Alanı
+  const As_beam_supp_req = M_beam_supp_Nmm / (0.9 * STEEL_FYD * d_beam_mm);
+  const As_beam_span_req = M_beam_span_Nmm / (0.9 * STEEL_FYD * d_beam_mm);
+  
+  // Minimum ve Maksimum Kontrolleri
+  const As_min_beam = 0.8 * (fctd / STEEL_FYD) * bw_mm * d_beam_mm;
+  const As_max_beam = 0.02 * bw_mm * d_beam_mm;
+
+  const As_beam_supp_final = Math.max(As_beam_supp_req, As_min_beam);
+  const As_beam_span_final = Math.max(As_beam_span_req, As_min_beam);
+  
+  // Rho Hesapları
+  const rho_beam_supp = As_beam_supp_final / (bw_mm * d_beam_mm);
+  const rho_beam_span = As_beam_span_final / (bw_mm * d_beam_mm);
+  const rho_beam_min = As_min_beam / (bw_mm * d_beam_mm);
+  const rho_beam_max = 0.02;
+
+  // Donatı Adetleri
+  const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia / 2, 2);
+  const countSupp = Math.ceil(As_beam_supp_final / barAreaBeam);
+  const countSpan = Math.ceil(As_beam_span_final / barAreaBeam);
+
+  // Kiriş Kapasitesi (Nmm)
+  const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, countSupp * barAreaBeam, fcd);
+
+  // --- D. KESME HESABI ---
+  const V_beam_design_N = (q_beam_design_N_m * ly_m / 2); 
+  const Vcr_N = 0.65 * fctd * bw_mm * d_beam_mm;
+  const Vmax_N = 0.22 * fcd * bw_mm * d_beam_mm;
+  const Vc_beam_N = 0.8 * Vcr_N;
+
+  let Vw_beam_N = 0;
+  if (V_beam_design_N > Vcr_N) {
+    Vw_beam_N = V_beam_design_N - Vc_beam_N;
+  }
+
+  const stirrupDia = rebars.beamStirrupDia || 8;
+  const stirrupArea2Legs = 2 * (Math.PI * Math.pow(stirrupDia / 2, 2));
+
+  let s_calc_beam = 999;
+  if (V_beam_design_N > Vcr_N) {
+    const Vw_req = V_beam_design_N - 0.8 * Vcr_N;
+    s_calc_beam = (stirrupArea2Legs * STEEL_FYD * d_beam_mm) / Vw_req;
+  }
+
+  const s_supp_beam = Math.floor(Math.min(s_calc_beam, h_beam_mm / 4, 8 * rebars.beamMainDia, 150) / 10) * 10;
+  const s_span_beam = Math.floor(Math.min(d_beam_mm / 2, 200) / 10) * 10;
+  const s_supp_final_beam = Math.max(s_supp_beam, 50);
+
+  // --- E. SEHİM HESABI ---
+  const I_beam = (bw_mm * Math.pow(h_beam_mm, 3)) / 12;
+  const q_line_N_mm = q_beam_design_N_m / 1000;
+  const delta_elastic = (5 * q_line_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5));
+  const delta_total = delta_elastic * 3;
+  const delta_limit = L_beam_mm / 240;
+
+  // ==========================================================================
+  
   // ==========================================================================
   // 5. KOLON HESABI (YENİLENMİŞ)
   // ==========================================================================

@@ -7,7 +7,7 @@ import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, Chevr
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 6, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 60, foundationCantilever: 60 },
+    dimensions: { lx: 5, ly: 4, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50, foundationCantilever: 50 },
     sections: { beamWidth: 25, beamDepth: 50, colWidth: 40, colDepth: 40 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
