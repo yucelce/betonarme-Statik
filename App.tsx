@@ -7,7 +7,7 @@ import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, Chevr
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 4, h: 3, slabThickness: 12, storyCount: 3, foundationHeight: 50, foundationCantilever: 50 },
+    dimensions: { lx: 5, ly: 4, h: 3, slabThickness: 14, storyCount: 3, foundationHeight: 50, foundationCantilever: 50 },
     sections: { beamWidth: 25, beamDepth: 50, colWidth: 40, colDepth: 40 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
@@ -77,6 +77,14 @@ const App: React.FC = () => {
       </div>
     </div>
   );
+
+  const soilDescriptions: Record<string, string> = {
+    [SoilClass.ZA]: "Sağlam Kaya",
+    [SoilClass.ZB]: "Az Ayrışmış Kaya",
+    [SoilClass.ZC]: "Çok Sıkı Kum / Çakıl",
+    [SoilClass.ZD]: "Orta Sıkı Kum",
+    [SoilClass.ZE]: "Gevşek Kum",
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 p-2 md:p-6 font-sans pb-20">
@@ -185,8 +193,16 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] text-slate-500">Zemin</label>
-                  <select value={state.seismic.soilClass} onChange={e => handleChange('seismic', 'soilClass', e.target.value)} className="w-full p-2 border rounded bg-slate-50 text-xs">
-                    {Object.values(SoilClass).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                  <select
+                    value={state.seismic.soilClass}
+                    onChange={e => handleChange('seismic', 'soilClass', e.target.value)}
+                    className="w-full p-2 border rounded bg-slate-50 text-xs"
+                  >
+                    {Object.values(SoilClass).map(sc => (
+                      <option key={sc} value={sc}>
+                        {sc} ({soilDescriptions[sc]})
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div><label className="text-[10px] text-slate-500">Rx (Sistem)</label><input type="number" value={state.seismic.Rx} onChange={e => handleChange('seismic', 'Rx', +e.target.value)} className="w-full p-2 border rounded" /></div>
@@ -209,19 +225,19 @@ const App: React.FC = () => {
                 <div>
                   <label className="text-[9px] text-slate-400 block">Kiriş</label>
                   <select value={state.rebars.beamMainDia} onChange={e => handleChange('rebars', 'beamMainDia', +e.target.value)} className="w-full p-2 border rounded">
-                    {[12, 14, 16, 20].map(d => <option key={d} value={d}>Ø{d}</option>)}
+                    {[12, 14, 16, 18, 20, 22, 24,].map(d => <option key={d} value={d}>Ø{d}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[9px] text-slate-400 block">Kolon</label>
                   <select value={state.rebars.colMainDia} onChange={e => handleChange('rebars', 'colMainDia', +e.target.value)} className="w-full p-2 border rounded">
-                    {[14, 16, 20, 22].map(d => <option key={d} value={d}>Ø{d}</option>)}
+                    {[14, 16, 18, 20, 22, 24, 26].map(d => <option key={d} value={d}>Ø{d}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[9px] text-slate-400 block">Radye</label>
                   <select value={state.rebars.foundationDia} onChange={e => handleChange('rebars', 'foundationDia', +e.target.value)} className="w-full p-2 border rounded bg-emerald-50">
-                    {[12, 14, 16, 20].map(d => <option key={d} value={d}>Ø{d}</option>)}
+                    {[12, 14, 16, 20, 22, 24].map(d => <option key={d} value={d}>Ø{d}</option>)}
                   </select>
                 </div>
               </div>
