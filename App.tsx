@@ -4,7 +4,8 @@ import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, Ax
 import { calculateStructure } from './utils/solver';
 import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff } from 'lucide-react';
 import Visualizer from './components/Visualizer';
-import Report from './components/Report';
+// HATA 1 DÜZELTİLDİ: Report bileşeni 'utils' klasörü altındaydı, import yolu düzeltildi.
+import Report from './utils/report'; 
 
 const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
 
@@ -228,7 +229,8 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="h-[500px]">
-                    <Visualizer state={state} results={results} viewMode={viewMode} />
+                    {/* HATA 2 DÜZELTİLDİ: Visualizer bileşeni sadece 'state' prop'unu kabul ediyor. Diğer prop'lar kaldırıldı. */}
+                    <Visualizer state={state} />
                 </div>
             </div>
 
