@@ -1,4 +1,4 @@
-// utils/columnSolver.ts
+
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYK } from "../constants";
 import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement } from "./shared";
@@ -13,10 +13,10 @@ export const solveColumns = (
   state: AppState,
   Nd_design_N: number, 
   Vt_design_N: number,
-  sum_Mr_beams_Nmm: number, // GÜNCELLENDİ: Gerçek Kiriş Moment Toplamı
+  sum_Mr_beams_Nmm: number,
   As_beam_supp_final: number,
   As_beam_span_final: number,
-  isJointConfined: boolean, // GÜNCELLENDİ: Kuşatılmışlık Durumu
+  isJointConfined: boolean,
   fck: number,
   fcd: number,
   fctd: number,
@@ -51,7 +51,6 @@ export const solveColumns = (
   const sum_M_col = 2 * Mr_col_Nmm; // Kolon alt + üst
   const sum_M_beam_hardening = sum_Mr_beams_Nmm * 1.4; // Pekleşmeli Kiriş Momenti
   
-  // Sıfıra bölme hatasını önle
   const safe_beam_moment = sum_M_beam_hardening === 0 ? 1 : sum_M_beam_hardening;
   const strongColRatio = sum_M_col / safe_beam_moment;
 
@@ -98,7 +97,6 @@ export const solveColumns = (
   const bw_mm = sections.beamWidth * 10; 
   const bj_mm = Math.min(bc_mm, bw_mm); 
 
-  // Kuşatılmışlık Katsayısı (Parametreden geliyor)
   const joint_coeff = isJointConfined ? 1.7 : 1.0;
   const Vmax_joint_N = joint_coeff * Math.sqrt(fck) * bj_mm * hc_mm;
 
@@ -109,17 +107,18 @@ export const solveColumns = (
     moment_magnified: Md_col_magnified_Nmm / 1e6,
     slenderness: { lambda, lambda_lim: 34, beta, isSlender, i_rad },
     shear: { Ve: Ve_col_N / 1000, Vr: Vr_col_N / 1000, Vc: Vc_col_N / 1000, Vw: Vw_col_N / 1000, Vr_max: Vr_max_col / 1000 },
-    confinement: { ...confResult, bk_max: Math.max(bc_mm, hc_mm)-50 },
+    // DÜZELTME: s_max parametresi s_max_code'dan map edildi
+    confinement: { ...confResult, s_max: confResult.s_max_code, bk_max: Math.max(bc_mm, hc_mm)-50 },
     interaction_ratio: colCapacity.capacity_ratio,
     strong_col_ratio: strongColRatio,
     req_area: As_col_total,
     rho_provided: rho_col,
     count_main: countCol,
     checks: {
-      axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', `%${(colCapacity.capacity_ratio * 100).toFixed(0)}`),
-      moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)}`),
+      axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', \`%\${(colCapacity.capacity_ratio * 100).toFixed(0)}\`),
+      moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', \`M_cap: \${(Mr_col_Nmm / 1e6).toFixed(1)}\`),
       shear_capacity: createStatus(Ve_col_N <= Vr_col_N, 'Kesme Güvenli', 'Kesme Yetersiz', 'Ve > Vr'),
-      strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', `Oran: ${strongColRatio.toFixed(2)}`),
+      strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', \`Oran: \${strongColRatio.toFixed(2)}\`),
       minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK'),
       minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK'),
       maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK'),
@@ -136,4 +135,3 @@ export const solveColumns = (
   };
 
   return { columnsResult, jointResult, Nd_design_N };
-};

@@ -1,5 +1,5 @@
-// utils/seismicSolver.ts
-import { AppState, CalculationResult, CheckStatus } from "../types";
+
+import { AppState, CalculationResult, CheckStatus, IrregularityResult } from "../types";
 import { getFs, getF1 } from "../constants";
 import { createStatus } from "./shared";
 
@@ -9,11 +9,6 @@ interface SeismicSolverResult {
   W_total_N: number;
   fi_story_N: number[];
   irregularities: IrregularityResult;
-}
-// Düzensizlik Sonuç Tipi
-export interface IrregularityResult {
-    A1: { eta_bi: number; isSafe: boolean; message: string };
-    B1: { eta_ci_min: number; isSafe: boolean; message: string };
 }
 
 export const solveSeismic = (
@@ -33,8 +28,7 @@ export const solveSeismic = (
   const storyCount = dimensions.storyCount || 1;
   const h_story = dimensions.h; 
 
-  // DÜZELTME: Kolon sayısı dinamik hesaplanmalı ve değişken yukarı taşınmalı
-  // Aks sayısı (Açıklık + 1) bize düğüm sayısını verir.
+  // DÜZELTME: Kolon sayısı dinamik hesaplanmalı
   const numNodesX = grid.xAxis.length + 1;
   const numNodesY = grid.yAxis.length + 1;
   const Num_Cols = numNodesX * numNodesY; 
@@ -55,7 +49,6 @@ export const solveSeismic = (
   const area_m2 = dimensions.lx * dimensions.ly;
   const W_slab_N = (g_total_N_m2 + 0.3 * q_live_N_m2) * area_m2;
   const W_beam_N = g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly);
-  // DÜZELTME: Kolon ağırlığı hesaplanırken dinamik Num_Cols kullanıldı
   const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h_story * 25000) * Num_Cols; 
   const W_wall_N = g_wall_N_m * 2 * (dimensions.lx + dimensions.ly);
   const Wi_story_N = W_slab_N + W_beam_N + W_col_N + W_wall_N;
@@ -107,30 +100,15 @@ export const solveSeismic = (
   }
 
   // --- GÖRELİ ÖTELEME (DRIFT) KONTROLÜ ---
-  // TBDY 2018 Madde 4.9.1
-  
-  // Kolon Atalet Momenti (Yaklaşık toplam)
   const Ic_one = (Math.pow(sections.colDepth * 10, 3) * (sections.colWidth * 10)) / 12; // mm4
   const Sum_Ic = Num_Cols * Ic_one;
-  
-  // Kat kesme kuvveti
   const V_story = Vt_design_N;
-  
-  // Elastik yer değiştirme (Delta = V * h^3 / 12 * E * I_toplam) - Ankastre kabulü
-  // Çatlamış kesit için Ieff = 0.70 * Ic varsayımı
   const I_eff = 0.70 * Sum_Ic;
   const h_mm = h_story * 1000;
   
-  // Delta_elastic (mm)
   const delta_elastic_mm = (V_story * Math.pow(h_mm, 3)) / (12 * Ec * I_eff);
-  
-  // Deprem Yönetmeliği Etkin Göreli Öteleme (delta_max = R * delta_elastic)
   const delta_max_mm = Ra * delta_elastic_mm;
-  
-  // Göreli Öteleme Oranı
   const drift_ratio = delta_max_mm / h_mm;
-  
-  // Sınır Değer (Gevrek malzemeli dolgu duvarlar için 0.008)
   const drift_limit = 0.008;
 
   const seismicResult = {
@@ -155,4 +133,3 @@ export const solveSeismic = (
   };
 
   return { seismicResult, Vt_design_N, W_total_N, fi_story_N, irregularities: { A1: A1_Check, B1: B1_Check } };
-};

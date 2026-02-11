@@ -1,4 +1,3 @@
-// types.ts
 export type ViewMode = 'normal' | 'analysis';
 
 export enum SoilClass {
@@ -113,6 +112,12 @@ export interface CheckStatus {
   reason?: string;
 }
 
+// Düzensizlik Sonuç Tipi eklendi
+export interface IrregularityResult {
+    A1: { eta_bi: number; isSafe: boolean; message: string };
+    B1: { eta_ci_min: number; isSafe: boolean; message: string };
+}
+
 export interface CalculationResult {
   slab: {
     pd: number; alpha: number; d: number; m_x: number;
@@ -149,7 +154,6 @@ export interface CalculationResult {
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
     building_weight: number; base_shear: number; 
-    // GÜNCELLENEN KISIM: DRİFT DATASI
     story_drift: {
         check: CheckStatus;
         delta_max: number;
@@ -157,6 +161,7 @@ export interface CalculationResult {
         limit: number;
     };
     R_coefficient: number; I_coefficient: number;
+    irregularities: IrregularityResult; // EKLENDİ
   };
   foundation: {
     stress_actual: number; stress_limit: number;
@@ -168,4 +173,6 @@ export interface CalculationResult {
   joint: {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
+}
+`
 }
