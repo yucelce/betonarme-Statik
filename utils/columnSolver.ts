@@ -1,4 +1,3 @@
-
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYK } from "../constants";
 import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement } from "./shared";
@@ -107,18 +106,26 @@ export const solveColumns = (
     moment_magnified: Md_col_magnified_Nmm / 1e6,
     slenderness: { lambda, lambda_lim: 34, beta, isSlender, i_rad },
     shear: { Ve: Ve_col_N / 1000, Vr: Vr_col_N / 1000, Vc: Vc_col_N / 1000, Vw: Vw_col_N / 1000, Vr_max: Vr_max_col / 1000 },
-    // DÜZELTME: s_max parametresi s_max_code'dan map edildi
-    confinement: { ...confResult, s_max: confResult.s_max_code, bk_max: Math.max(bc_mm, hc_mm)-50 },
+    // DÜZELTME: confResult içerisinden sadece gerekli alanları alıyoruz (Tip hatasını önlemek için)
+    confinement: { 
+      Ash_req: confResult.Ash_req,
+      Ash_prov: confResult.Ash_prov,
+      s_max: confResult.s_max_code,
+      s_conf: confResult.s_conf,
+      s_middle: confResult.s_middle,
+      dia_used: confResult.dia_used,
+      bk_max: Math.max(bc_mm, hc_mm) - 50 
+    },
     interaction_ratio: colCapacity.capacity_ratio,
     strong_col_ratio: strongColRatio,
     req_area: As_col_total,
     rho_provided: rho_col,
     count_main: countCol,
     checks: {
-      axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', \`%\${(colCapacity.capacity_ratio * 100).toFixed(0)}\`),
-      moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', \`M_cap: \${(Mr_col_Nmm / 1e6).toFixed(1)}\`),
+      axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', `%${(colCapacity.capacity_ratio * 100).toFixed(0)}`),
+      moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)}`),
       shear_capacity: createStatus(Ve_col_N <= Vr_col_N, 'Kesme Güvenli', 'Kesme Yetersiz', 'Ve > Vr'),
-      strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', \`Oran: \${strongColRatio.toFixed(2)}\`),
+      strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', `Oran: ${strongColRatio.toFixed(2)}`),
       minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK'),
       minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK'),
       maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK'),
@@ -135,3 +142,5 @@ export const solveColumns = (
   };
 
   return { columnsResult, jointResult, Nd_design_N };
+
+};

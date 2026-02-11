@@ -1,3 +1,4 @@
+
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
 import { createStatus, calculateBeamMomentCapacity } from "./shared";
@@ -11,26 +12,30 @@ interface BeamSolverResult {
 
 export const solveBeams = (
   state: AppState,
-  spanLength_m: number, // Parametre ismi netleştirildi
+  spanLength_m: number,
   q_beam_design_N_m: number,
   Vt_total_N: number,
   fcd: number,
   fctd: number,
   Ec: number
 ): BeamSolverResult => {
-  const { dimensions, sections, rebars } = state;
+  const { dimensions, sections, rebars, grid } = state; // grid eklendi
   
-  // Hesaplarda gelen açıklık değerini kullanıyoruz
   const L_beam_m = spanLength_m; 
   const L_beam_mm = L_beam_m * 1000;
 
   // --- A. DEPREM ETKİSİ ---
-  // Kesme kuvvetini basitçe kolon/kiriş sayısına oranla (Yaklaşık)
-  const V_col_avg_N = Vt_total_N / 4; 
+  // HATA DÜZELTİLDİ: Sabit 4 yerine dinamik kolon sayısı kullanıldı.
+  const numColsX = grid.xAxis.length + 1;
+  const numColsY = grid.yAxis.length + 1;
+  const totalCols = numColsX * numColsY;
+  
+  // Kesme kuvvetini kolon sayısına oranla (Yaklaşık Yöntem)
+  const V_col_avg_N = Vt_total_N / Math.max(totalCols, 1); 
   
   const M_col_seismic_Nmm = (V_col_avg_N * (dimensions.h * 1000)) / 2;
   const joint_factor = 1.0; 
-  const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor; 
+  const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor;
 
   // --- B. YÜK KOMBİNASYONLARI ---
   const M_supp_static_Nmm = (q_beam_design_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;

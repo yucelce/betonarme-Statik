@@ -7,6 +7,7 @@ import { solveBeams } from "./beamSolver";
 import { solveColumns } from "./columnSolver";
 import { solveFoundation } from "./foundationSolver";
 import { generateModel } from "./modelGenerator";
+import { solveFEM } from './femSolver';
 
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { materials, dimensions } = state;
@@ -14,7 +15,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   // 1. MODEL OLUŞTURMA
   const model = generateModel(state);
-
+const femResults = solveFEM(state);
   // 2. DÖŞEME HESABI
   const { slabResult, q_beam_design_N_m, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m } = solveSlab(state);
 
