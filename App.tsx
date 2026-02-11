@@ -1,233 +1,264 @@
 // App.tsx
 import React, { useState } from 'react';
-import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData } from './types';
+import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff } from 'lucide-react';
 import Visualizer from './components/Visualizer';
+import Report from './components/Report';
 
 const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
 
 const App: React.FC = () => {
-  // Initial axes
   const initialXAxis = [{ id: 'x1', spacing: 4 }, { id: 'x2', spacing: 5 }];
   const initialYAxis = [{ id: 'y1', spacing: 4 }, { id: 'y2', spacing: 4 }];
 
+  const [activeTab, setActiveTab] = useState<'design' | 'report'>('design');
+  const [viewMode, setViewMode] = useState<ViewMode>('normal');
+
   const [state, setState] = useState<AppState>({
-    grid: {
-      xAxis: initialXAxis,
-      yAxis: initialYAxis
-    },
+    grid: { xAxis: initialXAxis, yAxis: initialYAxis },
     dimensions: {
-      storyCount: 3,
-      h: 3,
-      foundationHeight: 50,
-      foundationCantilever: 50,
-      lx: calculateTotalLength(initialXAxis),
-      ly: calculateTotalLength(initialYAxis)
+      storyCount: 3, h: 3, foundationHeight: 50, foundationCantilever: 50,
+      lx: calculateTotalLength(initialXAxis), ly: calculateTotalLength(initialYAxis)
     },
     sections: {
-      beamWidth: 25,
-      beamDepth: 50,
-      colWidth: 40,
-      colDepth: 40,
-      slabThickness: 14
+      beamWidth: 25, beamDepth: 50, colWidth: 40, colDepth: 40, slabThickness: 14
     },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
     materials: { concreteClass: ConcreteClass.C30 },
-    rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
+    rebars: { slabDia: 10, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
   const [results, setResults] = useState<CalculationResult | null>(null);
 
-  // Helper to update dimensions when grid changes
   const updateGridAndDimensions = (newGrid: GridSettings) => {
     setState(prev => ({
-      ...prev,
-      grid: newGrid,
-      dimensions: {
-        ...prev.dimensions,
-        lx: calculateTotalLength(newGrid.xAxis),
-        ly: calculateTotalLength(newGrid.yAxis)
-      }
+      ...prev, grid: newGrid,
+      dimensions: { ...prev.dimensions, lx: calculateTotalLength(newGrid.xAxis), ly: calculateTotalLength(newGrid.yAxis) }
     }));
   };
 
   const handleAddAxis = (dir: 'x' | 'y') => {
     const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
-    const newAxes = [
-      ...currentAxes,
-      { id: `${dir}${Date.now()}`, spacing: 4 }
-    ];
-
-    const newGrid = {
-      ...state.grid,
-      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
-    };
-
-    updateGridAndDimensions(newGrid);
+    const newAxes = [...currentAxes, { id: `${dir}${Date.now()}`, spacing: 4 }];
+    updateGridAndDimensions({ ...state.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes });
   };
 
   const handleRemoveAxis = (dir: 'x' | 'y', idx: number) => {
     const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
     if (currentAxes.length <= 1) return;
-
     const newAxes = [...currentAxes];
     newAxes.splice(idx, 1);
-
-    const newGrid = {
-      ...state.grid,
-      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
-    };
-
-    updateGridAndDimensions(newGrid);
+    updateGridAndDimensions({ ...state.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes });
   };
 
   const handleAxisChange = (dir: 'x' | 'y', idx: number, val: number) => {
     const currentAxes = dir === 'x' ? state.grid.xAxis : state.grid.yAxis;
     const newAxes = [...currentAxes];
     newAxes[idx] = { ...newAxes[idx], spacing: val };
-
-    const newGrid = {
-      ...state.grid,
-      [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes
-    };
-
-    updateGridAndDimensions(newGrid);
+    updateGridAndDimensions({ ...state.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes });
   };
 
   const runAnalysis = () => {
-    setResults(calculateStructure(state));
+    const res = calculateStructure(state);
+    setResults(res);
+    setViewMode('analysis');
+    if(activeTab === 'report') setActiveTab('design'); // Kalmak veya geçmek tercih
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 font-sans">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+      
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-3 flex justify-between items-center shadow-sm">
+        <div className="flex items-center gap-2">
+            <div className="bg-blue-600 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold">Y</div>
+            <h1 className="text-xl font-bold text-slate-800">Yapısal Analiz</h1>
+        </div>
+        
+        <div className="flex bg-slate-100 p-1 rounded-lg">
+             <button onClick={() => setActiveTab('design')} className={`px-4 py-1.5 text-sm rounded-md font-medium transition-colors ${activeTab === 'design' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Tasarım</button>
+             <button onClick={() => setActiveTab('report')} disabled={!results} className={`px-4 py-1.5 text-sm rounded-md font-medium transition-colors flex items-center gap-2 ${activeTab === 'report' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700 disabled:opacity-50'}`}>
+                 <FileText className="w-4 h-4"/> Rapor
+             </button>
+        </div>
 
-        {/* Header */}
-        <header className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
-          <h1 className="text-2xl font-bold text-slate-800">Yapısal Analiz (Grid Sistemi)</h1>
-          <button onClick={runAnalysis} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700">
-            <Play className="w-4 h-4" /> Hesapla
-          </button>
-        </header>
+        <button onClick={runAnalysis} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 shadow-md shadow-blue-200 transition-all active:scale-95">
+            <Play className="w-4 h-4" /> HESAPLA
+        </button>
+      </header>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-
-          {/* Sol Panel: Akslar ve Ayarlar (3/12 width) */}
-          <div className="xl:col-span-3 space-y-4">
-            {/* AKS EDİTÖRÜ */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-              <h2 className="font-bold text-slate-700 mb-4">Aks Sistemi</h2>
-
-              {/* X Aksları */}
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-blue-600">X Yönü (m)</span>
-                  <button onClick={() => handleAddAxis('x')} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus className="w-4 h-4" /></button>
+      <main className="max-w-7xl mx-auto p-6">
+        
+        {/* REPORT VIEW */}
+        {activeTab === 'report' && results ? (
+            <Report state={state} results={results} />
+        ) : (
+        /* DESIGN VIEW */
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+          
+          {/* --- SOL PANEL (GİRDİLER) --- */}
+          <div className="xl:col-span-4 space-y-4">
+            
+            {/* 1. SEKMELİ AYARLAR */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+                    <LayoutGrid className="w-4 h-4 text-slate-500"/>
+                    <span className="text-sm font-bold text-slate-700">Akslar & Geometri</span>
                 </div>
-                <div className="space-y-2">
-                  {state.grid.xAxis.map((axis, i) => (
-                    <div key={axis.id} className="flex gap-2 items-center">
-                      <span className="text-xs text-slate-400 w-6">A{i + 1}</span>
-                      <input
-                        type="number"
-                        value={axis.spacing}
-                        onChange={(e) => handleAxisChange('x', i, +e.target.value)}
-                        className="w-full p-2 border rounded text-sm"
-                      />
-                      <button onClick={() => handleRemoveAxis('x', i)} className="text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                
+                <div className="p-4 space-y-4">
+                     {/* Aks Düzenleyici */}
+                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">X Yönü (m)</span><button onClick={() => handleAddAxis('x')} className="text-blue-600 hover:bg-blue-50"><Plus className="w-3 h-3"/></button></div>
+                            <div className="space-y-1 h-32 overflow-y-auto pr-1">
+                                {state.grid.xAxis.map((axis, i) => (
+                                    <div key={axis.id} className="flex gap-1 items-center"><span className="text-[10px] text-slate-400 w-4">A{i+1}</span><input type="number" value={axis.spacing} onChange={(e)=>handleAxisChange('x',i,+e.target.value)} className="w-full p-1 border rounded text-xs"/><button onClick={()=>handleRemoveAxis('x',i)} className="text-red-400"><Trash2 className="w-3 h-3"/></button></div>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-green-600">Y Yönü (m)</span><button onClick={() => handleAddAxis('y')} className="text-green-600 hover:bg-green-50"><Plus className="w-3 h-3"/></button></div>
+                            <div className="space-y-1 h-32 overflow-y-auto pr-1">
+                                {state.grid.yAxis.map((axis, i) => (
+                                    <div key={axis.id} className="flex gap-1 items-center"><span className="text-[10px] text-slate-400 w-4">B{i+1}</span><input type="number" value={axis.spacing} onChange={(e)=>handleAxisChange('y',i,+e.target.value)} className="w-full p-1 border rounded text-xs"/><button onClick={()=>handleRemoveAxis('y',i)} className="text-red-400"><Trash2 className="w-3 h-3"/></button></div>
+                                ))}
+                            </div>
+                        </div>
+                     </div>
 
-              {/* Y Aksları */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-green-600">Y Yönü (m)</span>
-                  <button onClick={() => handleAddAxis('y')} className="text-green-600 hover:bg-green-50 p-1 rounded"><Plus className="w-4 h-4" /></button>
+                     {/* Kat ve Kesit Boyutları */}
+                     <div className="border-t pt-4 grid grid-cols-2 gap-3">
+                        <div><label className="text-[10px] text-slate-500 block">Kat Adedi</label><input type="number" value={state.dimensions.storyCount} onChange={e=>setState({...state, dimensions:{...state.dimensions, storyCount:+e.target.value}})} className="w-full border rounded p-1 text-sm"/></div>
+                        <div><label className="text-[10px] text-slate-500 block">Kat Yük. (m)</label><input type="number" value={state.dimensions.h} onChange={e=>setState({...state, dimensions:{...state.dimensions, h:+e.target.value}})} className="w-full border rounded p-1 text-sm"/></div>
+                        <div>
+                            <label className="text-[10px] text-slate-500 block">Kolon (cm)</label>
+                            <div className="flex gap-1"><input value={state.sections.colWidth} onChange={e=>setState({...state, sections:{...state.sections, colWidth:+e.target.value}})} className="w-1/2 border rounded p-1 text-xs" /><input value={state.sections.colDepth} onChange={e=>setState({...state, sections:{...state.sections, colDepth:+e.target.value}})} className="w-1/2 border rounded p-1 text-xs" /></div>
+                        </div>
+                        <div>
+                            <label className="text-[10px] text-slate-500 block">Kiriş (cm)</label>
+                            <div className="flex gap-1"><input value={state.sections.beamWidth} onChange={e=>setState({...state, sections:{...state.sections, beamWidth:+e.target.value}})} className="w-1/2 border rounded p-1 text-xs" /><input value={state.sections.beamDepth} onChange={e=>setState({...state, sections:{...state.sections, beamDepth:+e.target.value}})} className="w-1/2 border rounded p-1 text-xs" /></div>
+                        </div>
+                     </div>
                 </div>
-                <div className="space-y-2">
-                  {state.grid.yAxis.map((axis, i) => (
-                    <div key={axis.id} className="flex gap-2 items-center">
-                      <span className="text-xs text-slate-400 w-6">B{i + 1}</span>
-                      <input
-                        type="number"
-                        value={axis.spacing}
-                        onChange={(e) => handleAxisChange('y', i, +e.target.value)}
-                        className="w-full p-2 border rounded text-sm"
-                      />
-                      <button onClick={() => handleRemoveAxis('y', i)} className="text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
 
-            {/* Kat ve Kesit Ayarları */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">Kat & Kesit</h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <label className="text-[10px] text-slate-500">Kat Adedi</label>
-                  <input type="number" value={state.dimensions.storyCount} onChange={e => setState({ ...state, dimensions: { ...state.dimensions, storyCount: +e.target.value } })} className="w-full border rounded p-1" />
+            {/* 2. MALZEME & YÜKLER */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+                    <Settings className="w-4 h-4 text-slate-500"/>
+                    <span className="text-sm font-bold text-slate-700">Malzeme & Yükler</span>
                 </div>
-                <div>
-                  <label className="text-[10px] text-slate-500">Kiriş (cm)</label>
-                  <div className="flex gap-1">
-                    <input type="number" title="Genişlik" value={state.sections.beamWidth} onChange={e => setState({ ...state, sections: { ...state.sections, beamWidth: +e.target.value } })} className="w-1/2 border rounded p-1" />
-                    <input type="number" title="Yükseklik" value={state.sections.beamDepth} onChange={e => setState({ ...state, sections: { ...state.sections, beamDepth: +e.target.value } })} className="w-1/2 border rounded p-1" />
-                  </div>
+                <div className="p-4 space-y-3">
+                     <div className="grid grid-cols-2 gap-3">
+                         <div>
+                             <label className="text-[10px] text-slate-500 block mb-1">Beton Sınıfı</label>
+                             <select value={state.materials.concreteClass} onChange={e => setState({...state, materials:{...state.materials, concreteClass: e.target.value as ConcreteClass}})} className="w-full border rounded p-1.5 text-sm bg-white">
+                                 {Object.values(ConcreteClass).map(c => <option key={c} value={c}>{c}</option>)}
+                             </select>
+                         </div>
+                         <div>
+                             <label className="text-[10px] text-slate-500 block mb-1">Hareketli Yük (kg/m²)</label>
+                             <input type="number" value={state.loads.liveLoadKg} onChange={e => setState({...state, loads:{...state.loads, liveLoadKg: +e.target.value}})} className="w-full border rounded p-1.5 text-sm"/>
+                         </div>
+                     </div>
+                     
+                     <div>
+                         <label className="text-[10px] text-slate-500 block mb-1 font-bold">Donatı Çapları (mm)</label>
+                         <div className="grid grid-cols-3 gap-2">
+                             <div><span className="text-[9px] text-slate-400">Döşeme</span><select value={state.rebars.slabDia} onChange={e=>setState({...state, rebars:{...state.rebars, slabDia:+e.target.value}})} className="w-full border p-1 text-xs rounded"><option value={8}>Ø8</option><option value={10}>Ø10</option><option value={12}>Ø12</option></select></div>
+                             <div><span className="text-[9px] text-slate-400">Kiriş</span><select value={state.rebars.beamMainDia} onChange={e=>setState({...state, rebars:{...state.rebars, beamMainDia:+e.target.value}})} className="w-full border p-1 text-xs rounded"><option value={12}>Ø12</option><option value={14}>Ø14</option><option value={16}>Ø16</option></select></div>
+                             <div><span className="text-[9px] text-slate-400">Kolon</span><select value={state.rebars.colMainDia} onChange={e=>setState({...state, rebars:{...state.rebars, colMainDia:+e.target.value}})} className="w-full border p-1 text-xs rounded"><option value={14}>Ø14</option><option value={16}>Ø16</option><option value={20}>Ø20</option></select></div>
+                         </div>
+                     </div>
                 </div>
-                <div>
-                  <label className="text-[10px] text-slate-500">Kolon (cm)</label>
-                  <div className="flex gap-1">
-                    <input type="number" title="Genişlik" value={state.sections.colWidth} onChange={e => setState({ ...state, sections: { ...state.sections, colWidth: +e.target.value } })} className="w-1/2 border rounded p-1" />
-                    <input type="number" title="Derinlik" value={state.sections.colDepth} onChange={e => setState({ ...state, sections: { ...state.sections, colDepth: +e.target.value } })} className="w-1/2 border rounded p-1" />
-                  </div>
-                </div>
-              </div>
             </div>
+
+            {/* 3. DEPREM PARAMETRELERİ */}
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-700">Deprem Parametreleri (TBDY 2018)</span>
+                </div>
+                <div className="p-4 grid grid-cols-3 gap-3">
+                    <div className="col-span-3">
+                        <label className="text-[10px] text-slate-500 block mb-1">Zemin Sınıfı</label>
+                         <select value={state.seismic.soilClass} onChange={e => setState({...state, seismic:{...state.seismic, soilClass: e.target.value as SoilClass}})} className="w-full border rounded p-1.5 text-sm bg-white">
+                             {Object.values(SoilClass).map(s => <option key={s} value={s}>{s}</option>)}
+                         </select>
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-slate-500 block">Ss</label>
+                        <input type="number" step="0.1" value={state.seismic.ss} onChange={e => setState({...state, seismic:{...state.seismic, ss:+e.target.value}})} className="w-full border rounded p-1 text-sm"/>
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-slate-500 block">S1</label>
+                        <input type="number" step="0.1" value={state.seismic.s1} onChange={e => setState({...state, seismic:{...state.seismic, s1:+e.target.value}})} className="w-full border rounded p-1 text-sm"/>
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-slate-500 block">Rx</label>
+                        <input type="number" value={state.seismic.Rx} onChange={e => setState({...state, seismic:{...state.seismic, Rx:+e.target.value}})} className="w-full border rounded p-1 text-sm"/>
+                    </div>
+                </div>
+             </div>
+
           </div>
 
-          {/* Sağ Panel: Görselleştirme ve Sonuçlar (9/12 width) */}
-          <div className="xl:col-span-9 space-y-4">
+          {/* --- SAĞ PANEL (GÖRSELLEŞTİRME & SONUÇLAR) --- */}
+          <div className="xl:col-span-8 space-y-4">
             
-            {/* 1. Görselleştirici (Her zaman görünür) */}
-            <div className="h-[400px] lg:h-[500px]">
-               <Visualizer state={state} />
+            {/* Görselleştirici Konteyner */}
+            <div className="relative">
+                {/* Görünüm Modu Değiştirici */}
+                <div className="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur border border-slate-200 p-1 rounded-lg flex shadow-sm">
+                    <button 
+                        onClick={() => setViewMode('normal')}
+                        className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'normal' ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        <Eye className="w-3 h-3"/> Normal
+                    </button>
+                    <button 
+                         onClick={() => setViewMode('analysis')}
+                         disabled={!results}
+                         className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'analysis' ? 'bg-red-50 text-red-600' : 'text-slate-400 hover:text-slate-600 disabled:opacity-50'}`}
+                    >
+                        <EyeOff className="w-3 h-3"/> Analiz Sonucu
+                    </button>
+                </div>
+                
+                <div className="h-[500px]">
+                    <Visualizer state={state} results={results} viewMode={viewMode} />
+                </div>
             </div>
 
-            {/* 2. Sonuç Kartları (Hesaplandıysa görünür) */}
-            {results ? (
+            {/* Özet Kartlar */}
+            {results && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white p-4 rounded-xl border-l-4 border-blue-500 shadow-sm">
-                  <div className="text-xs text-slate-500">Bina Ağırlığı</div>
-                  <div className="text-xl font-bold text-slate-800">{results.seismic.building_weight.toFixed(1)} kN</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Bina Ağırlığı</div>
+                  <div className="text-xl font-bold text-slate-800">{results.seismic.building_weight.toFixed(0)} kN</div>
                 </div>
-                <div className="bg-white p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
-                  <div className="text-xs text-slate-500">Taban Kesme Kuvveti</div>
-                  <div className="text-xl font-bold text-slate-800">{results.seismic.base_shear.toFixed(1)} kN</div>
+                <div className="bg-white p-4 rounded-xl border-l-4 border-orange-500 shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Taban Kesme (Vt)</div>
+                  <div className="text-xl font-bold text-slate-800">{results.seismic.base_shear.toFixed(0)} kN</div>
                 </div>
-                <div className="bg-white p-4 rounded-xl border-l-4 border-purple-500 shadow-sm">
-                  <div className="text-xs text-slate-500">Max Kiriş Momenti</div>
-                  <div className="text-xl font-bold text-slate-800">{results.beams.moment_support.toFixed(1)} kNm</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border-l-4 border-green-500 shadow-sm">
-                  <div className="text-xs text-slate-500">Periyot (T1)</div>
+                 <div className="bg-white p-4 rounded-xl border-l-4 border-purple-500 shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Periyot (T1)</div>
                   <div className="text-xl font-bold text-slate-800">{results.seismic.period_t1.toFixed(3)} s</div>
                 </div>
-              </div>
-            ) : (
-              <div className="p-4 text-center text-slate-400 bg-white rounded-xl border border-dashed">
-                Detaylı sonuçlar için "Hesapla" butonuna basın.
+                <button onClick={() => setActiveTab('report')} className="bg-slate-800 text-white p-4 rounded-xl shadow-sm hover:bg-slate-700 transition-colors text-left group">
+                    <div className="text-[10px] uppercase font-bold text-slate-400 group-hover:text-slate-300">Detaylı Rapor</div>
+                    <div className="text-sm font-bold flex items-center gap-2">İncele <FileText className="w-4 h-4"/></div>
+                </button>
               </div>
             )}
+            
           </div>
 
         </div>
-      </div>
+        )}
+      </main>
     </div>
   );
 };

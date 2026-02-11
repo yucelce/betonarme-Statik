@@ -1,4 +1,5 @@
 // types.ts
+export type ViewMode = 'normal' | 'analysis';
 
 export enum SoilClass {
   ZA = 'ZA', ZB = 'ZB', ZC = 'ZC', ZD = 'ZD', ZE = 'ZE',
