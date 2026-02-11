@@ -173,4 +173,28 @@ export interface CalculationResult {
   joint: {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
+  
+}
+
+// Mevcut tiplerin altına ekleyin veya güncelleyin:
+
+export interface DiagramPoint {
+  x: number;       // Mesafe (m)
+  V: number;       // Kesme Kuvveti (kN)
+  M: number;       // Moment (kNm)
+}
+
+export interface DetailedBeamResult {
+  beamId: string;
+  diagramData: DiagramPoint[]; // Grafik verisi
+  maxM: number;
+  minM: number;
+  maxV: number;
+}
+
+export interface CalculationResult {
+  // ... (mevcut alanlar: slab, beams, columns, seismic, foundation, joint)
+  
+  // YENİ ALAN: Tüm kirişlerin detaylı sonuçlarını ID ile saklar
+  memberResults: Map<string, DetailedBeamResult>; 
 }

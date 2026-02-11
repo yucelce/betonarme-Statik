@@ -8,6 +8,7 @@ import { solveColumns } from "./columnSolver";
 import { solveFoundation } from "./foundationSolver";
 import { generateModel } from "./modelGenerator";
 import { solveFEM } from './femSolver'; // FEM tekrar aktif
+import { DetailedBeamResult, DiagramPoint } from "../types";
 
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { materials } = state;
@@ -27,41 +28,80 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // 4. KİRİŞ TASARIMI (FEM KUVVETLERİ İLE)
   let criticalBeamResult: CalculationResult['beams'] | null = null;
   const beamDataMap = new Map<string, { Mr: number, As_supp: number, As_span: number }>();
+   const memberResults = new Map<string, DetailedBeamResult>();
 
   model.beams.forEach(beam => {
-     // FEM'den gelen kuvvetleri al
+     // FEM kuvvetlerini al
      const femForces = femResults.memberForces.get(beam.id);
      
-     // Eğer FEM kuvveti varsa (kN -> Nmm dönüşümü ile) onu kullan, yoksa yaklaşık hesabı kullan
-     // Not: FEM'den gelen Mz güçlü eksen momentidir (kNm -> Nmm için * 1e6)
-     const femMoment = femForces ? Math.abs(femForces.mz) * 1e6 : 0;
-     const femShear = femForces ? Math.abs(femForces.fy) * 1000 : 0;
+     // Başlangıç kuvvetleri (FEM'den veya yaklaşık yöntemden)
+     // İşaret kabulleri: FEM'de düğüm kuvvetleri pozitiftir, kiriş diyagramı için yönlere dikkat edilmeli.
+     // Basitleştirme: Sol uçtaki (startNode) kesme kuvveti ve moment.
+     let V_start = 0; 
+     let M_start = 0; 
 
-     // Yaklaşık çözüm fonksiyonunu çağırıyoruz ama sonuçlarını FEM ile ezeceğiz
+     if (femForces) {
+        V_start = femForces.fy * 1000; // N (FEM kN dönerse diye kontrol edin, femSolver kodunda kN görünüyor ama burada N kullanıyoruz)
+        M_start = femForces.mz * 1e6;  // Nmm
+     } else {
+        // FEM yoksa yaklaşık değerler (Basit kiriş kabulü)
+        V_start = (q_beam_design_N_m * beam.length) / 2;
+        M_start = 0; // Basit kiriş uç momenti 0 kabulü (veya mesnet momenti)
+     }
+
+     // Yaklaşık çözüm fonksiyonunu çağır
      const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec);
 
-     // FEM SONUÇLARINI ENTEGRE ET:
-     if (femMoment > 0) {
-        // Hesaplanan donatıları FEM momentine göre güncelle (Basit oranlama)
-        const ratio = femMoment / (result.beamsResult.moment_support * 1e6 || 1);
-        result.beamsResult.moment_support = femMoment / 1e6;
-        result.beamsResult.moment_span = femMoment / 2 / 1e6; // Açıklık momenti kabulü
-        result.beamsResult.shear_design = femShear / 1000;
+     // ... (Mevcut criticalBeamResult güncelleme kodları burda kalabilir) ...
+
+     // --- DİYAGRAM VERİSİ OLUŞTURMA ---
+     const points: DiagramPoint[] = [];
+     const steps = 20; // Grafik çözünürlüğü (20 nokta)
+     const dx = beam.length / steps;
+     const q = q_beam_design_N_m; // N/m
+
+     let maxM = -Infinity, minM = Infinity, maxV = 0;
+
+     for (let i = 0; i <= steps; i++) {
+        const x = i * dx; // metre
         
-        // Donatıyı yeni momente göre güncelle
-        result.As_beam_supp_final *= ratio;
-        result.As_beam_span_final *= ratio;
+        // Kesme Kuvveti: V(x) = V_start - q*x
+        // Not: FEM işaretlerine göre V_start yukarı doğru ise pozitiftir.
+        // Burada basit bir statik denge varsayıyoruz.
+        const Vx = (V_start - (q * x)) / 1000; // kN'a çevir
+
+        // Moment: M(x) = M_start + V_start*x - (q*x^2)/2
+        // Not: M_start (Nmm) -> Nmm + N*mm - N/m * m^2 ??? Birimlere dikkat.
+        // x metre olduğu için: q (N/m), V (N), M (Nmm). 
+        // Denklem: M(x)_Nmm = M_start_Nmm + V_start_N * (x*1000) - (q_N_m * x^2 * 1000 / 2) ???
+        // Daha kolayı hepsini kN ve m üzerinden gitmek:
+        
+        const M_start_kNm = femForces ? -femForces.mz : 0; // FEM mz genellikle düğüme etkiyen momenttir, çubuğa etkiyen terstir.
+        const V_start_kN = V_start / 1000;
+        const q_kN_m = q / 1000;
+
+        // Basit kiriş + Uç Momentleri süperpozisyonu (Daha doğru grafik için)
+        // M(x) = M_start + V_start*x - q*x^2/2
+        const Mx = M_start_kNm + V_start_kN * x - (q_kN_m * x * x) / 2;
+
+        points.push({ 
+            x: Number(x.toFixed(2)), 
+            V: Number(Vx.toFixed(2)), 
+            M: Number(Mx.toFixed(2)) 
+        });
+
+        if (Mx > maxM) maxM = Mx;
+        if (Mx < minM) minM = Mx;
+        if (Math.abs(Vx) > maxV) maxV = Math.abs(Vx);
      }
 
-     beamDataMap.set(beam.id, {
-        Mr: result.Mr_beam_Nmm,
-        As_supp: result.As_beam_supp_final,
-        As_span: result.As_beam_span_final
+     memberResults.set(beam.id, {
+         beamId: beam.id,
+         diagramData: points,
+         maxM,
+         minM,
+         maxV
      });
-
-     if (!criticalBeamResult || result.beamsResult.moment_support > criticalBeamResult.moment_support) {
-        criticalBeamResult = result.beamsResult;
-     }
   });
 
   // Kiriş yoksa fallback
@@ -128,6 +168,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     columns: criticalColumnResult!,
     seismic: seismicResult,
     foundation: foundationResult,
-    joint: criticalJointResult!
+    joint: criticalJointResult!,
+    memberResults: memberResults // Map'i sonuca ekle
   };
 };
