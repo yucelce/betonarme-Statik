@@ -8,7 +8,7 @@ interface SeismicSolverResult {
   Vt_design_N: number;
   W_total_N: number;
   fi_story_N: number[];
-  irregularities: IrregularityResult;
+  // irregularities: IrregularityResult; // Bu artık FEM solver'dan gelecek verilerle birleştirilecek
 }
 
 export const solveSeismic = (
@@ -21,29 +21,12 @@ export const solveSeismic = (
   const { dimensions, seismic, sections, materials, grid } = state;
   const { concreteClass } = materials;
   
-  // Ec (Elastisite Modülü) Tahmini
-  const Ec_map: Record<string, number> = { 'C20': 28000, 'C25': 30000, 'C30': 32000, 'C35': 33000, 'C40': 34000, 'C50': 37000 };
-  const Ec = Ec_map[concreteClass] || 30000;
-
   const storyCount = dimensions.storyCount || 1;
   const h_story = dimensions.h; 
 
-  // DÜZELTME: Kolon sayısı dinamik hesaplanmalı
   const numNodesX = grid.xAxis.length + 1;
   const numNodesY = grid.yAxis.length + 1;
   const Num_Cols = numNodesX * numNodesY; 
-
-  const Ac_floor = Num_Cols * (sections.colWidth * sections.colDepth); // cm2
-  
-  // Zemin kat ile 1. kat arası oran (Programda kesitler kata göre değişmiyor şimdilik)
-  const eta_ci = 1.0; 
-  const isB1Safe = eta_ci >= 0.80;
-
-  const B1_Check = {
-      eta_ci_min: eta_ci,
-      isSafe: isB1Safe,
-      message: isB1Safe ? 'Zayıf Kat Yok' : 'Zayıf Kat Düzensizliği (B1) Var!'
-  };
   
   // Ağırlık Hesapları
   const area_m2 = dimensions.lx * dimensions.ly;
@@ -63,16 +46,6 @@ export const solveSeismic = (
   const totalHeight_m = h_story * storyCount;
   const T1 = 0.1 * Math.pow(totalHeight_m, 0.75); 
 
-  const aspect_ratio = Math.max(dimensions.lx, dimensions.ly) / Math.min(dimensions.lx, dimensions.ly);
-  let estimated_eta_bi = 1.0 + (aspect_ratio > 3 ? 0.2 : 0.05); // Tahmini
-
-  const isA1Safe = estimated_eta_bi <= 1.2;
-  const A1_Check = {
-      eta_bi: estimated_eta_bi,
-      isSafe: isA1Safe,
-      message: isA1Safe ? 'Burulma Düzensizliği Yok' : 'A1 Burulma Düzensizliği Var (>1.2)'
-  };
-
   // Sae Hesabı
   const Sae_coeff = ((T: number): number => {
     const Ta = 0.2 * (Sd1 / Sds);
@@ -88,7 +61,9 @@ export const solveSeismic = (
   const Vt_min_N = 0.04 * W_total_N * I_bldg * Sds;
   const Vt_design_N = Math.max(Vt_calc_N, Vt_min_N);
 
-  // Kat Kuvvetleri Dağılımı (Fi)
+  // Kat Kuvvetleri Dağılımı (Fi) - Eşdeğer Deprem Yükü Yöntemi
+  // TBDY 4.7.2
+  // DeltaFn hesabı (N=StoryCount) için 0.0075 N Vt formülü ihmal edildi (basitlik için)
   let sum_Wi_Hi = 0;
   for (let i = 1; i <= storyCount; i++) sum_Wi_Hi += Wi_story_N * (i * h_story);
 
@@ -99,18 +74,7 @@ export const solveSeismic = (
     fi_story_N.push(Fi);
   }
 
-  // --- GÖRELİ ÖTELEME (DRIFT) KONTROLÜ ---
-  const Ic_one = (Math.pow(sections.colDepth * 10, 3) * (sections.colWidth * 10)) / 12; // mm4
-  const Sum_Ic = Num_Cols * Ic_one;
-  const V_story = Vt_design_N;
-  const I_eff = 0.70 * Sum_Ic;
-  const h_mm = h_story * 1000;
-  
-  const delta_elastic_mm = (V_story * Math.pow(h_mm, 3)) / (12 * Ec * I_eff);
-  const delta_max_mm = Ra * delta_elastic_mm;
-  const drift_ratio = delta_max_mm / h_mm;
-  const drift_limit = 0.008;
-
+  // Geçici Boş Sonuç (Asıl sonuçlar Solver.ts içinde birleştirilecek)
   const seismicResult = {
     param_sds: Sds,
     param_sd1: Sd1,
@@ -121,15 +85,16 @@ export const solveSeismic = (
     R_coefficient: seismic.Rx,
     I_coefficient: seismic.I,
     story_drift: {
-        check: createStatus(drift_ratio <= drift_limit, 'Öteleme Uygun', 'Öteleme Sınırı Aşıldı'),
-        delta_max: delta_max_mm,
-        drift_ratio: drift_ratio,
-        limit: drift_limit
+        check: createStatus(true, 'FEM Bekleniyor'),
+        delta_max: 0,
+        drift_ratio: 0,
+        limit: 0.008
     },
     irregularities: {
-        A1: A1_Check,
-        B1: B1_Check
+        A1: { eta_bi_max: 0, isSafe: true, message: '', details: [] },
+        B1: { eta_ci_min: 0, isSafe: true, message: '' }
     }
   };
 
-  return { seismicResult, Vt_design_N, W_total_N, fi_story_N, irregularities: { A1: A1_Check, B1: B1_Check } };
+  return { seismicResult, Vt_design_N, W_total_N, fi_story_N };
+};

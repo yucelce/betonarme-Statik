@@ -1,3 +1,4 @@
+
 // utils/report.tsx
 import React from 'react';
 import { AppState, CalculationResult } from '../types';
@@ -27,10 +28,10 @@ const Report: React.FC<Props> = ({ state, results }) => {
         </div>
       </div>
 
-      {/* 1. TASARIM PARAMETRELERİ */}
+      {/* 1. TASARIM VE DEPREM PARAMETRELERİ */}
       <section>
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700">1. Tasarım Parametreleri</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700">1. Tasarım Parametreleri ve Deprem Verileri</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
           <div className="bg-slate-50 p-3 rounded">
             <span className="block text-xs text-slate-500">Zemin Sınıfı</span>
             <span className="font-bold">{state.seismic.soilClass}</span>
@@ -43,21 +44,67 @@ const Report: React.FC<Props> = ({ state, results }) => {
              <span className="block text-xs text-slate-500">Taban Kesme (Vt)</span>
              <span className="font-bold">{results.seismic.base_shear.toFixed(1)} kN</span>
           </div>
-          {/* YENİ: DRIFT KARTI */}
-          <div className={`p-3 rounded border ${results.seismic.story_drift.check.isSafe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-             <span className="block text-xs text-slate-500">Göreli Öteleme (Drift)</span>
-             <span className="font-bold block">{results.seismic.story_drift.drift_ratio.toFixed(5)}</span>
-             <span className={`text-[10px] font-bold ${results.seismic.story_drift.check.isSafe ? 'text-green-600' : 'text-red-600'}`}>
-                 {results.seismic.story_drift.check.isSafe ? '✔ UYGUN' : '❌ AŞILDI'}
-             </span>
+          <div className="bg-slate-50 p-3 rounded">
+             <span className="block text-xs text-slate-500">Periyot (T1)</span>
+             <span className="font-bold">{results.seismic.period_t1.toFixed(3)} sn</span>
           </div>
         </div>
       </section>
 
-      {/* 2. DÖŞEME KONTROLLERİ */}
+      {/* 2. DÜZENSİZLİK VE GÖRELİ ÖTELEME ANALİZİ */}
+      <section>
+         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
+            2. Düzensizlik Analizi (TBDY 2018)
+            <StatusIcon isSafe={results.seismic.story_drift.check.isSafe && results.seismic.irregularities.A1.isSafe} />
+         </h2>
+         
+         {/* KAT TABLOSU */}
+         <div className="overflow-x-auto border rounded-lg">
+           <table className="w-full text-xs text-center">
+              <thead className="bg-slate-100 uppercase font-bold text-slate-600">
+                <tr>
+                  <th className="p-2 border-r">Kat</th>
+                  <th className="p-2 border-r">Yük (Fi)</th>
+                  <th className="p-2 border-r">d_max (mm)</th>
+                  <th className="p-2 border-r">d_avg (mm)</th>
+                  <th className="p-2 border-r text-blue-700">η_bi (A1)</th>
+                  <th className="p-2 border-r">Drift (R)</th>
+                  <th className="p-2">Sonuç</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {results.seismic.irregularities.A1.details.slice().reverse().map(story => (
+                  <tr key={story.storyIndex} className={story.eta_bi > 1.2 || !story.driftCheck.isSafe ? 'bg-red-50' : ''}>
+                    <td className="p-2 border-r font-bold">{story.storyIndex}</td>
+                    <td className="p-2 border-r">{story.forceApplied.toFixed(1)} kN</td>
+                    <td className="p-2 border-r">{story.dispMax.toFixed(2)}</td>
+                    <td className="p-2 border-r">{story.dispAvg.toFixed(2)}</td>
+                    <td className={`p-2 border-r font-bold ${story.eta_bi > 1.2 ? 'text-red-600' : 'text-slate-800'}`}>
+                       {story.eta_bi.toFixed(2)}
+                    </td>
+                    <td className="p-2 border-r">{story.driftRatio.toFixed(5)}</td>
+                    <td className="p-2">
+                       {story.driftCheck.isSafe && story.torsionCheck.isSafe ? (
+                          <span className="text-green-600 font-bold">✔ OK</span>
+                       ) : (
+                          <span className="text-red-600 font-bold">❌ Limit Aşımı</span>
+                       )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+           </table>
+         </div>
+         <div className="mt-2 text-[10px] text-slate-500 flex gap-4">
+            <span>* A1 Burulma Sınırı: η_bi > 1.20</span>
+            <span>* Göreli Öteleme Sınırı: R > 0.008</span>
+         </div>
+      </section>
+
+      {/* 3. DÖŞEME ANALİZİ */}
       <section>
         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            2. Döşeme Analizi
+            3. Döşeme Analizi
             <StatusIcon isSafe={results.slab.status.isSafe} />
         </h2>
         <table className="w-full text-sm text-left">
@@ -86,10 +133,10 @@ const Report: React.FC<Props> = ({ state, results }) => {
         </table>
       </section>
 
-      {/* 3. KRİTİK KİRİŞ KONTROLLERİ */}
+      {/* 4. KRİTİK KİRİŞ KONTROLLERİ */}
       <section>
         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            3. Kritik Kiriş Kontrolleri
+            4. Kritik Kiriş Kontrolleri
             <StatusIcon isSafe={results.beams.checks.shear.isSafe && results.beams.checks.deflection.isSafe} />
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -146,10 +193,10 @@ const Report: React.FC<Props> = ({ state, results }) => {
         </div>
       </section>
 
-       {/* 4. KRİTİK KOLON KONTROLLERİ */}
+       {/* 5. KRİTİK KOLON KONTROLLERİ */}
       <section>
         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            4. Kritik Kolon Kontrolleri
+            5. Kritik Kolon Kontrolleri
             <StatusIcon isSafe={results.columns.checks.axial_limit.isSafe && results.columns.checks.shear_capacity.isSafe} />
         </h2>
         <div className="overflow-x-auto">
@@ -196,10 +243,10 @@ const Report: React.FC<Props> = ({ state, results }) => {
         </div>
       </section>
 
-       {/* 5. TEMEL KONTROLLERİ */}
+       {/* 6. TEMEL KONTROLLERİ */}
       <section className="break-inside-avoid">
         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            5. Temel Kontrolleri
+            6. Temel Kontrolleri
             <StatusIcon isSafe={results.foundation.checks.bearing.isSafe && results.foundation.checks.punching.isSafe} />
         </h2>
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">

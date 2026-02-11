@@ -1,3 +1,4 @@
+
 export type ViewMode = 'normal' | 'analysis';
 
 export enum SoilClass {
@@ -51,16 +52,6 @@ export interface RebarSettings {
   colMainDia: number; colStirrupDia: number; foundationDia: number;
 }
 
-export interface AppState {
-  grid: GridSettings;
-  dimensions: Dimensions;
-  sections: Sections;
-  loads: Loads;
-  seismic: SeismicParams;
-  materials: MaterialParams;
-  rebars: RebarSettings;
-}
-
 // --- MODEL TİPLERİ ---
 
 export interface NodeEntity {
@@ -112,10 +103,53 @@ export interface CheckStatus {
   reason?: string;
 }
 
-// Düzensizlik Sonuç Tipi eklendi
+// YENİ: Kat Bazlı Analiz Sonuçları
+export interface StoryAnalysisResult {
+  storyIndex: number;
+  height: number;
+  forceApplied: number; // kN
+  dispAvg: number; // mm
+  dispMax: number; // mm
+  drift: number; // Göreli öteleme (mm)
+  driftRatio: number; // drift / h
+  eta_bi: number; // Burulma Düzensizliği Katsayısı
+  torsionCheck: CheckStatus;
+  driftCheck: CheckStatus;
+}
+
 export interface IrregularityResult {
-    A1: { eta_bi: number; isSafe: boolean; message: string };
+    A1: { eta_bi_max: number; isSafe: boolean; message: string; details: StoryAnalysisResult[] };
     B1: { eta_ci_min: number; isSafe: boolean; message: string };
+}
+
+export interface DiagramPoint {
+  x: number;       // Mesafe (m)
+  V: number;       // Kesme Kuvveti (kN)
+  M: number;       // Moment (kNm)
+}
+
+export interface DetailedBeamResult {
+  beamId: string;
+  diagramData: DiagramPoint[]; // Grafik verisi
+  maxM: number;
+  minM: number;
+  maxV: number;
+}
+
+export interface SectionOverride {
+  width?: number; 
+  depth?: number;
+}
+
+export interface AppState {
+  grid: GridSettings;
+  dimensions: Dimensions;
+  sections: Sections;
+  loads: Loads;
+  seismic: SeismicParams;
+  materials: MaterialParams;
+  rebars: RebarSettings;
+  elementOverrides: Record<string, SectionOverride>; 
 }
 
 export interface CalculationResult {
@@ -161,7 +195,7 @@ export interface CalculationResult {
         limit: number;
     };
     R_coefficient: number; I_coefficient: number;
-    irregularities: IrregularityResult; // EKLENDİ
+    irregularities: IrregularityResult;
   };
   foundation: {
     stress_actual: number; stress_limit: number;
@@ -173,43 +207,5 @@ export interface CalculationResult {
   joint: {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
-  
-}
-
-// Mevcut tiplerin altına ekleyin veya güncelleyin:
-
-export interface DiagramPoint {
-  x: number;       // Mesafe (m)
-  V: number;       // Kesme Kuvveti (kN)
-  M: number;       // Moment (kNm)
-}
-export interface SectionOverride {
-  width?: number; // Eğer tanımlıysa bunu kullan, yoksa geneli kullan
-  depth?: number;
-}
-
-export interface AppState {
-  grid: GridSettings;
-  dimensions: Dimensions;
-  sections: Sections;
-  loads: Loads;
-  seismic: SeismicParams;
-  materials: MaterialParams;
-  rebars: RebarSettings;
-  // YENİ EKLENEN ALAN:
-  elementOverrides: Record<string, SectionOverride>; 
-}
-export interface DetailedBeamResult {
-  beamId: string;
-  diagramData: DiagramPoint[]; // Grafik verisi
-  maxM: number;
-  minM: number;
-  maxV: number;
-}
-
-export interface CalculationResult {
-  // ... (mevcut alanlar: slab, beams, columns, seismic, foundation, joint)
-  
-  // YENİ ALAN: Tüm kirişlerin detaylı sonuçlarını ID ile saklar
   memberResults: Map<string, DetailedBeamResult>; 
 }
