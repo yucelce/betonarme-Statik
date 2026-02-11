@@ -1,693 +1,182 @@
+// App.tsx
 import React, { useState, useEffect } from 'react';
-import { AppState, SoilClass, ConcreteClass, CalculationResult, CheckStatus } from './types';
-import { calculateStructure } from './utils/solver';
-import { getConcreteProperties, STEEL_FYD, CONCRETE_DENSITY } from './constants';
-import Visualizer from './components/Visualizer';
-import { Activity, Box, Calculator, CheckCircle, XCircle, Scale, FileText, ChevronDown, ChevronUp, Settings, AlertTriangle } from 'lucide-react';
+import { AppState, SoilClass, ConcreteClass, AnalysisSummary, AxisData } from './types';
+import { calculateFullStructure } from './utils/solver';
+import { Plus, Trash2, Activity, Play } from 'lucide-react';
+import Visualizer from './components/Visualizer'; // Visualizer'ın da güncellenmesi gerekir!
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    dimensions: { lx: 5, ly: 4, h: 3, slabThickness: 14, storyCount: 3, foundationHeight: 50, foundationCantilever: 50 },
-    sections: { beamWidth: 25, beamDepth: 50, colWidth: 40, colDepth: 40 },
+    grid: {
+      xAxis: [{ id: 'x1', spacing: 4 }, { id: 'x2', spacing: 5 }], // Varsayılan 2 açıklık
+      yAxis: [{ id: 'y1', spacing: 4 }, { id: 'y2', spacing: 4 }]
+    },
+    dimensions: { storyCount: 3, h: 3, foundationHeight: 50, foundationCantilever: 50 },
+    sections: { defaultBeamWidth: 25, defaultBeamDepth: 50, defaultColWidth: 40, defaultColDepth: 40, defaultSlabThickness: 14 },
     loads: { liveLoadKg: 200, deadLoadCoatingsKg: 150 },
     seismic: { ss: 1.2, s1: 0.35, soilClass: SoilClass.ZC, Rx: 8, I: 1.0 },
     materials: { concreteClass: ConcreteClass.C30 },
     rebars: { slabDia: 8, beamMainDia: 14, beamStirrupDia: 8, colMainDia: 16, colStirrupDia: 8, foundationDia: 14 }
   });
 
-  const [results, setResults] = useState<CalculationResult | null>(null);
-  const [showReport, setShowReport] = useState(false);
+  const [results, setResults] = useState<AnalysisSummary | null>(null);
 
-  const { fck, fctd, fcd } = getConcreteProperties(state.materials.concreteClass);
-
-  useEffect(() => {
-    setResults(calculateStructure(state));
-  }, [state]);
-
-  const handleChange = (section: keyof AppState, field: string, value: any) => {
+  const handleAddAxis = (dir: 'x' | 'y') => {
     setState(prev => ({
       ...prev,
-      [section]: { ...prev[section], [field]: value }
+      grid: {
+        ...prev.grid,
+        [dir === 'x' ? 'xAxis' : 'yAxis']: [
+          ...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis'],
+          { id: `${dir}${Date.now()}`, spacing: 4 }
+        ]
+      }
     }));
   };
 
-  const getOverallStatus = (checks: Record<string, CheckStatus>): CheckStatus => {
-    const failures = Object.values(checks).filter(c => !c.isSafe);
-    if (failures.length > 0) {
-      return failures[0];
-    }
-    return { isSafe: true, message: 'Tüm Kontroller Uygun' };
+  const handleRemoveAxis = (dir: 'x' | 'y', idx: number) => {
+    setState(prev => {
+      const newAxes = [...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis']];
+      if (newAxes.length > 1) newAxes.splice(idx, 1);
+      return {
+        ...prev,
+        grid: { ...prev.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes }
+      };
+    });
   };
 
-  const StatusBadge = ({ status }: { status: { isSafe: boolean, message: string, reason?: string } }) => (
-    <div className="flex flex-col items-end">
-      <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded ${status.isSafe ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-        {status.isSafe ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-        {status.message}
-      </div>
-      {!status.isSafe && status.reason && (
-        <span className="text-[10px] text-red-600 mt-1 font-medium text-right max-w-[120px] leading-tight">{status.reason}</span>
-      )}
-    </div>
-  );
+  const handleAxisChange = (dir: 'x' | 'y', idx: number, val: number) => {
+    setState(prev => {
+      const newAxes = [...prev.grid[dir === 'x' ? 'xAxis' : 'yAxis']];
+      newAxes[idx].spacing = val;
+      return {
+        ...prev,
+        grid: { ...prev.grid, [dir === 'x' ? 'xAxis' : 'yAxis']: newAxes }
+      };
+    });
+  };
 
-  const ReportRow = ({ label, value, unit, subtext, status, formula, calc }:
-    { label: string, value: string | number, unit?: string, subtext?: string, status?: boolean, formula?: string, calc?: string }) => (
-    <div className="flex flex-col py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 px-2 rounded group">
-      <div className="flex justify-between items-center">
-        <span className="text-slate-700 font-medium text-sm">{label}</span>
-        <div className="text-right">
-          <span className="font-mono font-bold text-slate-900">{value}</span>
-          {unit && <span className="text-slate-500 text-xs ml-1">{unit}</span>}
-          {status !== undefined && (
-            <span className={`ml-2 font-bold ${status ? 'text-green-500' : 'text-red-500'}`}>
-              {status ? '✔' : '✘'}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col mt-1 gap-1">
-        {subtext && <span className="text-[10px] text-slate-400">{subtext}</span>}
-        {(formula || calc) && (
-          <div className="bg-slate-50 p-2 rounded border border-slate-100 mt-1 text-[10px] font-mono text-slate-500 hidden group-hover:block animate-in fade-in duration-200">
-            {formula && <div className="text-blue-600 mb-0.5"><span className="font-bold">Formül:</span> {formula}</div>}
-            {calc && <div className="text-slate-600"><span className="font-bold">Hesap:</span> {calc}</div>}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const soilDescriptions: Record<string, string> = {
-    [SoilClass.ZA]: "Sağlam Kaya",
-    [SoilClass.ZB]: "Az Ayrışmış Kaya",
-    [SoilClass.ZC]: "Çok Sıkı Kum / Çakıl",
-    [SoilClass.ZD]: "Orta Sıkı Kum",
-    [SoilClass.ZE]: "Gevşek Kum",
+  const runAnalysis = () => {
+    setResults(calculateFullStructure(state));
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-2 md:p-6 font-sans pb-20">
-      <div className="max-w-7xl mx-auto space-y-4">
-
-        {/* HEADER */}
-        <header className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Calculator className="w-6 h-6 text-blue-600" />
-            Betonarme Analiz Pro v2.2
-          </h1>
-          <div className="flex gap-2 text-xs">
-            <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full border border-blue-100 font-bold">TS500:2000</span>
-            <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full border border-red-100 font-bold">TBDY 2018</span>
-          </div>
+    <div className="min-h-screen bg-slate-50 p-6 font-sans">
+      <div className="max-w-6xl mx-auto space-y-6">
+        
+        {/* Header */}
+        <header className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
+          <h1 className="text-2xl font-bold text-slate-800">Yapısal Analiz (Grid Sistemi)</h1>
+          <button onClick={runAnalysis} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700">
+            <Play className="w-4 h-4" /> Hesapla
+          </button>
         </header>
 
-        {/* TOP SECTION: YAPI & TEMEL (LEFT) - VISUALIZER (RIGHT) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-
-          {/* LEFT COLUMN: Structure & Foundation Input */}
-          <div className="lg:col-span-4 flex flex-col h-full">
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
-              <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Box className="w-4 h-4 text-blue-500" /> Yapı & Temel</h2>
-              <div className="space-y-3 text-sm">
-                {/* Kat Adedi ve Yükseklik */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-500">Kat Adedi</label>
-                    <input type="number" value={state.dimensions.storyCount} onChange={e => handleChange('dimensions', 'storyCount', +e.target.value)} className="w-full p-2 border rounded" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500">Kat Yüksekliği (m)</label>
-                    <input type="number" step="0.1" value={state.dimensions.h} onChange={e => handleChange('dimensions', 'h', +e.target.value)} className="w-full p-2 border rounded bg-blue-50 font-bold text-blue-900" />
-                  </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* Sol Panel: Akslar ve Ayarlar */}
+          <div className="space-y-4">
+            
+            {/* AKS EDİTÖRÜ */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+              <h2 className="font-bold text-slate-700 mb-4">Aks Sistemi (Açıklıklar)</h2>
+              
+              {/* X Aksları */}
+              <div className="mb-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold text-blue-600">X Yönü Açıklıkları (m)</span>
+                  <button onClick={() => handleAddAxis('x')} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus className="w-4 h-4"/></button>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div><label className="text-[10px] text-slate-500">Lx (m)</label><input type="number" value={state.dimensions.lx} onChange={e => handleChange('dimensions', 'lx', +e.target.value)} className="w-full p-2 border rounded" /></div>
-                  <div><label className="text-[10px] text-slate-500">Ly (m)</label><input type="number" value={state.dimensions.ly} onChange={e => handleChange('dimensions', 'ly', +e.target.value)} className="w-full p-2 border rounded" /></div>
+                <div className="space-y-2">
+                  {state.grid.xAxis.map((axis, i) => (
+                    <div key={axis.id} className="flex gap-2 items-center">
+                      <span className="text-xs text-slate-400 w-6">A{i+1}-A{i+2}</span>
+                      <input 
+                        type="number" 
+                        value={axis.spacing} 
+                        onChange={(e) => handleAxisChange('x', i, +e.target.value)}
+                        className="w-full p-2 border rounded text-sm"
+                      />
+                      <button onClick={() => handleRemoveAxis('x', i)} className="text-red-400"><Trash2 className="w-4 h-4"/></button>
+                    </div>
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div><label className="text-[10px] text-slate-500">Plak (cm)</label><input type="number" value={state.dimensions.slabThickness} onChange={e => handleChange('dimensions', 'slabThickness', +e.target.value)} className="w-full p-2 border rounded" /></div>
-                  <div><label className="text-[10px] text-slate-500">Radye H</label><input type="number" value={state.dimensions.foundationHeight} onChange={e => handleChange('dimensions', 'foundationHeight', +e.target.value)} className="w-full p-2 border bg-emerald-50 rounded" /></div>
-                </div>
+              </div>
 
-                {/* YENİ DÜZEN: Radye Ampatman ve Beton Sınıfı Yan Yana */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-500">Radye Ampatman (cm)</label>
-                    <input type="number" value={state.dimensions.foundationCantilever} onChange={e => handleChange('dimensions', 'foundationCantilever', +e.target.value)} className="w-full p-2 border rounded" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 font-bold text-blue-600">Beton Sınıfı</label>
-                    <select
-                      value={state.materials.concreteClass}
-                      onChange={e => handleChange('materials', 'concreteClass', e.target.value)}
-                      className="w-full p-2 border rounded bg-blue-50 text-blue-900 font-bold text-xs"
-                    >
-                      {Object.values(ConcreteClass).map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
+              {/* Y Aksları */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold text-green-600">Y Yönü Açıklıkları (m)</span>
+                  <button onClick={() => handleAddAxis('y')} className="text-green-600 hover:bg-green-50 p-1 rounded"><Plus className="w-4 h-4"/></button>
                 </div>
-
+                <div className="space-y-2">
+                  {state.grid.yAxis.map((axis, i) => (
+                    <div key={axis.id} className="flex gap-2 items-center">
+                      <span className="text-xs text-slate-400 w-6">B{i+1}-B{i+2}</span>
+                      <input 
+                        type="number" 
+                        value={axis.spacing} 
+                        onChange={(e) => handleAxisChange('y', i, +e.target.value)}
+                        className="w-full p-2 border rounded text-sm"
+                      />
+                      <button onClick={() => handleRemoveAxis('y', i)} className="text-red-400"><Trash2 className="w-4 h-4"/></button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+
+            {/* Kat ve Kesit Ayarları */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+               <h3 className="font-bold text-slate-700 mb-2 text-sm">Kat & Kesit</h3>
+               <div className="grid grid-cols-2 gap-2 text-sm">
+                 <div>
+                   <label className="text-[10px] text-slate-500">Kat Adedi</label>
+                   <input type="number" value={state.dimensions.storyCount} onChange={e=>setState({...state, dimensions:{...state.dimensions, storyCount:+e.target.value}})} className="w-full border rounded p-1"/>
+                 </div>
+                 <div>
+                   <label className="text-[10px] text-slate-500">Kiriş Boyut</label>
+                   <div className="flex gap-1">
+                     <input type="number" value={state.sections.defaultBeamWidth} className="w-1/2 border rounded p-1" readOnly/>
+                     <input type="number" value={state.sections.defaultBeamDepth} className="w-1/2 border rounded p-1" readOnly/>
+                   </div>
+                 </div>
+               </div>
+            </div>
+
           </div>
 
-          {/* RIGHT COLUMN: Visualizer - DARALTILDI (col-span-9 -> col-span-8) */}
-          <div className="lg:col-span-8 h-full">
-            <div className="h-full">
-              <Visualizer dimensions={state.dimensions} sections={state.sections} />
-            </div>
+          {/* Orta Panel: Sonuçlar */}
+          <div className="lg:col-span-2 space-y-4">
+             {results ? (
+               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                 <div className="bg-white p-4 rounded-xl border-l-4 border-blue-500 shadow-sm">
+                   <div className="text-xs text-slate-500">Toplam Bina Ağırlığı</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.totalWeight_kN.toFixed(1)} kN</div>
+                 </div>
+                 <div className="bg-white p-4 rounded-xl border-l-4 border-red-500 shadow-sm">
+                   <div className="text-xs text-slate-500">Taban Kesme Kuvveti</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.baseShear_kN.toFixed(1)} kN</div>
+                 </div>
+                 <div className="bg-white p-4 rounded-xl border-l-4 border-purple-500 shadow-sm">
+                   <div className="text-xs text-slate-500">Max Kiriş Momenti</div>
+                   <div className="text-2xl font-bold text-slate-800">{results.maxBeamMoment_kNm.toFixed(1)} kNm</div>
+                 </div>
+                 
+                 {/* Buraya Visualizer eklenebilir, ancak Grid'e göre yeniden yazılması gerekir */}
+                 <div className="col-span-full bg-slate-100 p-8 text-center rounded-xl border border-dashed border-slate-300">
+                    <p className="text-slate-500">Grid Görselleştirmesi İçin Visualizer Bileşeni Güncellenmelidir.</p>
+                    <p className="text-xs text-slate-400 mt-2">Model: {state.grid.xAxis.length}x{state.grid.yAxis.length} açıklık</p>
+                 </div>
+               </div>
+             ) : (
+               <div className="h-full flex items-center justify-center text-slate-400 bg-white rounded-xl border border-dashed">
+                 Hesaplama yapmak için butona basın.
+               </div>
+             )}
           </div>
 
         </div>
-
-        {/* MIDDLE SECTION: OTHER INPUTS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          {/* Kesitler */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Scale className="w-4 h-4 text-purple-500" /> Kesitler</h2>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[10px] text-slate-500">Kiriş B</label><input type="number" value={state.sections.beamWidth} onChange={e => handleChange('sections', 'beamWidth', +e.target.value)} className="w-full p-2 border rounded" /></div>
-                <div><label className="text-[10px] text-slate-500">Kiriş H</label><input type="number" value={state.sections.beamDepth} onChange={e => handleChange('sections', 'beamDepth', +e.target.value)} className="w-full p-2 border rounded" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[10px] text-slate-500">Kolon B</label><input type="number" value={state.sections.colWidth} onChange={e => handleChange('sections', 'colWidth', +e.target.value)} className="w-full p-2 border rounded" /></div>
-                <div><label className="text-[10px] text-slate-500">Kolon H</label><input type="number" value={state.sections.colDepth} onChange={e => handleChange('sections', 'colDepth', +e.target.value)} className="w-full p-2 border rounded" /></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Deprem & Yükler */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity className="w-4 h-4 text-red-500" /> Deprem & Yükler</h2>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[10px] text-slate-500">Ss</label><input type="number" step="0.1" value={state.seismic.ss} onChange={e => handleChange('seismic', 'ss', +e.target.value)} className="w-full p-2 border rounded" /></div>
-                <div><label className="text-[10px] text-slate-500">S1</label><input type="number" step="0.1" value={state.seismic.s1} onChange={e => handleChange('seismic', 's1', +e.target.value)} className="w-full p-2 border rounded bg-yellow-50" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] text-slate-500">Zemin</label>
-                  <select
-                    value={state.seismic.soilClass}
-                    onChange={e => handleChange('seismic', 'soilClass', e.target.value)}
-                    className="w-full p-2 border rounded bg-slate-50 text-xs"
-                  >
-                    {Object.values(SoilClass).map(sc => (
-                      <option key={sc} value={sc}>
-                        {sc} ({soilDescriptions[sc]})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div><label className="text-[10px] text-slate-500">Rx (Sistem)</label><input type="number" value={state.seismic.Rx} onChange={e => handleChange('seismic', 'Rx', +e.target.value)} className="w-full p-2 border rounded" /></div>
-              </div>
-              <div><label className="text-[10px] text-slate-500">Hareketli Yük (kg/m²)</label><input type="number" value={state.loads.liveLoadKg} onChange={e => handleChange('loads', 'liveLoadKg', +e.target.value)} className="w-full p-2 border rounded" /></div>
-            </div>
-          </div>
-
-          {/* Donatı Çapları */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-full">
-            <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-600" /> Donatı Çapları</h2>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="text-[9px] text-slate-400 block">Döşeme</label>
-                  <select value={state.rebars.slabDia} onChange={e => handleChange('rebars', 'slabDia', +e.target.value)} className="w-full p-2 border rounded">
-                    {[8, 10, 12].map(d => <option key={d} value={d}>Ø{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] text-slate-400 block">Kiriş</label>
-                  <select value={state.rebars.beamMainDia} onChange={e => handleChange('rebars', 'beamMainDia', +e.target.value)} className="w-full p-2 border rounded">
-                    {[12, 14, 16, 18, 20, 22, 24,].map(d => <option key={d} value={d}>Ø{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] text-slate-400 block">Kolon</label>
-                  <select value={state.rebars.colMainDia} onChange={e => handleChange('rebars', 'colMainDia', +e.target.value)} className="w-full p-2 border rounded">
-                    {[14, 16, 18, 20, 22, 24, 26].map(d => <option key={d} value={d}>Ø{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] text-slate-400 block">Radye</label>
-                  <select value={state.rebars.foundationDia} onChange={e => handleChange('rebars', 'foundationDia', +e.target.value)} className="w-full p-2 border rounded bg-emerald-50">
-                    {[12, 14, 16, 20, 22, 24].map(d => <option key={d} value={d}>Ø{d}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* SONUÇ KARTLARI - TAM LİSTE (HİÇBİR ŞEY SİLİNMEDEN) */}
-        {results && (
-          <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
-
-            {/* 1. Döşeme Kartı */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">DÖŞEME</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between"><span>Tip:</span> <b>{results.slab.alpha > 0.06 ? 'Tek Yönlü' : 'Çift Yönlü'}</b></div>
-                <div className="flex justify-between"><span>Donatı:</span> <b className="text-blue-600">Ø{state.rebars.slabDia} / {results.slab.spacing} cm</b></div>
-                <div className="flex justify-between"><span>Moment:</span> <b>{results.slab.m_x.toFixed(1)} kNm</b></div>
-                <StatusBadge status={getOverallStatus({ thickness: results.slab.thicknessStatus, general: results.slab.status })} />
-              </div>
-            </div>
-
-            {/* 2. Kiriş Kartı - Boyuna + Etriye */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">KİRİŞ</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between">
-                  <span>Boyuna:</span>
-                  <b className="text-slate-900">{results.beams.count_span}Ø{state.rebars.beamMainDia}</b>
-                </div>
-                <div className="flex flex-col gap-1 my-1 border-t border-b border-dashed py-1">
-                  <div className="flex justify-between">
-                    <span className="text-purple-600 font-medium">Sıklaştırma:</span>
-                    <b className="text-purple-700">{results.beams.stirrup_result.text_support}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Orta Bölge:</span>
-                    <b className="text-slate-700">{results.beams.stirrup_result.text_span}</b>
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
-                  <span>Vd: {results.beams.shear_design.toFixed(1)} kN</span>
-                  <span>Vmax: {results.beams.shear_limit.toFixed(1)} kN</span>
-                </div>
-                <StatusBadge status={getOverallStatus(results.beams.checks)} />
-              </div>
-            </div>
-
-            {/* 3. Kolon Kartı - Boyuna + Sargı (Etriye) */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">KOLON</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between">
-                  <span>Boyuna:</span>
-                  <b className="text-slate-900">{results.columns.count_main}Ø{state.rebars.colMainDia}</b>
-                </div>
-                <div className="flex justify-between">
-                  <span>Sargı (Sık/Orta):</span>
-                  <b className="text-emerald-600">
-                    {/* Gerçek kullanılan çapı gösterelim */}
-                    Ø{results.columns.confinement.dia_used} / {results.columns.confinement.s_conf / 10} / {results.columns.confinement.s_middle / 10}
-                  </b>
-                </div>
-
-                {/* YENİ EKLENEN NARİNLİK SATIRI */}
-                <div className="flex justify-between border-t border-dashed pt-1 mt-1">
-                  <span>Narinlik:</span>
-                  <b className={`${results.columns.checks.slendernessCheck.isSafe ? (results.columns.slenderness.isSlender ? 'text-orange-500' : 'text-slate-700') : 'text-red-600'}`}>
-                    {results.columns.checks.slendernessCheck.message}
-                  </b>
-                </div>
-
-                <div className="flex justify-between text-[10px] text-slate-400 border-t pt-1 mt-1">
-                  <span>Nd: {results.columns.axial_load_design.toFixed(0)} kN</span>
-                  <span>Md: {results.columns.moment_magnified.toFixed(1)} kNm</span>
-                </div>
-
-                {/* getOverallStatus artık slendernessCheck'i de kapsayacak */}
-                <StatusBadge status={getOverallStatus(results.columns.checks)} />
-              </div>
-            </div>
-
-            {/* 4. Radye Kartı */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">RADYE</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between"><span>Zımbalama:</span> <b className={results.foundation.checks.punching.isSafe ? 'text-green-600' : 'text-red-600'}>{results.foundation.checks.punching.message}</b></div>
-                <div className="flex justify-between border-t pt-1 mt-1"><span>Donatı:</span> <b className="text-orange-600">Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm</b></div>
-                <StatusBadge status={getOverallStatus(results.foundation.checks)} />
-              </div>
-            </div>
-
-            {/* 5. Birleşim (Joint) Kartı */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8"></div>
-              <h3 className="font-bold text-slate-700 mb-2 text-sm">BİRLEŞİM (JOINT)</h3>
-              <div className="space-y-1 text-xs text-slate-600 relative z-10">
-                <div className="flex justify-between">
-                  <span>Ve:</span>
-                  <b>{results.joint.shear_force.toFixed(1)} kN</b>
-                </div>
-                <div className="flex justify-between">
-                  <span>Vmax:</span>
-                  <b>{results.joint.shear_limit.toFixed(1)} kN</b>
-                </div>
-                <div className="flex justify-between border-t pt-1 mt-1">
-                  <span>Durum:</span>
-                  <span className={`font-bold ${results.joint.isSafe ? 'text-green-600' : 'text-red-600'}`}>
-                    {results.joint.isSafe ? 'GÜVENLİ' : 'GÜVENSİZ'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* DETAYLI MÜHENDİSLİK RAPORU */}
-        {results && (
-          <div>
-            <button
-              onClick={() => setShowReport(!showReport)}
-              className="w-full py-3 flex items-center justify-center gap-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors shadow-lg text-sm"
-            >
-              <FileText className="w-4 h-4" />
-              {showReport ? "Raporu Gizle" : "Detaylı Mühendislik Raporunu İncele (Formüllü)"}
-              {showReport ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
-            </button>
-
-            {showReport && (
-              <div className="mt-2 text-center text-xs text-slate-500 italic">
-                * Detaylı formülleri görmek için satırların üzerine geliniz.
-              </div>
-            )}
-
-            {showReport && (
-              <div className="mt-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-slate-200">
-
-                  {/* 1. DÖŞEME HESAPLARI */}
-                  <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-blue-600 uppercase mb-4 border-b pb-2">1. DÖŞEME HESAPLARI (TS500)</h4>
-                    <div className="space-y-1">
-                      <ReportRow
-                        label="Tasarım Yükü (Pd)"
-                        value={results.slab.pd.toFixed(2)} unit="kN/m²"
-                        formula="Pd = 1.4G + 1.6Q"
-                      />
-                      <ReportRow
-                        label="Min. Kalınlık (TS500)"
-                        value={`${results.slab.min_thickness_calculated.toFixed(1)} cm`}
-                        subtext={`Limit: ${results.slab.min_thickness_limit} cm`}
-                        status={results.slab.thicknessStatus.isSafe}
-                        formula="h_min = ln / 25"
-                      />
-                      <ReportRow
-                        label="Moment Katsayısı (α)"
-                        value={results.slab.alpha.toFixed(3)}
-                        subtext={`Kenar Oranı: ${(Math.max(state.dimensions.lx, state.dimensions.ly) / Math.min(state.dimensions.lx, state.dimensions.ly)).toFixed(2)}`}
-                      />
-                      <ReportRow
-                        label="Hesap Momenti (Md)"
-                        value={results.slab.m_x.toFixed(2)} unit="kNm"
-                        formula="Md = α * Pd * Lx²"
-                      />
-                      <ReportRow
-                        label="Gereken Donatı (As)"
-                        value={results.slab.as_req.toFixed(2)} unit="cm²/m"
-                        subtext={`Min: ${results.slab.as_min.toFixed(2)} cm²`}
-                        formula="As = Md / (0.9 * fyd * d)"
-                      />
-                      <ReportRow
-                        label="Donatı Oranı (ρ)"
-                        value={(results.slab.rho * 100).toFixed(3)} unit="%"
-                        subtext="Süneklik Kontrolü"
-                      />
-                      <div className="mt-2 pt-2 border-t border-dashed font-bold text-blue-700 text-sm flex justify-between">
-                        <span>SEÇİLEN:</span>
-                        <span>Ø{state.rebars.slabDia} / {results.slab.spacing} cm</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. KİRİŞ HESAPLARI */}
-                  <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-purple-600 uppercase mb-4 border-b pb-2">2. KİRİŞ HESAPLARI</h4>
-                    <div className="space-y-1">
-                      <ReportRow
-                        label="Mesnet Momenti"
-                        value={results.beams.moment_support.toFixed(1)} unit="kNm"
-                        formula="M ≈ q * L² / 12"
-                      />
-                      {/* EKLENDİ: Açıklık Momenti */}
-                      <ReportRow
-                        label="Açıklık Momenti"
-                        value={results.beams.moment_span.toFixed(1)} unit="kNm"
-                        formula="M ≈ q * L² / 14" // Yaklaşık TS500 katsayısı
-                      />
-
-                      <div className="my-2 border-t border-slate-100"></div>
-
-                      {/* EKLENDİ: Kesme Kuvveti Detayları (Vc ve Vw ayrı ayrı) */}
-                      <ReportRow
-                        label="Tasarım Kesmesi (Vd)"
-                        value={results.beams.shear_design.toFixed(2)} unit="kN"
-                      />
-                      <ReportRow
-                        label="Beton Dayanımı (Vc)"
-                        value={results.beams.shear_Vc.toFixed(2)} unit="kN"
-                        subtext="0.80 * Vcr"
-                        formula="Vc = 0.8 * 0.65 * fctd * b * d"
-                      />
-                      <ReportRow
-                        label="Etriye Dayanımı (Vw)"
-                        value={results.beams.shear_Vw.toFixed(2)} unit="kN"
-                        formula="Vw = Asw * fyd * d / s"
-                      />
-                      <ReportRow
-                        label="Maksimum Kesme (Vmax)"
-                        value={results.beams.shear_limit.toFixed(2)} unit="kN"
-                        status={results.beams.checks.shear.isSafe}
-                        subtext="Kesit Ezilme Sınırı"
-                      />
-
-                      <div className="my-2 border-t border-slate-100"></div>
-
-                      {/* EKLENDİ: Donatı Oranları */}
-                      <ReportRow
-                        label="Donatı Oranı (Mesnet)"
-                        value={(results.beams.rho_support * 100).toFixed(2)} unit="%"
-                        subtext={`Min: %${(results.beams.rho_min * 100).toFixed(2)} / Max: %2.0`}
-                        status={results.beams.checks.min_reinf.isSafe && results.beams.checks.max_reinf.isSafe}
-                      />
-
-                      <ReportRow
-                        label="Sehim (δ)"
-                        value={results.beams.deflection.toFixed(2)} unit="mm"
-                        subtext={`Limit: ${results.beams.deflection_limit.toFixed(1)} mm`}
-                        status={results.beams.checks.deflection.isSafe}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 3. KOLON HESAPLARI */}
-                  <div className="bg-white p-6 col-span-1 lg:col-span-2">
-                    <h4 className="text-sm font-bold text-emerald-600 uppercase mb-4 border-b pb-2">3. KOLON DETAYLI ANALİZİ</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                      {/* Eksenel ve Narinlik */}
-                      <div className="space-y-1">
-                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">A. EKSENEL KUVVET VE NARİNLİK</h5>
-                        <ReportRow
-                          label="Eksenel Yük (Nd)"
-                          value={results.columns.axial_load_design.toFixed(0)} unit="kN"
-                        />
-                        <ReportRow
-                          label="Maks Kapasite (Nmax)"
-                          value={results.columns.axial_capacity_max.toFixed(0)} unit="kN"
-                          subtext="0.40 * fck * Ac"
-                          status={results.columns.checks.axial_limit.isSafe}
-                        />
-
-                        {/* EKLENDİ: Atalet Yarıçapı */}
-                        <ReportRow
-                          label="Atalet Yarıçapı (i)"
-                          value={results.columns.slenderness.i_rad.toFixed(1)} unit="mm"
-                          formula="i ≈ 0.3 * h"
-                        />
-                        <ReportRow
-                          label="Narinlik (λ)"
-                          value={results.columns.slenderness.lambda.toFixed(2)}
-                          subtext={`Limit: ${results.columns.slenderness.lambda_lim}`}
-                          status={!results.columns.slenderness.isSlender}
-                        />
-
-                        <ReportRow
-                          label="Analiz Momenti (Md)"
-                          value={results.columns.moment_design.toFixed(1)} unit="kNm"
-                          subtext="Yanal ötelemesiz"
-                        />
-                        {results.columns.slenderness.isSlender && (
-                          <ReportRow
-                            label="Büyütme Katsayısı (β)"
-                            value={results.columns.slenderness.beta.toFixed(2)}
-                            formula="Burkulma Etkisi"
-                          />
-                        )}
-                        <ReportRow
-                          label="Tasarım Momenti (Md*)"
-                          value={results.columns.moment_magnified.toFixed(1)} unit="kNm"
-                          status={results.columns.checks.moment_capacity.isSafe}
-                          subtext="Moment Kapasitesi Kontrolü"
-                        />
-                      </div>
-
-                      {/* Kesme ve Sargı */}
-                      <div className="space-y-1">
-                        <h5 className="font-bold text-xs text-slate-500 mb-2 border-b border-dashed pb-1">B. KESME VE SARGI</h5>
-
-                        <ReportRow
-                          label="Kapasite Kesmesi (Ve)"
-                          value={results.columns.shear.Ve.toFixed(1)} unit="kN"
-                          formula="(Mra+Mrü)/ln"
-                        />
-
-                        {/* EKLENDİ: Vc, Vw ve Vr_max detayları */}
-                        <div className="bg-slate-50 p-2 rounded border border-slate-100 text-xs space-y-1 my-1">
-                          <div className="flex justify-between">
-                            <span>Beton (Vc):</span>
-                            <b>{results.columns.shear.Vc.toFixed(1)} kN</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Etriye (Vw):</span>
-                            <b>{results.columns.shear.Vw.toFixed(1)} kN</b>
-                          </div>
-                          <div className="flex justify-between text-slate-400">
-                            <span>Üst Sınır (Vr_max):</span>
-                            <span>{results.columns.shear.Vr_max.toFixed(1)} kN</span>
-                          </div>
-                        </div>
-
-                        <ReportRow
-                          label="Toplam Dayanım (Vr)"
-                          value={results.columns.shear.Vr.toFixed(1)} unit="kN"
-                          status={results.columns.checks.shear_capacity.isSafe}
-                          formula="Vr = min(Vc+Vw, Vr_max)"
-                        />
-
-                        <div className="my-2 border-t border-slate-100"></div>
-
-                        <ReportRow
-                          label="Sargı Donatısı (Ash)"
-                          value={results.columns.confinement.Ash_prov.toFixed(0)} unit="mm²"
-                          subtext={`Gereken: ${results.columns.confinement.Ash_req.toFixed(0)}`}
-                          status={results.columns.checks.confinement.isSafe}
-                        />
-                        <ReportRow
-                          label="Güçlü Kolon Oranı"
-                          value={results.columns.strong_col_ratio.toFixed(2)}
-                          status={results.columns.checks.strongColumn.isSafe}
-                          subtext="Limit ≥ 1.20"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4. DEPREM PARAMETRELERİ */}
-                  <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">4. TBDY 2018 DEPREM ANALİZİ</h4>
-                    <div className="space-y-1">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <ReportRow label="Spektral İvme (Sds)" value={results.seismic.param_sds.toFixed(3)} />
-                          <ReportRow label="Periyot (T1)" value={results.seismic.period_t1.toFixed(2)} unit="s" />
-                        </div>
-                        <div>
-                          {/* EKLENDİ: R ve I katsayıları */}
-                          <ReportRow label="R Katsayısı" value={results.seismic.R_coefficient} />
-                          <ReportRow label="I Katsayısı" value={results.seismic.I_coefficient} />
-                        </div>
-                      </div>
-                      <ReportRow
-                        label="Bina Ağırlığı (W)"
-                        value={results.seismic.building_weight.toFixed(0)} unit="kN"
-                      />
-                      <ReportRow
-                        label="Taban Kesme (Vt)"
-                        value={results.seismic.base_shear.toFixed(0)} unit="kN"
-                        formula="Vt = m * Sae(T)"
-                        calc="Eşdeğer Deprem Yükü"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 5. RADYE TEMEL */}
-                  <div className="bg-white p-6 col-span-1 lg:col-span-2">
-                    <h4 className="text-sm font-bold text-orange-600 uppercase mb-4 border-b pb-2">5. RADYE TEMEL KONTROLLERİ</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <ReportRow
-                          label="Min Kalınlık Kontrolü"
-                          value={`${state.dimensions.foundationHeight} cm`}
-                          subtext="Limit: 30 cm (TBDY)"
-                          status={results.foundation.min_thickness_check}
-                        />
-                        <ReportRow
-                          label="Zemin Gerilmesi"
-                          value={results.foundation.stress_actual.toFixed(1)} unit="kN/m²"
-                          subtext={`Emniyet: ${results.foundation.stress_limit}`}
-                          status={results.foundation.checks.bearing.isSafe}
-                        />
-                        {/* EKLENDİ: Eğilme Momenti */}
-                        <ReportRow
-                          label="Konsol Eğilme Momenti"
-                          value={results.foundation.moment_design.toFixed(1)} unit="kNm"
-                          formula="M = q * L² / 2"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <ReportRow
-                          label="Zımbalama Kuvveti (Vpd)"
-                          value={results.foundation.punching_force.toFixed(1)} unit="kN"
-                        />
-                        <ReportRow
-                          label="Zımbalama Gerilmesi"
-                          value={results.foundation.punching_stress.toFixed(2)} unit="MPa"
-                          subtext={`Kapasite: ${results.foundation.punching_capacity.toFixed(2)} MPa`}
-                          status={results.foundation.checks.punching.isSafe}
-                        />
-                        <div className="mt-2 text-right font-bold text-orange-700 text-sm">
-                          Donatı: Ø{state.rebars.foundationDia} / {results.foundation.as_provided_spacing} cm
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* EK: BİRLEŞİM GÜVENLİĞİ */}
-                  <div className="bg-white p-6">
-                    <h4 className="text-sm font-bold text-red-600 uppercase mb-4 border-b pb-2">EK: BİRLEŞİM GÜVENLİĞİ</h4>
-                    <div className="space-y-1">
-                      {/* EKLENDİ: Birleşim Genişliği */}
-                      <ReportRow
-                        label="Birleşim Genişliği (bj)"
-                        value={results.joint.bj} unit="mm"
-                      />
-                      <ReportRow
-                        label="Birleşim Kesme (Ve)"
-                        value={results.joint.shear_force.toFixed(2)} unit="kN"
-                        formula="Ve = 1.25 * fyk * As - Vkol"
-                      />
-                      <ReportRow
-                        label="Birleşim Dayanımı (Vmax)"
-                        value={results.joint.shear_limit.toFixed(2)} unit="kN"
-                        status={results.joint.isSafe}
-                        formula="1.0 * √fck * bj * h"
-                      />
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
       </div>
     </div>
   );
