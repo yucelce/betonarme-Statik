@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { AppState, EditorTool, UserElement, ViewMode, CalculationResult } from '../types';
 import { generateModel } from '../utils/modelGenerator';
@@ -13,10 +12,13 @@ interface Props {
   activeAxisId: string; 
   onElementAdd?: (el: UserElement) => void;
   onElementRemove?: (id: string) => void;
-  onElementSelect?: (id: string | null) => void;
-  selectedElementId?: string | null;
+  // Tekli seçim yerine çoklu seçim prop'ları
+  onElementSelect?: (id: string | null) => void; 
+  onMultiElementSelect?: (ids: string[]) => void;
+  selectedElementId?: string | null; 
+  selectedElementIds?: string[];
   interactive?: boolean; 
-  results?: CalculationResult | null; // Sonuçlar opsiyonel olarak gelir
+  results?: CalculationResult | null; 
 }
 
 const Visualizer: React.FC<Props> = ({ 
@@ -27,22 +29,29 @@ const Visualizer: React.FC<Props> = ({
   activeAxisId,
   onElementAdd, 
   onElementRemove, 
-  onElementSelect, 
+  onElementSelect,
+  onMultiElementSelect,
   selectedElementId,
+  selectedElementIds = [],
   interactive = true,
   results
 }) => {
   const { dimensions, definedElements, grid } = state;
-  const model = useMemo(() => generateModel(state), [state]);
   const svgRef = useRef<SVGSVGElement>(null);
 
   // --- STATE ---
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
+  
+  // Pan States
+  const [isPanning, setIsPanning] = useState(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
   
+  // Box Selection States
+  const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+  const [boxStart, setBoxStart] = useState<{x: number, y: number} | null>(null);
+  const [boxEnd, setBoxEnd] = useState<{x: number, y: number} | null>(null);
+
   const [hoverNode, setHoverNode] = useState<{x: number, y: number} | null>(null);
   const [hoverSegment, setHoverSegment] = useState<{x1: number, y1: number, x2: number, y2: number} | null>(null);
   const [hoverCell, setHoverCell] = useState<{x: number, y: number} | null>(null);
@@ -50,18 +59,15 @@ const Visualizer: React.FC<Props> = ({
 
   // --- RENK FONKSİYONLARI ---
   const getElementColor = (el: UserElement, isSelected: boolean) => {
-      // Eğer seçiliyse
       if (isSelected) return "#fcd34d"; // Sarı (Highlight)
 
-      // Eğer sonuçlar varsa, duruma göre boya
       if (results && results.elementResults) {
           const status = results.elementResults.get(el.id);
           if (status) {
-              return status.isSafe ? "#22c55e" : "#ef4444"; // Yeşil (Safe) / Kırmızı (Unsafe)
+              return status.isSafe ? "#22c55e" : "#ef4444"; 
           }
       }
 
-      // Varsayılan renkler (Analiz öncesi)
       switch (el.type) {
           case 'slab': return "#fed7aa";
           case 'beam': return "#94a3b8";
@@ -76,7 +82,7 @@ const Visualizer: React.FC<Props> = ({
        if (results && results.elementResults) {
            const status = results.elementResults.get(el.id);
            if (status) {
-               return status.isSafe ? "#15803d" : "#b91c1c"; // Koyu Yeşil / Koyu Kırmızı
+               return status.isSafe ? "#15803d" : "#b91c1c";
            }
        }
        return el.type === 'beam' ? "#94a3b8" : "none";
@@ -130,21 +136,31 @@ const Visualizer: React.FC<Props> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if(!interactive) return;
-    if (isDragging) {
+    
+    // PAN LOGIC
+    if (isPanning) {
       setOffset(p => ({ x: p.x + (e.clientX - lastMouseRef.current.x), y: p.y + (e.clientY - lastMouseRef.current.y) }));
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    if(viewMode !== 'plan') return; 
 
     if (!svgRef.current) return;
-    
     const CTM = svgRef.current.getScreenCTM();
     if (!CTM) return;
     
+    // Mouse coordinates in SVG space
     const mouseX = (e.clientX - CTM.e) / CTM.a;
     const mouseY = (e.clientY - CTM.f) / CTM.d;
 
+    // BOX SELECTION LOGIC
+    if (isBoxSelecting) {
+        setBoxEnd({ x: mouseX, y: mouseY });
+        return;
+    }
+
+    if(viewMode !== 'plan') return; 
+
+    // Mouse coordinates in World space (affected by zoom/offset)
     const rawX = (mouseX - offset.x) / zoom;
     const rawY = (mouseY - offset.y) / zoom;
 
@@ -225,57 +241,157 @@ const Visualizer: React.FC<Props> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
      if(!interactive) return;
      
-     if(activeTool === 'select' || e.button === 1 || viewMode !== 'plan') {
-         setIsDragging(true);
-         setDragStartPos({ x: e.clientX, y: e.clientY });
+     // MIDDLE MOUSE BUTTON (PAN)
+     if (e.button === 1) {
+         e.preventDefault();
+         setIsPanning(true);
          lastMouseRef.current = { x: e.clientX, y: e.clientY };
          return;
      }
 
-     if(!onElementAdd) return;
+     if(viewMode !== 'plan') {
+         setIsPanning(true);
+         lastMouseRef.current = { x: e.clientX, y: e.clientY };
+         return;
+     }
 
-     // KOLON veya PERDE EKLEME
-     if((activeTool === 'column' || activeTool === 'shear_wall') && hoverNode) {
-         const type = activeTool;
-         const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}`;
-         onElementAdd({ 
-             id, 
-             type, 
-             x1: hoverNode.x, 
-             y1: hoverNode.y, 
-             storyIndex: activeStory,
-             properties: type === 'shear_wall' ? {
-                 width: state.sections.wallLength, // Varsayılan uzunluk
-                 depth: state.sections.wallThickness, // Varsayılan kalınlık
-                 direction: 'x',
-                 alignment: 'center'
-             } : undefined
-         });
-     }
-     else if(activeTool === 'beam' && hoverNode) {
-         if(!dragStartNode) setDragStartNode(hoverNode);
-         else {
-             if(dragStartNode.x !== hoverNode.x || dragStartNode.y !== hoverNode.y) {
-                 const id = `B-${dragStartNode.x}${dragStartNode.y}-${hoverNode.x}${hoverNode.y}`;
-                 onElementAdd({ id, type: 'beam', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
+     // LEFT MOUSE BUTTON
+     if (e.button === 0) {
+         // Eğer bir nokta veya eleman üzerinde değilsek ve tool 'select' veya çizim tool'u ise ve boşluğa tıkladıysak BOX SELECTION başlasın.
+         // Ancak, çizim toolları (beam, column) hoverNode varsa çizim başlatmalı.
+         // O yüzden: Hover yoksa -> Box Selection (veya Pan)
+
+         if (!hoverNode && !hoverSegment && !hoverCell) {
+             if (svgRef.current) {
+                 const CTM = svgRef.current.getScreenCTM();
+                 if (CTM) {
+                     const mouseX = (e.clientX - CTM.e) / CTM.a;
+                     const mouseY = (e.clientY - CTM.f) / CTM.d;
+                     setIsBoxSelecting(true);
+                     setBoxStart({ x: mouseX, y: mouseY });
+                     setBoxEnd({ x: mouseX, y: mouseY });
+                 }
              }
-             setDragStartNode(null);
+             return;
          }
-     }
-     else if(activeTool === 'slab' && hoverNode) {
-         if(!dragStartNode) setDragStartNode(hoverNode);
-         else {
-             if(dragStartNode.x !== hoverNode.x && dragStartNode.y !== hoverNode.y) {
-                 const id = `S-${dragStartNode.x}${dragStartNode.y}`;
-                 onElementAdd({ id, type: 'slab', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
+
+         // ELEMAN EKLEME MANTIĞI
+         if((activeTool === 'column' || activeTool === 'shear_wall') && hoverNode && onElementAdd) {
+             const type = activeTool;
+             const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}`;
+             onElementAdd({ 
+                 id, 
+                 type, 
+                 x1: hoverNode.x, 
+                 y1: hoverNode.y, 
+                 storyIndex: activeStory,
+                 properties: type === 'shear_wall' ? {
+                     width: state.sections.wallLength,
+                     depth: state.sections.wallThickness,
+                     direction: 'x',
+                     alignment: 'center'
+                 } : undefined
+             });
+         }
+         else if(activeTool === 'beam' && hoverNode) {
+             if(!dragStartNode) setDragStartNode(hoverNode);
+             else {
+                 if(dragStartNode.x !== hoverNode.x || dragStartNode.y !== hoverNode.y) {
+                     const id = `B-${dragStartNode.x}${dragStartNode.y}-${hoverNode.x}${hoverNode.y}`;
+                     onElementAdd?.({ id, type: 'beam', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
+                 }
+                 setDragStartNode(null);
              }
-             setDragStartNode(null);
+         }
+         else if(activeTool === 'slab' && hoverNode) {
+             if(!dragStartNode) setDragStartNode(hoverNode);
+             else {
+                 if(dragStartNode.x !== hoverNode.x && dragStartNode.y !== hoverNode.y) {
+                     const id = `S-${dragStartNode.x}${dragStartNode.y}`;
+                     onElementAdd?.({ id, type: 'slab', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
+                 }
+                 setDragStartNode(null);
+             }
          }
      }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-      setIsDragging(false);
+      if (isPanning) {
+          setIsPanning(false);
+      }
+      
+      if (isBoxSelecting && boxStart && boxEnd) {
+          // SELECTION LOGIC
+          const x1 = Math.min(boxStart.x, boxEnd.x);
+          const x2 = Math.max(boxStart.x, boxEnd.x);
+          const y1 = Math.min(boxStart.y, boxEnd.y);
+          const y2 = Math.max(boxStart.y, boxEnd.y);
+          
+          // Seçilenleri bul
+          const foundIds: string[] = [];
+          
+          state.definedElements.forEach(el => {
+              if (el.storyIndex !== activeStory) return;
+
+              // Elemanın ekran koordinatlarını (offset ve zoom uygulanmış) bul
+              let elMinX, elMaxX, elMinY, elMaxY;
+              
+              const sx1 = startX + toPx(xCoords[el.x1]);
+              const sy1 = startY + toPx(yCoords[el.y1]);
+              
+              if (el.type === 'beam' || el.type === 'slab') {
+                  const sx2 = startX + toPx(xCoords[el.x2!]);
+                  const sy2 = startY + toPx(yCoords[el.y2!]);
+                  elMinX = Math.min(sx1, sx2);
+                  elMaxX = Math.max(sx1, sx2);
+                  elMinY = Math.min(sy1, sy2);
+                  elMaxY = Math.max(sy1, sy2);
+              } else {
+                  // Point elements (Column/Wall)
+                  // Biraz geniş tolerans
+                  elMinX = sx1 - 10;
+                  elMaxX = sx1 + 10;
+                  elMinY = sy1 - 10;
+                  elMaxY = sy1 + 10;
+              }
+
+              // Apply Zoom & Offset transformation to Element Bounding Box
+              const screenMinX = elMinX * zoom + offset.x;
+              const screenMaxX = elMaxX * zoom + offset.x;
+              const screenMinY = elMinY * zoom + offset.y;
+              const screenMaxY = elMaxY * zoom + offset.y;
+
+              // Check Intersection (Box contains Center of Element, or Overlap?)
+              // Basitlik için: Elemanın merkezi kutu içinde mi?
+              const centerX = (screenMinX + screenMaxX) / 2;
+              const centerY = (screenMinY + screenMaxY) / 2;
+              
+              if (centerX >= x1 && centerX <= x2 && centerY >= y1 && centerY <= y2) {
+                  // FİLTRELEME: Eğer aktif araç 'select' ise hepsini, değilse sadece o tipi seç.
+                  if (activeTool === 'select') {
+                      foundIds.push(el.id);
+                  } else if (activeTool === el.type) {
+                      foundIds.push(el.id);
+                  }
+              }
+          });
+
+          if (foundIds.length > 0 && onMultiElementSelect) {
+              // Mevcut seçimleri koru? Hayır, yeni kutu seçimi genelde eskileri temizler.
+              // Shift tuşu desteği eklenebilir ama şu an resetliyoruz.
+              onMultiElementSelect(foundIds);
+          } else if (onMultiElementSelect) {
+             // Boş alana tıklayıp bıraktıysa seçimi kaldır
+             if (Math.abs(boxEnd.x - boxStart.x) < 5 && Math.abs(boxEnd.y - boxStart.y) < 5) {
+                 onMultiElementSelect([]);
+             }
+          }
+
+          setIsBoxSelecting(false);
+          setBoxStart(null);
+          setBoxEnd(null);
+      }
   };
 
   const handleDoubleClick = () => {
@@ -295,7 +411,7 @@ const Visualizer: React.FC<Props> = ({
   // --- RENDER HELPERS ---
   const renderPlan = () => (
     <>
-        {/* Foundation Outline (Dashed) - Eğer zemin katta veya bodrumdaysak gösterelim */}
+        {/* Foundation Outline */}
         {activeStory === 0 && (
              <rect 
                 x={startX - toPx(dimensions.foundationCantilever/100)} 
@@ -321,7 +437,7 @@ const Visualizer: React.FC<Props> = ({
             const sw = Math.abs(xCoords[maxX] - xCoords[minX]);
             const sh = Math.abs(yCoords[maxY] - yCoords[minY]);
             
-            const isSel = selectedElementId === el.id;
+            const isSel = selectedElementIds.includes(el.id); // ÇOKLU SEÇİM KONTROLÜ
             const fillColor = getElementColor(el, isSel);
             const opacity = (results && !isSel) ? 0.6 : 0.4;
             const hoverClass = activeTool === 'delete' ? 'hover:fill-red-400' : '';
@@ -355,14 +471,14 @@ const Visualizer: React.FC<Props> = ({
                 }
                 
                 return (
-                    <g key={el.id} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} >
+                    <g key={el.id} onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} >
                         <polygon points={points1} fill={fillColor} fillOpacity={opacity} stroke="none" />
                         <polygon points={points2} fill={fillColor} fillOpacity={opacity} stroke="none" />
                     </g>
                 );
             }
 
-            return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
+            return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
         })}
 
         {/* GRID */}
@@ -375,17 +491,17 @@ const Visualizer: React.FC<Props> = ({
              const y1 = startY + toPx(yCoords[el.y1]);
              const x2 = startX + toPx(xCoords[el.x2!]);
              const y2 = startY + toPx(yCoords[el.y2!]);
-             const isSel = selectedElementId === el.id;
+             const isSel = selectedElementIds.includes(el.id);
              const strokeColor = getStrokeColor(el, isSel);
 
-             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
+             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
         })}
 
         {/* COLUMNS & SHEAR WALLS */}
         {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall') && e.storyIndex === activeStory).map(el => {
              const cx = startX + toPx(xCoords[el.x1]);
              const cy = startY + toPx(yCoords[el.y1]);
-             const isSel = selectedElementId === el.id;
+             const isSel = selectedElementIds.includes(el.id);
              const fillColor = getElementColor(el, isSel);
              
              let w = 0, h = 0;
@@ -430,7 +546,7 @@ const Visualizer: React.FC<Props> = ({
                     width={w} 
                     height={h} 
                     fill={fillColor} 
-                    onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} 
+                    onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} 
                     className={activeTool==='delete'?'hover:fill-red-500':''} 
                 />
              );
@@ -482,6 +598,7 @@ const Visualizer: React.FC<Props> = ({
   );
 
   const renderElevation = () => {
+      // (Eski kodlar aynı)
       const isXAxis = activeAxisId.startsWith('X'); 
       const axisIndex = parseInt(activeAxisId.substring(1)) - 1;
       if(isNaN(axisIndex)) return <text x="50%" y="50%">Aks Seçilmedi</text>;
@@ -498,11 +615,8 @@ const Visualizer: React.FC<Props> = ({
           y: startY + H_DRAW - toPx(z)
       });
       
-      // Temel (Radye) Çizimi
       const foundationDepth = toPx(dimensions.foundationHeight / 100);
       const cantileverPx = toPx(dimensions.foundationCantilever / 100);
-
-      // Toplam yatay genişlik (Aksların en solu ile en sağı arası)
       const totalWidthPx = toPx(horzCoords[horzCoords.length-1]);
       
       const foundX1 = getElevPx(0, 0).x - cantileverPx;
@@ -512,29 +626,17 @@ const Visualizer: React.FC<Props> = ({
 
       return (
           <>
-             {/* Zemin Çizgisi */}
              <line x1={startX-20} y1={startY+H_DRAW} x2={startX+drawW+20} y2={startY+H_DRAW} stroke="#000" strokeWidth="2" />
-             
-             {/* TEMEL BLOĞU */}
              <g>
                 <defs>
                    <pattern id="foundationHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                         <line stroke="#94a3b8" strokeWidth="1" x1="0" y1="0" x2="0" y2="8" />
                    </pattern>
                 </defs>
-                <rect 
-                    x={foundX1} 
-                    y={foundY1} 
-                    width={foundW} 
-                    height={foundH} 
-                    fill="url(#foundationHatch)" 
-                    stroke="#475569" 
-                    strokeWidth="1"
-                />
+                <rect x={foundX1} y={foundY1} width={foundW} height={foundH} fill="url(#foundationHatch)" stroke="#475569" strokeWidth="1"/>
                 <text x={foundX1 - 5} y={foundY1 + foundH/2} textAnchor="end" fontSize="10" className="fill-slate-500 font-bold">RADYE h={dimensions.foundationHeight}</text>
              </g>
 
-             {/* Kot Çizgileri */}
              {zLevels.map((z, i) => (
                  <g key={`zl-${i}`}>
                      <line x1={startX-10} y1={getElevPx(0, z).y} x2={startX+drawW+10} y2={getElevPx(0, z).y} stroke="#cbd5e1" strokeDasharray="2 2" />
@@ -542,12 +644,10 @@ const Visualizer: React.FC<Props> = ({
                  </g>
              ))}
 
-             {/* Grid */}
              {horzCoords.map((h, i) => (
                  <line key={`gl-${i}`} x1={getElevPx(h, 0).x} y1={getElevPx(h, 0).y} x2={getElevPx(h, maxZ).x} y2={getElevPx(h, maxZ).y} stroke="#e2e8f0" />
              ))}
 
-             {/* ELEMANLAR */}
              {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
                  const isOnAxis = isXAxis ? col.x1 === axisIndex : col.y1 === axisIndex;
                  if(!isOnAxis) return null;
@@ -557,9 +657,7 @@ const Visualizer: React.FC<Props> = ({
                  const p1 = getElevPx(posH, zBottom);
                  const p2 = getElevPx(posH, zTop);
 
-                 // Renk Kontrolü
                  const fillColor = getElementColor(col, false);
-
                  return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill={fillColor} stroke="black" strokeWidth="1" />;
              })}
 
@@ -577,9 +675,7 @@ const Visualizer: React.FC<Props> = ({
                      const h2 = isXAxis ? yCoords[beam.y2!] : xCoords[beam.x2!];
                      const p1 = getElevPx(Math.min(h1,h2), zLevel);
                      const p2 = getElevPx(Math.max(h1,h2), zLevel);
-                     
                      const strokeColor = getStrokeColor(beam, false);
-
                      return <rect key={beam.id} x={p1.x} y={p1.y} width={p2.x - p1.x} height={10} fill={strokeColor} />;
                  }
                  return null;
@@ -589,83 +685,53 @@ const Visualizer: React.FC<Props> = ({
   };
 
   const render3D = () => {
+    // (Eski kodlar aynı)
     let cumH = 0;
     const zLevels = [0, ...dimensions.storyHeights.map(h => { cumH += h; return cumH; })];
-    
-    // Temel Köşe Noktaları (Cantilever Eklenmiş)
     const cantM = dimensions.foundationCantilever / 100;
     const foundH = dimensions.foundationHeight / 100;
-    
     const minX = xCoords[0] - cantM;
     const maxX = xCoords[xCoords.length-1] + cantM;
     const minY = yCoords[0] - cantM;
     const maxY = yCoords[yCoords.length-1] + cantM;
 
-    const f1 = project3D(minX, minY, 0); // Üst Yüzey Köşeler
-    const f2 = project3D(maxX, minY, 0);
-    const f3 = project3D(maxX, maxY, 0);
-    const f4 = project3D(minX, maxY, 0);
-
-    const f1b = project3D(minX, minY, -foundH); // Alt Yüzey Köşeler
-    const f2b = project3D(maxX, minY, -foundH);
-    const f3b = project3D(maxX, maxY, -foundH);
-    const f4b = project3D(minX, maxY, -foundH);
+    const f1 = project3D(minX, minY, 0); const f2 = project3D(maxX, minY, 0);
+    const f3 = project3D(maxX, maxY, 0); const f4 = project3D(minX, maxY, 0);
+    const f1b = project3D(minX, minY, -foundH); const f2b = project3D(maxX, minY, -foundH);
+    const f3b = project3D(maxX, maxY, -foundH); const f4b = project3D(minX, maxY, -foundH);
 
     return (
         <g>
-            {/* TEMEL BLOĞU (Basit 3D Çizim) */}
             <g opacity={0.6}>
-                 {/* Alt Yüzey */}
                  <polygon points={`${f1b.x},${f1b.y} ${f2b.x},${f2b.y} ${f3b.x},${f3b.y} ${f4b.x},${f4b.y}`} fill="#94a3b8" stroke="#64748b" />
-                 {/* Yan Yüzeyler (Sadece görünenler basitçe çizilebilir veya wireframe) */}
                  <line x1={f1.x} y1={f1.y} x2={f1b.x} y2={f1b.y} stroke="#64748b"/>
                  <line x1={f2.x} y1={f2.y} x2={f2b.x} y2={f2b.y} stroke="#64748b"/>
                  <line x1={f3.x} y1={f3.y} x2={f3b.x} y2={f3b.y} stroke="#64748b"/>
                  <line x1={f4.x} y1={f4.y} x2={f4b.x} y2={f4b.y} stroke="#64748b"/>
-                 {/* Üst Yüzey */}
                  <polygon points={`${f1.x},${f1.y} ${f2.x},${f2.y} ${f3.x},${f3.y} ${f4.x},${f4.y}`} fill="#cbd5e1" stroke="#64748b" />
             </g>
-
-            {/* TABAN GRID (Temelin üstünde) */}
             {xCoords.map((x, i) => {
-                const p1 = project3D(x, yCoords[0], 0);
-                const p2 = project3D(x, yCoords[yCoords.length-1], 0);
+                const p1 = project3D(x, yCoords[0], 0); const p2 = project3D(x, yCoords[yCoords.length-1], 0);
                 return <line key={`b-gx${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#e2e8f0" />;
             })}
              {yCoords.map((y, i) => {
-                const p1 = project3D(xCoords[0], y, 0);
-                const p2 = project3D(xCoords[xCoords.length-1], y, 0);
+                const p1 = project3D(xCoords[0], y, 0); const p2 = project3D(xCoords[xCoords.length-1], y, 0);
                 return <line key={`b-gy${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#e2e8f0" />;
             })}
-
-            {/* KOLONLAR & PERDELER */}
             {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
-                 const x = xCoords[col.x1];
-                 const y = yCoords[col.y1];
-                 const zBot = zLevels[col.storyIndex];
-                 const zTop = zLevels[col.storyIndex+1];
-                 
-                 const p1 = project3D(x, y, zBot);
-                 const p2 = project3D(x, y, zTop);
-                 
-                 // Perdeleri biraz daha kalın çiz
+                 const x = xCoords[col.x1]; const y = yCoords[col.y1];
+                 const zBot = zLevels[col.storyIndex]; const zTop = zLevels[col.storyIndex+1];
+                 const p1 = project3D(x, y, zBot); const p2 = project3D(x, y, zTop);
                  const strokeW = col.type === 'shear_wall' ? 8 : 4;
                  const strokeColor = getElementColor(col, false);
-
                  return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth={strokeW} strokeLinecap="round" />;
             })}
-
-            {/* KİRİŞLER */}
             {definedElements.filter(e => e.type === 'beam').map(beam => {
                 const z = zLevels[beam.storyIndex + 1];
                 const x1 = xCoords[beam.x1]; const y1 = yCoords[beam.y1];
                 const x2 = xCoords[beam.x2!]; const y2 = yCoords[beam.y2!];
-                
-                const p1 = project3D(x1, y1, z);
-                const p2 = project3D(x2, y2, z);
-
+                const p1 = project3D(x1, y1, z); const p2 = project3D(x2, y2, z);
                 const strokeColor = getStrokeColor(beam, false);
-
                 return <line key={beam.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="2" />;
             })}
         </g>
@@ -695,7 +761,8 @@ const Visualizer: React.FC<Props> = ({
          onMouseLeave={handleMouseUp}
          onWheel={handleWheel}
          onDoubleClick={handleDoubleClick}
-         className={interactive ? (activeTool==='select'?'cursor-default':'cursor-crosshair') : ''}
+         onContextMenu={(e) => e.preventDefault()}
+         className={interactive ? (isPanning ? 'cursor-move' : (activeTool==='select'?'cursor-default':'cursor-crosshair')) : ''}
       >
          <defs>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -704,11 +771,27 @@ const Visualizer: React.FC<Props> = ({
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
           
-          <g transform={`translate(${offset.x}, ${offset.y}) scale(${zoom})`} style={{ transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}>
+          <g transform={`translate(${offset.x}, ${offset.y}) scale(${zoom})`} style={{ transition: isPanning ? 'none' : 'transform 0.1s ease-out' }}>
              {viewMode === 'plan' && renderPlan()}
              {viewMode === 'elevation' && renderElevation()}
              {viewMode === '3d' && render3D()}
           </g>
+
+          {/* BOX SELECTION OVERLAY */}
+          {isBoxSelecting && boxStart && boxEnd && (
+              <rect 
+                  x={Math.min(boxStart.x, boxEnd.x)}
+                  y={Math.min(boxStart.y, boxEnd.y)}
+                  width={Math.abs(boxEnd.x - boxStart.x)}
+                  height={Math.abs(boxEnd.y - boxStart.y)}
+                  fill="#3b82f6"
+                  fillOpacity="0.2"
+                  stroke="#2563eb"
+                  strokeWidth="1"
+                  strokeDasharray="4 2"
+                  pointerEvents="none"
+              />
+          )}
       </svg>
     </div>
   );

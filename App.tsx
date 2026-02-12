@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -53,7 +53,10 @@ type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [results, setResults] = useState<CalculationResult | null>(null);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  
+  // ÇOKLU SEÇİM İÇİN STATE GÜNCELLENDİ
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  
   const [activeTab, setActiveTab] = useState<'inputs' | 'report'>('inputs');
   const [activeTool, setActiveTool] = useState<EditorTool>('select');
   const [openSection, setOpenSection] = useState<AccordionSection>('grid');
@@ -121,18 +124,14 @@ const App: React.FC = () => {
       const current = state.dimensions.storyHeights;
       let newHeights = [...current];
       
-      // Elemanları temizle: Eğer kat sayısı azalıyorsa, silinen katlardaki elemanları kaldır
       const validElements = state.definedElements.filter(e => e.storyIndex < count);
 
       if (count > current.length) {
-          // Yeni katlar ekle (varsayılan 3m)
           newHeights = [...newHeights, ...Array(count - current.length).fill(3)];
       } else {
-          // Kat sil
           newHeights = newHeights.slice(0, count);
       }
 
-      // Bodrum kat sayısı toplam kat sayısından fazla olamaz
       const newBasementCount = Math.min(state.dimensions.basementCount, count - 1 < 0 ? 0 : count - 1);
 
       setState(prev => ({
@@ -147,7 +146,6 @@ const App: React.FC = () => {
       }));
       setResults(null);
       
-      // Eğer aktif kat silindiyse, aktif katı en üst kata çek
       if (activeStory >= count) {
           setActiveStory(Math.max(0, count - 1));
       }
@@ -160,23 +158,16 @@ const App: React.FC = () => {
 
   // --- ELEMAN YÖNETİMİ ---
   const handleElementAdd = (el: UserElement) => {
-      // 1. OTOMATİK PARÇALAMA (AUTO-SEGMENTATION) - Sadece Ortogonal Kirişler İçin
-      // Çapraz (Diagonal) kirişler bölünmez.
       const isDiagonal = el.type === 'beam' && el.x1 !== el.x2 && el.y1 !== el.y2;
 
       if (!isDiagonal && el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
           const { x1, y1, x2, y2, storyIndex } = el;
-          
-          // Bu kattaki kolonları VE perdeleri al (Perdeler de kolon gibidir)
           const existingVerticals = state.definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall') && e.storyIndex === storyIndex);
 
-          // Kiriş güzergahı üzerindeki dikey elemanları bul
           const intersectingElements = existingVerticals.filter(vert => {
-              // Yatay Kiriş (y sabit, x değişiyor)
               if (y1 === y2 && vert.y1 === y1) {
                   return vert.x1 > Math.min(x1, x2) && vert.x1 < Math.max(x1, x2);
               }
-              // Dikey Kiriş (x sabit, y değişiyor)
               if (x1 === x2 && vert.x1 === x1) {
                   return vert.y1 > Math.min(y1, y2) && vert.y1 < Math.max(y1, y2);
               }
@@ -222,16 +213,19 @@ const App: React.FC = () => {
 
   const handleElementRemove = (id: string) => {
       setState(prev => ({ ...prev, definedElements: prev.definedElements.filter(e => e.id !== id) }));
-      setSelectedElementId(null);
+      setSelectedElementIds(prev => prev.filter(selId => selId !== id));
       setResults(null);
   };
   
+  // TOPLU GÜNCELLEME İÇİN DEĞİŞTİRİLDİ
   const handleElementPropertyUpdate = (props: Partial<NonNullable<UserElement['properties']>>) => {
-     if (!selectedElementId) return;
+     if (selectedElementIds.length === 0) return;
+     
      setState(prev => ({
          ...prev,
          definedElements: prev.definedElements.map(el => {
-             if (el.id === selectedElementId) {
+             // Seçili olan TÜM elemanları güncelle
+             if (selectedElementIds.includes(el.id)) {
                  return { ...el, properties: { ...el.properties, ...props } };
              }
              return el;
@@ -241,12 +235,17 @@ const App: React.FC = () => {
   };
 
   const resetElementProperty = () => {
-    if (!selectedElementId) return;
+    if (selectedElementIds.length === 0) return;
     setState(prev => ({
         ...prev,
-        definedElements: prev.definedElements.map(el => el.id === selectedElementId ? { ...el, properties: undefined } : el)
+        definedElements: prev.definedElements.map(el => selectedElementIds.includes(el.id) ? { ...el, properties: undefined } : el)
     }));
     setResults(null);
+  };
+
+  // --- ÇOKLU SEÇİM LOGIC ---
+  const handleMultiSelect = (ids: string[]) => {
+    setSelectedElementIds(ids);
   };
 
   // --- KAT KOPYALAMA ---
@@ -254,14 +253,11 @@ const App: React.FC = () => {
       if (copyTargets.length === 0) return;
 
       const sourceElements = state.definedElements.filter(e => e.storyIndex === activeStory);
-      // Hedef katlardaki eski elemanları temizle
       let newDefinedElements = state.definedElements.filter(e => !copyTargets.includes(e.storyIndex));
 
-      // Yeni elemanları oluştur
       const copiedElements: UserElement[] = [];
       copyTargets.forEach(targetIndex => {
           sourceElements.forEach(el => {
-              // ID'yi benzersiz yap
               let newId = el.id.replace(`-S${activeStory}`, `-S${targetIndex}`);
               if (newId === el.id) {
                   newId = `${el.type}-${el.x1}-${el.y1}-${Math.random().toString(36).substr(2,4)}-S${targetIndex}`;
@@ -316,7 +312,6 @@ const App: React.FC = () => {
     updateState('grid', { [axis === 'x' ? 'xAxis' : 'yAxis']: newAxes });
   };
 
-  // AKS DEĞİŞTİRME MANTIĞI
   const axesList = [
       ...state.grid.xAxis.map((_, i) => `X${i+1}`),
       ...state.grid.yAxis.map((_, i) => `Y${i+1}`)
@@ -328,7 +323,6 @@ const App: React.FC = () => {
       setActiveAxisId(axesList[newIdx]);
   };
 
-  // KAT DEĞİŞTİRME
   const cycleStory = (dir: 1 | -1) => {
       setActiveStory(prev => {
           const next = prev + dir;
@@ -338,7 +332,6 @@ const App: React.FC = () => {
       });
   };
 
-  // Helper for Story Label
   const getStoryLabel = (index: number) => {
       if (index < state.dimensions.basementCount) {
           return `${index - state.dimensions.basementCount}. Bodrum`;
@@ -346,6 +339,35 @@ const App: React.FC = () => {
       const aboveGroundIndex = index - state.dimensions.basementCount;
       return aboveGroundIndex === 0 ? 'Zemin Kat' : `${aboveGroundIndex}. Kat`;
   };
+
+  // --- SEÇİLEN ELEMANLARIN ORTAK TİPİNİ BULMA VE PANEL HAZIRLIĞI ---
+  const getSelectedElementsSummary = () => {
+      if (selectedElementIds.length === 0) return null;
+      
+      const selectedEls = state.definedElements.filter(e => selectedElementIds.includes(e.id));
+      if (selectedEls.length === 0) return null;
+
+      // Hangi tipler seçili?
+      const types = new Set(selectedEls.map(e => e.type));
+      
+      // Eğer tek tip varsa (örn: Sadece Kolonlar)
+      if (types.size === 1) {
+          return {
+              type: Array.from(types)[0],
+              count: selectedEls.length,
+              elements: selectedEls
+          };
+      }
+
+      // Karışık tip varsa, 'Mixed' dön
+      return {
+          type: 'mixed',
+          count: selectedEls.length,
+          elements: selectedEls
+      };
+  };
+
+  const selectionSummary = getSelectedElementsSummary();
 
   return (
     <div className="h-screen bg-slate-100 flex flex-col font-sans text-slate-900 overflow-hidden relative">
@@ -377,7 +399,7 @@ const App: React.FC = () => {
       {/* MAIN CONTENT */}
       <main className="flex-1 flex overflow-hidden">
         
-        {/* LEFT PANEL (TOOLBAR ACCORDION) */}
+        {/* LEFT PANEL */}
         {activeTab === 'inputs' && (
           <div className="w-80 bg-white border-r border-slate-200 shadow-sm flex flex-col h-full z-10 shrink-0">
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
@@ -426,7 +448,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* SECTION: STORIES */}
+              {/* SECTION: STORIES (Mevcut kod...) */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('stories')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Layers className="w-4 h-4 text-purple-500"/> Katlar & Bodrum</span>
@@ -460,7 +482,8 @@ const App: React.FC = () => {
                  )}
               </div>
 
-               {/* SECTION: FOUNDATION (YENİ) */}
+               {/* SECTION: FOUNDATION, SECTIONS, LOADS, SEISMIC ... (Mevcut kodlar aynen kalacak, yer tasarrufu için kısalttım) */}
+               {/* ... (Foundation, Sections, Loads, Seismic accordion blocks) ... */}
                <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('foundation')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><ArrowDownToLine className="w-4 h-4 text-emerald-600"/> Temel (Radye)</span>
@@ -483,7 +506,6 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* SECTION: SECTIONS */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('sections')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/> Genel Kesitler</span>
@@ -499,7 +521,6 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* SECTION: LOADS */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('loads')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Weight className="w-4 h-4 text-orange-500"/> Yükler</span>
@@ -519,7 +540,6 @@ const App: React.FC = () => {
                  )}
               </div>
 
-               {/* SECTION: SEISMIC & SOIL */}
                <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('seismic')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Deprem & Zemin</span>
@@ -568,7 +588,7 @@ const App: React.FC = () => {
         {/* VISUALIZER AREA */}
         <div className="flex-1 relative bg-slate-100 h-full overflow-hidden flex flex-col">
            
-           {/* TOOLBAR (Only in Plan Mode) */}
+           {/* TOOLBAR */}
            {activeTab === 'inputs' && mainViewMode === 'plan' && (
                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-white p-1.5 rounded-lg shadow-md border border-slate-200">
                    {[
@@ -623,50 +643,50 @@ const App: React.FC = () => {
                     activeAxisId={activeAxisId}
                     onElementAdd={handleElementAdd}
                     onElementRemove={handleElementRemove}
-                    onElementSelect={setSelectedElementId}
-                    selectedElementId={selectedElementId}
+                    
+                    selectedElementIds={selectedElementIds} // DİZİ OLARAK GİDİYOR
+                    onMultiElementSelect={handleMultiSelect} // YENİ ÇOKLU SEÇİM PROP'U
+
                     interactive={true}
-                    results={results} // Results prop olarak eklendi
+                    results={results} 
                 />
            </div>
 
            {/* MINI PREVIEWS (Top Right) */}
            {activeTab === 'inputs' && (
              <div className="absolute top-4 right-4 z-20 flex flex-col gap-3">
-                 {/* Mini Elevation/Axis View */}
+                 {/* Mini Elevation */}
                  {mainViewMode !== 'elevation' && (
                      <div 
                         onClick={() => setMainViewMode('elevation')}
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results}/>
+                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">KESİT</div>
                      </div>
                  )}
-
-                 {/* Mini Plan View */}
+                 {/* Mini Plan */}
                  {mainViewMode !== 'plan' && (
                      <div 
                         onClick={() => setMainViewMode('plan')}
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} />
+                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">PLAN</div>
                      </div>
                  )}
-
-                 {/* Mini 3D View */}
+                 {/* Mini 3D */}
                  {mainViewMode !== '3d' && (
                      <div 
                         onClick={() => setMainViewMode('3d')}
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results}/>
+                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">3D</div>
                      </div>
@@ -674,44 +694,61 @@ const App: React.FC = () => {
              </div>
            )}
 
-           {/* Element Properties Popup */}
-           {selectedElementId && activeTool === 'select' && activeTab === 'inputs' && (
+           {/* ELEMAN ÖZELLİK PANELİ (TOPLU DÜZENLEME DESTEKLİ) */}
+           {selectionSummary && activeTab === 'inputs' && (
                 <div className="absolute bottom-4 left-4 w-60 bg-white rounded-lg shadow-xl border border-slate-200 p-4 animate-in fade-in slide-in-from-left-4 z-20">
                     <div className="flex justify-between items-center mb-2 border-b pb-2">
-                            <h4 className="font-bold text-xs text-slate-700">ELEMAN ÖZELLİKLERİ</h4>
-                            <button onClick={() => setSelectedElementId(null)}><X className="w-3 h-3 text-slate-400"/></button>
+                            <h4 className="font-bold text-xs text-slate-700 flex items-center gap-2">
+                                <MousePointerClick className="w-3 h-3"/>
+                                {selectionSummary.count > 1 ? `SEÇİM (${selectionSummary.count})` : 'ELEMAN ÖZELLİKLERİ'}
+                            </h4>
+                            <button onClick={() => setSelectedElementIds([])}><X className="w-3 h-3 text-slate-400"/></button>
                     </div>
                     {(() => {
-                        const el = state.definedElements.find(e => e.id === selectedElementId);
-                        if (!el) return null;
+                        if (selectionSummary.type === 'mixed') {
+                            return (
+                                <div className="text-xs text-slate-500 text-center py-2">
+                                    <p>Farklı tipte elemanlar seçildi.</p>
+                                    <p className="mt-1">Düzenleme yapmak için tek tip eleman seçiniz.</p>
+                                    <button onClick={() => {
+                                        state.definedElements.forEach(el => {
+                                            if (selectedElementIds.includes(el.id)) handleElementRemove(el.id);
+                                        });
+                                    }} className="mt-3 bg-red-50 text-red-600 px-3 py-1 rounded w-full border border-red-100 flex items-center justify-center gap-1 hover:bg-red-100">
+                                        <Trash2 className="w-3 h-3"/> Seçilenleri Sil
+                                    </button>
+                                </div>
+                            );
+                        }
+
+                        // Ortak Tip İçin Form (İlk elemandan varsayılan değerleri alalım)
+                        const sampleEl = selectionSummary.elements[0];
+                        const isWall = sampleEl.type === 'shear_wall';
+                        const elType = sampleEl.type;
+
+                        const w = sampleEl.properties?.width ?? (elType === 'beam' ? state.sections.beamWidth : (isWall ? state.sections.wallLength : state.sections.colWidth));
+                        const d = sampleEl.properties?.depth ?? (elType === 'beam' ? state.sections.beamDepth : (isWall ? state.sections.wallThickness : state.sections.colDepth));
+                        const t = sampleEl.properties?.thickness ?? state.sections.slabThickness;
+                        const wallL = sampleEl.properties?.wallLoad ?? 3.5;
+                        const liveL = sampleEl.properties?.liveLoad ?? state.loads.liveLoadKg;
                         
-                        // Perde mi?
-                        const isWall = el.type === 'shear_wall';
-                        
-                        const w = el.properties?.width ?? (el.type === 'beam' ? state.sections.beamWidth : (isWall ? state.sections.wallLength : state.sections.colWidth));
-                        const d = el.properties?.depth ?? (el.type === 'beam' ? state.sections.beamDepth : (isWall ? state.sections.wallThickness : state.sections.colDepth));
-                        const t = el.properties?.thickness ?? state.sections.slabThickness;
-                        const wallL = el.properties?.wallLoad ?? 3.5;
-                        const liveL = el.properties?.liveLoad ?? state.loads.liveLoadKg;
-                        
-                        // Perde Properties
-                        const direction = el.properties?.direction || 'x';
-                        const alignment = el.properties?.alignment || 'center';
+                        const direction = sampleEl.properties?.direction || 'x';
+                        const alignment = sampleEl.properties?.alignment || 'center';
 
                         return (
                             <div className="space-y-3">
-                                <div className="text-[10px] font-mono bg-slate-50 p-1 text-center rounded text-slate-500 border border-slate-100">{el.id}</div>
+                                {selectionSummary.count === 1 && <div className="text-[10px] font-mono bg-slate-50 p-1 text-center rounded text-slate-500 border border-slate-100">{sampleEl.id}</div>}
                                 
                                 {/* KİRİŞ VE KOLON/PERDE BOYUTLARI */}
-                                {(el.type === 'column' || el.type === 'beam' || isWall) && (
+                                {(elType === 'column' || elType === 'beam' || isWall) && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">{isWall ? 'UZUNLUK (cm)' : 'GENİŞLİK (cm)'}</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={w} onChange={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} />
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : w} onBlur={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">{isWall ? 'KALINLIK (cm)' : 'YÜKSEKLİK (cm)'}</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={d} onChange={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} />
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : d} onBlur={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
@@ -722,17 +759,18 @@ const App: React.FC = () => {
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">YÖN</label>
                                             <div className="flex gap-2">
-                                                <button onClick={()=>handleElementPropertyUpdate({direction:'x'})} className={`flex-1 text-xs border rounded p-1 ${direction==='x'?'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>X Yönü</button>
-                                                <button onClick={()=>handleElementPropertyUpdate({direction:'y'})} className={`flex-1 text-xs border rounded p-1 ${direction==='y'?'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>Y Yönü</button>
+                                                <button onClick={()=>handleElementPropertyUpdate({direction:'x'})} className={`flex-1 text-xs border rounded p-1 ${direction==='x' && selectionSummary.count === 1 ? 'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>X Yönü</button>
+                                                <button onClick={()=>handleElementPropertyUpdate({direction:'y'})} className={`flex-1 text-xs border rounded p-1 ${direction==='y' && selectionSummary.count === 1 ? 'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>Y Yönü</button>
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-400">YERLEŞİM (Düğüm Noktası)</label>
+                                            <label className="text-[10px] font-bold text-slate-400">YERLEŞİM</label>
                                             <select 
                                                 className="w-full border rounded p-1 text-xs bg-slate-50"
-                                                value={alignment}
+                                                defaultValue={selectionSummary.count > 1 ? "" : alignment}
                                                 onChange={(e) => handleElementPropertyUpdate({ alignment: e.target.value as any })}
                                             >
+                                                {selectionSummary.count > 1 && <option value="" disabled>Seçiniz</option>}
                                                 <option value="center">Merkez</option>
                                                 <option value="start">Sol / Üst</option>
                                                 <option value="end">Sağ / Alt</option>
@@ -742,28 +780,37 @@ const App: React.FC = () => {
                                 )}
                                 
                                 {/* KİRİŞ YÜKÜ */}
-                                {el.type === 'beam' && (
+                                {elType === 'beam' && (
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400">DUVAR YÜKÜ (kN/m)</label>
-                                        <input type="number" step="0.1" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={wallL} onChange={(e) => handleElementPropertyUpdate({ wallLoad: Number(e.target.value) })} />
+                                        <input type="number" step="0.1" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : wallL} onBlur={(e) => handleElementPropertyUpdate({ wallLoad: Number(e.target.value) })} />
                                     </div>
                                 )}
 
                                 {/* DÖŞEME ÖZELLİKLERİ */}
-                                {el.type === 'slab' && (
+                                {elType === 'slab' && (
                                     <div className="space-y-2">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">KALINLIK (cm)</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={t} onChange={(e) => handleElementPropertyUpdate({ thickness: Number(e.target.value) })} />
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : t} onBlur={(e) => handleElementPropertyUpdate({ thickness: Number(e.target.value) })} />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">HAREKETLİ YÜK (kg/m²)</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={liveL} onChange={(e) => handleElementPropertyUpdate({ liveLoad: Number(e.target.value) })} />
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : liveL} onBlur={(e) => handleElementPropertyUpdate({ liveLoad: Number(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
 
-                                {el.properties && <button onClick={resetElementProperty} className="text-xs text-red-500 w-full text-center hover:underline">Varsayılana Dön</button>}
+                                <div className="pt-2 border-t flex gap-2">
+                                    <button onClick={resetElementProperty} className="flex-1 text-xs text-slate-500 border rounded py-1 hover:bg-slate-50">Varsayılana Dön</button>
+                                    {selectionSummary.count > 1 && (
+                                        <button onClick={() => {
+                                            state.definedElements.forEach(el => {
+                                                if (selectedElementIds.includes(el.id)) handleElementRemove(el.id);
+                                            });
+                                        }} className="text-xs text-red-500 border border-red-200 bg-red-50 rounded py-1 px-2 hover:bg-red-100"><Trash2 className="w-3 h-3"/></button>
+                                    )}
+                                </div>
                             </div>
                         )
                     })()}
@@ -778,7 +825,7 @@ const App: React.FC = () => {
            )}
         </div>
 
-        {/* COPY STORY MODAL */}
+        {/* COPY STORY MODAL (Same as before) */}
         {showCopyModal && (
             <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-in zoom-in-95 duration-200">
