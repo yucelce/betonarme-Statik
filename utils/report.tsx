@@ -1,7 +1,6 @@
 
-
 import React from 'react';
-import { AppState, CalculationResult } from '../types';
+import { AppState, CalculationResult, ElementAnalysisStatus } from '../types';
 import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine, Info } from 'lucide-react';
 
 interface Props {
@@ -14,7 +13,16 @@ const StatusBadge = ({ isSafe }: { isSafe: boolean }) =>
   <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><CheckCircle className="w-3 h-3"/> Uygun</span> : 
   <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><XCircle className="w-3 h-3"/> Yetersiz</span>;
 
-const SummaryCard = ({ title, value, subtext, icon: Icon, status, colorClass }: any) => (
+interface SummaryCardProps {
+  title: string;
+  value: string;
+  subtext: string;
+  icon: React.ElementType;
+  status: boolean;
+  colorClass: string;
+}
+
+const SummaryCard = ({ title, value, subtext, icon: Icon, status, colorClass }: SummaryCardProps) => (
   <div className={`bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between h-full relative overflow-hidden`}>
       <div className={`absolute top-0 right-0 p-3 opacity-10 ${colorClass}`}>
           <Icon className="w-16 h-16" />
@@ -42,7 +50,7 @@ const Report: React.FC<Props> = ({ state, results }) => {
   const foundStatus = results.foundation.checks.bearing.isSafe && results.foundation.checks.punching.isSafe;
 
   // Hatalı Elemanları Filtrele
-  const failedElements = Array.from(results.elementResults.values()).filter(e => !e.isSafe);
+  const failedElements = (Array.from(results.elementResults.values()) as ElementAnalysisStatus[]).filter(e => !e.isSafe);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 font-sans text-slate-800 pb-20">
@@ -253,14 +261,16 @@ const Report: React.FC<Props> = ({ state, results }) => {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                   {failedElements.map((el, i) => (
-                      <div key={i} className="bg-white border border-red-100 rounded p-2 text-xs flex justify-between items-center shadow-sm">
-                          <div>
-                              <span className="font-bold font-mono text-slate-700">{el.id}</span>
-                              <span className="ml-2 text-slate-400 capitalize">({el.type})</span>
+                      <div key={i} className="bg-white border border-red-100 rounded-lg p-3 text-xs flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex justify-between items-center mb-2 border-b border-red-50 pb-1">
+                              <span className="font-bold font-mono text-slate-800 text-sm">{el.id}</span>
+                              <span className="text-slate-400 capitalize bg-slate-50 px-2 py-0.5 rounded">{el.type}</span>
                           </div>
-                          <div className="flex gap-1">
-                              {el.messages.map(msg => (
-                                  <span key={msg} className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">{msg}</span>
+                          <div className="flex flex-wrap gap-1">
+                              {el.messages.map((msg, idx) => (
+                                  <span key={idx} className="bg-red-50 text-red-600 px-2 py-1 rounded border border-red-100 text-[10px] font-bold w-full text-center">
+                                      {msg}
+                                  </span>
                               ))}
                           </div>
                       </div>

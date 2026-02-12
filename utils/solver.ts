@@ -1,5 +1,4 @@
 
-
 // utils/solver.ts
 import { AppState, CalculationResult, ElementAnalysisStatus } from "../types";
 import { getConcreteProperties } from "../constants";
@@ -24,23 +23,22 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // q_eq_slab_N_m: Döşemeden gelen yük (Duvar ve Kiriş ağırlığı HARİÇ)
   const { slabResult, q_eq_slab_N_m, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
 
-  // Döşeme sonucunu kaydet (Genel olarak hepsi aynı kabul edildiği için definedElements üzerinden dağıtıyoruz)
+  // Döşeme sonucunu kaydet
   state.definedElements.filter(e => e.type === 'slab').forEach(slab => {
       elementResults.set(slab.id, {
           id: slab.id,
           type: 'slab',
           isSafe: slabResult.thicknessStatus.isSafe,
-          ratio: 0, // Döşeme için direkt oran yok, kalınlık kontrolü var
+          ratio: 0, 
           messages: [slabResult.thicknessStatus.message]
       });
   });
 
-  // Referans için varsayılan kiriş ve duvar ağırlıklarını alalım (Deprem hesabı için yaklaşık değerler)
+  // Referans için varsayılan kiriş ve duvar ağırlıklarını alalım 
   const g_beam_self_approx = (sections.beamWidth/100) * (sections.beamDepth/100) * 25000;
   const g_wall_approx = 3500; // 3.5 kN/m varsayılan
 
   // 2. YAKLAŞIK DEPREM VE KUVVET DAĞILIMI
-  // Önce deprem kuvvetlerini hesapla ki FEM'e verebilelim
   const { seismicResult: tempSeismicRes, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_approx, g_wall_approx);
 
   // 3. MODEL VE FEM ANALİZİ
@@ -49,11 +47,11 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const femResults = solveFEM(state, fi_story_N);
   
   // 4. SONUÇLARIN BİRLEŞTİRİLMESİ (Seismic sonucunu FEM verileriyle güncelle)
-  const maxDriftRatio = Math.max(...femResults.storyAnalysis.map(s => s.driftRatio));
-  const maxEtaBi = Math.max(...femResults.storyAnalysis.map(s => s.eta_bi));
+  const maxDriftRatio = femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.driftRatio)) : 0;
+  const maxEtaBi = femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.eta_bi)) : 1.0;
   const driftCheck = femResults.storyAnalysis.every(s => s.driftCheck.isSafe);
 
-  // Yöntem Geçerliliği Güncelleme (Burulma Düzensizliği eklendi)
+  // Yöntem Geçerliliği Güncelleme
   const methodCheck = { ...tempSeismicRes.method_check };
   methodCheck.checks.torsion = createStatus(maxEtaBi <= 2.0, `η = ${maxEtaBi.toFixed(2)} ≤ 2.0`, 'Burulma Düzensizliği Sınırı Aşıldı (Dinamik Analiz Gerekli)', `η = ${maxEtaBi.toFixed(2)}`);
   methodCheck.isApplicable = methodCheck.checks.height.isSafe && methodCheck.checks.torsion.isSafe;
@@ -64,7 +62,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       method_check: methodCheck,
       story_drift: {
           check: createStatus(driftCheck, 'Öteleme Uygun', 'Öteleme Sınırı Aşıldı'),
-          delta_max: Math.max(...femResults.storyAnalysis.map(s => s.dispMax)),
+          delta_max: femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.dispMax)) : 0,
           drift_ratio: maxDriftRatio,
           limit: 0.008
       },
@@ -93,6 +91,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
      const userBeam = state.definedElements.find(e => e.id === originalId || e.id === beam.id.replace(`_S${storyIndex}`, ''));
      
+     // SPESİFİK BOYUTLARI KULLAN
      const bw_m = beam.bw / 100;
      const h_m = beam.h / 100;
      const g_beam_self_N_m = bw_m * h_m * 25000;
@@ -113,7 +112,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      }
 
      const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
-     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec, storyHeight);
+     
+     // DÜZELTME: Kirişin özel boyutlarını (beam.bw, beam.h) fonksiyona iletiyoruz.
+     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec, storyHeight, beam.bw, beam.h);
 
      // Eleman Sonucunu Kaydet
      const isSafeBeam = result.beamsResult.checks.shear.isSafe && 
@@ -122,19 +123,19 @@ export const calculateStructure = (state: AppState): CalculationResult => {
                         result.beamsResult.checks.max_reinf.isSafe;
      
      const beamFailMessages = [];
-     if(!result.beamsResult.checks.shear.isSafe) beamFailMessages.push('Kesme');
-     if(!result.beamsResult.checks.deflection.isSafe) beamFailMessages.push('Sehim');
-     if(!result.beamsResult.checks.max_reinf.isSafe) beamFailMessages.push('Max Donatı');
+     if(!result.beamsResult.checks.shear.isSafe) beamFailMessages.push(`Kesme (${result.beamsResult.checks.shear.reason})`);
+     if(!result.beamsResult.checks.deflection.isSafe) beamFailMessages.push(`Sehim (${result.beamsResult.checks.deflection.reason})`);
+     if(!result.beamsResult.checks.max_reinf.isSafe) beamFailMessages.push(`Max Donatı`);
+     if(!result.beamsResult.checks.min_reinf.isSafe) beamFailMessages.push(`Min Donatı`);
 
      elementResults.set(originalId, {
          id: originalId,
          type: 'beam',
          isSafe: isSafeBeam,
-         ratio: result.beamsResult.shear_design / result.beamsResult.shear_limit, // Kesme oranı
+         ratio: result.beamsResult.shear_design / result.beamsResult.shear_limit, 
          messages: beamFailMessages
      });
 
-     // En kritik kiriş sonucunu sakla (Dashboard için)
      if (!criticalBeamResult || result.beamsResult.as_support_req > criticalBeamResult.as_support_req) {
          criticalBeamResult = result.beamsResult;
      }
@@ -186,14 +187,14 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
       const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
       
-      const colRes = solveColumns(state, Nd_fem > 0 ? Nd_fem : 100000, V_fem > 0 ? V_fem : 10000, Md_fem, 0, 0, isConfined, fck, fcd, fctd, Ec, storyHeight);
+      // DÜZELTME: Kolon boyutlarını (col.b, col.h) iletiyoruz.
+      const colRes = solveColumns(state, Nd_fem > 0 ? Nd_fem : 100000, V_fem > 0 ? V_fem : 10000, Md_fem, 0, 0, isConfined, fck, fcd, fctd, Ec, storyHeight, col.b, col.h);
 
       if(Md_fem > 0) {
         colRes.columnsResult.moment_design = Md_fem / 1e6;
         colRes.columnsResult.moment_magnified = Math.max(colRes.columnsResult.moment_magnified, Md_fem / 1e6);
       }
 
-      // Eleman Sonucunu Kaydet
       const isSafeCol = colRes.columnsResult.checks.axial_limit.isSafe &&
                         colRes.columnsResult.checks.shear_capacity.isSafe &&
                         colRes.columnsResult.checks.moment_capacity.isSafe &&
@@ -201,10 +202,11 @@ export const calculateStructure = (state: AppState): CalculationResult => {
                         colRes.columnsResult.checks.slendernessCheck.isSafe;
 
       const colFailMessages = [];
-      if(!colRes.columnsResult.checks.axial_limit.isSafe) colFailMessages.push('Eksenel');
-      if(!colRes.columnsResult.checks.shear_capacity.isSafe) colFailMessages.push('Kesme');
-      if(!colRes.columnsResult.checks.moment_capacity.isSafe) colFailMessages.push('Moment');
-      if(!colRes.columnsResult.checks.strongColumn.isSafe) colFailMessages.push('Güçlü Kolon');
+      if(!colRes.columnsResult.checks.axial_limit.isSafe) colFailMessages.push(`Eksenel Yük`);
+      if(!colRes.columnsResult.checks.shear_capacity.isSafe) colFailMessages.push(`Kesme`);
+      if(!colRes.columnsResult.checks.moment_capacity.isSafe) colFailMessages.push(`Moment`);
+      if(!colRes.columnsResult.checks.strongColumn.isSafe) colFailMessages.push(`Güçlü Kolon`);
+      if(!colRes.columnsResult.checks.slendernessCheck.isSafe) colFailMessages.push(`Narinlik`);
 
       elementResults.set(originalId, {
           id: originalId,

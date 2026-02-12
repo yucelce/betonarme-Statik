@@ -21,14 +21,20 @@ export const solveColumns = (
   fcd: number,
   fctd: number,
   Ec: number,
-  storyHeight: number
+  storyHeight: number,
+  specific_b_cm?: number, // EKLENDİ
+  specific_h_cm?: number  // EKLENDİ
 ): ColumnSolverResult => {
-  const { dimensions, sections, rebars } = state;
+  const { sections, rebars } = state;
 
-  const bc_mm = sections.colWidth * 10;
-  const hc_mm = sections.colDepth * 10;
+  // Özel boyut varsa kullan, yoksa globali al
+  const b_cm = specific_b_cm || sections.colWidth;
+  const h_cm = specific_h_cm || sections.colDepth;
+
+  const bc_mm = b_cm * 10;
+  const hc_mm = h_cm * 10;
   const Ac_col_mm2 = bc_mm * hc_mm;
-  const h_beam_mm = sections.beamDepth * 10;
+  const h_beam_mm = sections.beamDepth * 10; // Kiriş yüksekliği olarak varsayılanı kullanabiliriz veya bağlantılı kirişi bulmak gerekir.
 
   // Moment (Basit Yaklaşım)
   const M_elastic_Nmm = (Vt_design_N * (storyHeight * 1000)) / 2;
@@ -66,7 +72,7 @@ export const solveColumns = (
 
   const colStirrupDia = rebars.colStirrupDia || 8;
   const confResult = checkColumnConfinement(
-    sections.colWidth * 10, sections.colDepth * 10, fck, colStirrupDia, rebars.colMainDia
+    bc_mm, hc_mm, fck, colStirrupDia, rebars.colMainDia
   );
 
   const s_used_col = confResult.s_conf; 
@@ -108,7 +114,6 @@ export const solveColumns = (
     moment_magnified: Md_col_magnified_Nmm / 1e6,
     slenderness: { lambda, lambda_lim: 34, beta, isSlender, i_rad },
     shear: { Ve: Ve_col_N / 1000, Vr: Vr_col_N / 1000, Vc: Vc_col_N / 1000, Vw: Vw_col_N / 1000, Vr_max: Vr_max_col / 1000 },
-    // DÜZELTME: confResult içerisinden sadece gerekli alanları alıyoruz (Tip hatasını önlemek için)
     confinement: { 
       Ash_req: confResult.Ash_req,
       Ash_prov: confResult.Ash_prov,
@@ -128,9 +133,9 @@ export const solveColumns = (
       moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)}`),
       shear_capacity: createStatus(Ve_col_N <= Vr_col_N, 'Kesme Güvenli', 'Kesme Yetersiz', 'Ve > Vr'),
       strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', `Oran: ${strongColRatio.toFixed(2)}`),
-      minDimensions: createStatus(sections.colWidth >= 25 && sections.colDepth >= 25, 'Boyut OK'),
-      minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK'),
-      maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK'),
+      minDimensions: createStatus(b_cm >= 25 && h_cm >= 25, 'Boyut OK', 'Min. 25cm olmalı'),
+      minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK', 'Min %1 Donatı'),
+      maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK', 'Max %4 Donatı'),
       confinement: createStatus(confResult.isSafe, confResult.message, 'Yetersiz Sargı'),
       slendernessCheck: createStatus(lambda <= 100, isSlender ? 'Narin Kolon' : 'Narin Değil', 'Çok Narin')
     }
