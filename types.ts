@@ -1,6 +1,7 @@
 
+
 export type ViewMode = 'plan' | 'elevation' | '3d';
-export type EditorTool = 'select' | 'column' | 'beam' | 'slab' | 'delete';
+export type EditorTool = 'select' | 'column' | 'beam' | 'slab' | 'shear_wall' | 'delete';
 
 export enum SoilClass {
   ZA = 'ZA', ZB = 'ZB', ZC = 'ZC', ZD = 'ZD', ZE = 'ZE',
@@ -36,6 +37,8 @@ export interface Sections {
   colWidth: number;
   colDepth: number;
   slabThickness: number;
+  wallThickness: number; // Varsayılan Perde Kalınlığı
+  wallLength: number;    // Varsayılan Perde Uzunluğu
 }
 
 export interface Loads {
@@ -57,7 +60,7 @@ export interface RebarSettings {
 // --- KULLANICI TANIMLI CAD ELEMANLARI ---
 export interface UserElement {
   id: string;
-  type: 'column' | 'beam' | 'slab';
+  type: 'column' | 'beam' | 'slab' | 'shear_wall';
   storyIndex: number; // Hangi kata ait olduğu
   // Grid İndeksleri (Koordinat değil, 0,1,2 gibi sıra noları)
   x1: number; 
@@ -65,11 +68,14 @@ export interface UserElement {
   x2?: number; // Kiriş/Döşeme için bitiş
   y2?: number; // Kiriş/Döşeme için bitiş
   properties?: {
-    width?: number; // cm
-    depth?: number; // cm
+    width?: number; // cm (Perde için uzun kenar olabilir)
+    depth?: number; // cm (Perde için kalınlık olabilir)
     thickness?: number; // Döşeme kalınlığı (cm)
     wallLoad?: number; // Kiriş üzerindeki duvar yükü (kN/m)
     liveLoad?: number; // Döşeme hareketli yükü (kg/m2)
+    // Perde Özellikleri
+    direction?: 'x' | 'y'; // Perde yerleşim yönü
+    alignment?: 'start' | 'center' | 'end'; // Düğüm noktasına göre konumu
   }
 }
 

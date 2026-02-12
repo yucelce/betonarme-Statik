@@ -197,15 +197,27 @@ const Visualizer: React.FC<Props> = ({
 
      if(!onElementAdd) return;
 
-     if(activeTool === 'column' && hoverNode) {
-         const id = `C-${hoverNode.x}-${hoverNode.y}`;
-         onElementAdd({ id, type: 'column', x1: hoverNode.x, y1: hoverNode.y, storyIndex: activeStory });
+     // KOLON veya PERDE EKLEME
+     if((activeTool === 'column' || activeTool === 'shear_wall') && hoverNode) {
+         const type = activeTool;
+         const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}`;
+         onElementAdd({ 
+             id, 
+             type, 
+             x1: hoverNode.x, 
+             y1: hoverNode.y, 
+             storyIndex: activeStory,
+             properties: type === 'shear_wall' ? {
+                 width: state.sections.wallLength, // Varsayılan uzunluk
+                 depth: state.sections.wallThickness, // Varsayılan kalınlık
+                 direction: 'x',
+                 alignment: 'center'
+             } : undefined
+         });
      }
      else if(activeTool === 'beam' && hoverNode) {
          if(!dragStartNode) setDragStartNode(hoverNode);
          else {
-             // DÜZELTME: Çapraz kirişlere izin vermek için x/y eşitlik kontrolü kaldırıldı.
-             // Sadece aynı noktaya tıklamayı engelle
              if(dragStartNode.x !== hoverNode.x || dragStartNode.y !== hoverNode.y) {
                  const id = `B-${dragStartNode.x}${dragStartNode.y}-${hoverNode.x}${hoverNode.y}`;
                  onElementAdd({ id, type: 'beam', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
@@ -262,13 +274,11 @@ const Visualizer: React.FC<Props> = ({
             const fillColor = isSel ? "#fcd34d" : "#fed7aa";
             const hoverClass = activeTool === 'delete' ? 'hover:fill-red-400' : '';
 
-            // HATA DÜZELTME: Bu döşeme hücresi içinde çapraz bir kiriş var mı kontrol et
+            // Çapraz Kiriş Kontrolü
             const diagonalBeam = definedElements.find(b => 
                 b.type === 'beam' && 
                 b.storyIndex === activeStory &&
-                // Beam is diagonal
                 b.x1 !== b.x2 && b.y1 !== b.y2 &&
-                // Beam is inside/matches this slab's rect
                 ((b.x1 === minX && b.x2 === maxX && b.y1 === minY && b.y2 === maxY) ||
                  (b.x1 === maxX && b.x2 === minX && b.y1 === maxY && b.y2 === minY) ||
                  (b.x1 === minX && b.x2 === maxX && b.y1 === maxY && b.y2 === minY) ||
@@ -276,25 +286,20 @@ const Visualizer: React.FC<Props> = ({
             );
 
             if (diagonalBeam) {
-                // Eğer diyagonal kiriş varsa, döşemeyi iki üçgen (poligon) olarak çiz
-                // Köşe noktaları: (minX, minY) -> TopLeft, (maxX, maxY) -> BottomRight
                 const px1 = startX + toPx(sx);
                 const py1 = startY + toPx(sy);
                 const px2 = startX + toPx(sx + sw);
                 const py2 = startY + toPx(sy + sh);
                 
-                // Diyagonal kiriş yönüne göre üçgenleri belirle
-                // Tip 1: Sol-Üst'ten Sağ-Alt'a (minX, minY) -> (maxX, maxY)
                 const isTL_BR = (diagonalBeam.x1 === minX && diagonalBeam.y1 === minY) || (diagonalBeam.x2 === minX && diagonalBeam.y2 === minY);
                 
                 let points1 = "", points2 = "";
                 if (isTL_BR) {
-                    points1 = `${px1},${py1} ${px2},${py1} ${px2},${py2}`; // Sağ Üst Üçgen
-                    points2 = `${px1},${py1} ${px1},${py2} ${px2},${py2}`; // Sol Alt Üçgen
+                    points1 = `${px1},${py1} ${px2},${py1} ${px2},${py2}`; 
+                    points2 = `${px1},${py1} ${px1},${py2} ${px2},${py2}`; 
                 } else {
-                    // Tip 2: Sol-Alt'tan Sağ-Üst'e (minX, maxY) -> (maxX, minY)
-                    points1 = `${px1},${py1} ${px2},${py1} ${px1},${py2}`; // Sol Üst Üçgen
-                    points2 = `${px2},${py1} ${px2},${py2} ${px1},${py2}`; // Sağ Alt Üçgen
+                    points1 = `${px1},${py1} ${px2},${py1} ${px1},${py2}`; 
+                    points2 = `${px2},${py1} ${px2},${py2} ${px1},${py2}`; 
                 }
                 
                 return (
@@ -305,7 +310,6 @@ const Visualizer: React.FC<Props> = ({
                 );
             }
 
-            // Normal Dikdörtgen Çizimi
             return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={0.4} stroke="none" onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
         })}
 
@@ -320,22 +324,77 @@ const Visualizer: React.FC<Props> = ({
              const x2 = startX + toPx(xCoords[el.x2!]);
              const y2 = startY + toPx(yCoords[el.y2!]);
              const isSel = selectedElementId === el.id;
-             // Diyagonal kirişler için basit line çizimi yeterli
              return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={isSel?"#2563eb":"#94a3b8"} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
         })}
-        {/* COLUMNS */}
-        {definedElements.filter(e => e.type === 'column' && e.storyIndex === activeStory).map(el => {
+
+        {/* COLUMNS & SHEAR WALLS */}
+        {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall') && e.storyIndex === activeStory).map(el => {
              const cx = startX + toPx(xCoords[el.x1]);
              const cy = startY + toPx(yCoords[el.y1]);
-             const w = toPx(0.4); const h = toPx(0.4);
              const isSel = selectedElementId === el.id;
-             return <rect key={el.id} x={cx-w/2} y={cy-h/2} width={w} height={h} fill={isSel?"#2563eb":"#475569"} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:fill-red-500':''} />;
+             
+             let w = 0, h = 0;
+             let offsetX = 0, offsetY = 0;
+
+             if (el.type === 'shear_wall') {
+                 const len = (el.properties?.width || state.sections.wallLength) / 100; // m
+                 const thk = (el.properties?.depth || state.sections.wallThickness) / 100; // m
+                 const dir = el.properties?.direction || 'x';
+                 const align = el.properties?.alignment || 'center';
+
+                 if (dir === 'x') {
+                     w = toPx(len); 
+                     h = toPx(thk);
+                     // Alignment Logic for X Direction
+                     if (align === 'start') offsetX = 0;
+                     else if (align === 'end') offsetX = -w;
+                     else offsetX = -w / 2; // center
+                     offsetY = -h / 2;
+                 } else {
+                     w = toPx(thk);
+                     h = toPx(len);
+                     // Alignment Logic for Y Direction
+                     if (align === 'start') offsetY = 0;
+                     else if (align === 'end') offsetY = -h;
+                     else offsetY = -h / 2; // center
+                     offsetX = -w / 2;
+                 }
+             } else {
+                 // Standart Kolon
+                 w = toPx(0.4); 
+                 h = toPx(0.4);
+                 offsetX = -w / 2;
+                 offsetY = -h / 2;
+             }
+
+             return (
+                <rect 
+                    key={el.id} 
+                    x={cx + offsetX} 
+                    y={cy + offsetY} 
+                    width={w} 
+                    height={h} 
+                    fill={isSel ? "#2563eb" : (el.type === 'shear_wall' ? "#334155" : "#475569")} 
+                    onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} 
+                    className={activeTool==='delete'?'hover:fill-red-500':''} 
+                />
+             );
         })}
 
         {/* INTERACTIVE PREVIEWS */}
-        {hoverNode && activeTool === 'column' && (
+        {hoverNode && (activeTool === 'column' || activeTool === 'shear_wall') && (
             <g pointerEvents="none">
-                <rect x={getPlanPx(hoverNode.x, hoverNode.y).x - toPx(0.2)} y={getPlanPx(hoverNode.x, hoverNode.y).y - toPx(0.2)} width={toPx(0.4)} height={toPx(0.4)} fill="none" stroke="#2563eb" strokeWidth="2" strokeDasharray="4 2" opacity="0.7" />
+                <rect 
+                    x={getPlanPx(hoverNode.x, hoverNode.y).x - toPx(0.2)} 
+                    y={getPlanPx(hoverNode.x, hoverNode.y).y - toPx(0.2)} 
+                    width={toPx(0.4)} 
+                    height={toPx(0.4)} 
+                    fill="none" 
+                    stroke="#2563eb" 
+                    strokeWidth="2" 
+                    strokeDasharray="4 2" 
+                    opacity="0.7" 
+                />
                 <circle cx={getPlanPx(hoverNode.x, hoverNode.y).x} cy={getPlanPx(hoverNode.x, hoverNode.y).y} r={4} fill="#2563eb" />
             </g>
         )}
@@ -363,7 +422,7 @@ const Visualizer: React.FC<Props> = ({
         )}
 
         {/* Snap Indicator */}
-        {hoverNode && activeTool !== 'column' && <circle cx={getPlanPx(hoverNode.x, hoverNode.y).x} cy={getPlanPx(hoverNode.x, hoverNode.y).y} r={4} fill="red" pointerEvents="none" />}
+        {hoverNode && activeTool !== 'column' && activeTool !== 'shear_wall' && <circle cx={getPlanPx(hoverNode.x, hoverNode.y).x} cy={getPlanPx(hoverNode.x, hoverNode.y).y} r={4} fill="red" pointerEvents="none" />}
     </>
   );
 
@@ -403,7 +462,7 @@ const Visualizer: React.FC<Props> = ({
              ))}
 
              {/* ELEMANLAR */}
-             {definedElements.filter(e => e.type === 'column').map(col => {
+             {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
                  const isOnAxis = isXAxis ? col.x1 === axisIndex : col.y1 === axisIndex;
                  if(!isOnAxis) return null;
                  const posH = isXAxis ? yCoords[col.y1] : xCoords[col.x1];
@@ -411,14 +470,11 @@ const Visualizer: React.FC<Props> = ({
                  const zTop = zLevels[col.storyIndex + 1];
                  const p1 = getElevPx(posH, zBottom);
                  const p2 = getElevPx(posH, zTop);
-                 return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill="#475569" stroke="black" strokeWidth="1" />;
+                 return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill={col.type === 'shear_wall' ? "#334155" : "#475569"} stroke="black" strokeWidth="1" />;
              })}
 
              {definedElements.filter(e => e.type === 'beam').map(beam => {
                  const zLevel = zLevels[beam.storyIndex + 1];
-                 // Diyagonal kirişler için basitleştirilmiş görünüm: 
-                 // Eğer kirişin bir ucu aksta ise veya aksı kesiyorsa gösterilebilir ama 
-                 // şimdilik sadece akstaki (paralel) kirişleri çizelim.
                  let isParallel = false;
                  if (isXAxis) { 
                      if (beam.x1 === axisIndex && beam.x2 === axisIndex) isParallel = true;
@@ -457,8 +513,8 @@ const Visualizer: React.FC<Props> = ({
                 return <line key={`b-gy${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#e2e8f0" />;
             })}
 
-            {/* KOLONLAR */}
-            {definedElements.filter(e => e.type === 'column').map(col => {
+            {/* KOLONLAR & PERDELER */}
+            {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
                  const x = xCoords[col.x1];
                  const y = yCoords[col.y1];
                  const zBot = zLevels[col.storyIndex];
@@ -467,7 +523,10 @@ const Visualizer: React.FC<Props> = ({
                  const p1 = project3D(x, y, zBot);
                  const p2 = project3D(x, y, zTop);
                  
-                 return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#475569" strokeWidth="4" strokeLinecap="round" />;
+                 // Perdeleri biraz daha kalın çiz
+                 const strokeW = col.type === 'shear_wall' ? 8 : 4;
+                 
+                 return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={col.type === 'shear_wall' ? "#334155" : "#475569"} strokeWidth={strokeW} strokeLinecap="round" />;
             })}
 
             {/* KİRİŞLER */}

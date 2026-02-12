@@ -1,4 +1,5 @@
 
+
 // utils/modelGenerator.ts
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
 
@@ -36,14 +37,35 @@ export const generateModel = (state: AppState): StructuralModel => {
     const uniqueId = `${el.id}_S${el.storyIndex}`;
     const isBasement = el.storyIndex < dimensions.basementCount;
 
-    // --- KOLONLAR ---
-    if (el.type === 'column') {
+    // --- KOLONLAR VE PERDELER ---
+    if (el.type === 'column' || el.type === 'shear_wall') {
       const nodeId = `N-${el.x1}-${el.y1}`;
+      let b = sections.colWidth;
+      let h = sections.colDepth;
+
+      if (el.type === 'shear_wall') {
+          const len = el.properties?.width || sections.wallLength;
+          const thk = el.properties?.depth || sections.wallThickness;
+          const dir = el.properties?.direction || 'x';
+          
+          if (dir === 'x') {
+              b = len;
+              h = thk;
+          } else {
+              b = thk;
+              h = len;
+          }
+      } else {
+          // Normal Kolon
+          b = el.properties?.width || sections.colWidth;
+          h = el.properties?.depth || sections.colDepth;
+      }
+
       columns.push({
         id: uniqueId,
         nodeId: nodeId,
-        b: el.properties?.width || sections.colWidth,
-        h: el.properties?.depth || sections.colDepth,
+        b: b,
+        h: h,
         isBasement
       });
     }

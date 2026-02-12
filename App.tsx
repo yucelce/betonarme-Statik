@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -29,7 +29,9 @@ const INITIAL_STATE: AppState = {
     beamDepth: 50,
     colWidth: 40,
     colDepth: 40,
-    slabThickness: 15
+    slabThickness: 15,
+    wallThickness: 25,
+    wallLength: 150
   },
   loads: {
     liveLoadKg: 200,
@@ -142,24 +144,24 @@ const App: React.FC = () => {
       if (!isDiagonal && el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
           const { x1, y1, x2, y2, storyIndex } = el;
           
-          // Bu kattaki kolonları al
-          const existingCols = state.definedElements.filter(e => e.type === 'column' && e.storyIndex === storyIndex);
+          // Bu kattaki kolonları VE perdeleri al (Perdeler de kolon gibidir)
+          const existingVerticals = state.definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall') && e.storyIndex === storyIndex);
 
-          // Kiriş güzergahı üzerindeki kolonları bul
-          const intersectingCols = existingCols.filter(col => {
+          // Kiriş güzergahı üzerindeki dikey elemanları bul
+          const intersectingElements = existingVerticals.filter(vert => {
               // Yatay Kiriş (y sabit, x değişiyor)
-              if (y1 === y2 && col.y1 === y1) {
-                  return col.x1 > Math.min(x1, x2) && col.x1 < Math.max(x1, x2);
+              if (y1 === y2 && vert.y1 === y1) {
+                  return vert.x1 > Math.min(x1, x2) && vert.x1 < Math.max(x1, x2);
               }
               // Dikey Kiriş (x sabit, y değişiyor)
-              if (x1 === x2 && col.x1 === x1) {
-                  return col.y1 > Math.min(y1, y2) && col.y1 < Math.max(y1, y2);
+              if (x1 === x2 && vert.x1 === x1) {
+                  return vert.y1 > Math.min(y1, y2) && vert.y1 < Math.max(y1, y2);
               }
               return false;
           });
 
-          if (intersectingCols.length > 0) {
-              intersectingCols.sort((a, b) => {
+          if (intersectingElements.length > 0) {
+              intersectingElements.sort((a, b) => {
                  const distA = Math.abs(a.x1 - x1) + Math.abs(a.y1 - y1);
                  const distB = Math.abs(b.x1 - x1) + Math.abs(b.y1 - y1);
                  return distA - distB;
@@ -168,7 +170,7 @@ const App: React.FC = () => {
               const newBeams: UserElement[] = [];
               let startX = x1;
               let startY = y1;
-              const points = [...intersectingCols, { x1: x2, y1: y2 } as any]; 
+              const points = [...intersectingElements, { x1: x2, y1: y2 } as any]; 
 
               points.forEach((pt: any) => {
                   const endX = pt.x1; 
@@ -236,10 +238,8 @@ const App: React.FC = () => {
       const copiedElements: UserElement[] = [];
       copyTargets.forEach(targetIndex => {
           sourceElements.forEach(el => {
-              // ID'yi benzersiz yap: Eski ID'nin başındaki kısmı al, sonuna yeni katı ekle veya yeniden oluştur
-              // Basitçe: Type-X1-Y1-S{targetIndex}
+              // ID'yi benzersiz yap
               let newId = el.id.replace(`-S${activeStory}`, `-S${targetIndex}`);
-              // Eğer ID formatı S... içermiyorsa (eski format), manuel oluştur
               if (newId === el.id) {
                   newId = `${el.type}-${el.x1}-${el.y1}-${Math.random().toString(36).substr(2,4)}-S${targetIndex}`;
               }
@@ -448,6 +448,7 @@ const App: React.FC = () => {
                         <div><label className="block text-slate-400 mb-0.5">Kiriş B/H</label><div className="flex gap-1"><input value={state.sections.beamWidth} onChange={(e)=>updateState('sections', {beamWidth:Number(e.target.value)})} className="w-full border rounded p-1" /><input value={state.sections.beamDepth} onChange={(e)=>updateState('sections', {beamDepth:Number(e.target.value)})} className="w-full border rounded p-1" /></div></div>
                         <div><label className="block text-slate-400 mb-0.5">Kolon B/H</label><div className="flex gap-1"><input value={state.sections.colWidth} onChange={(e)=>updateState('sections', {colWidth:Number(e.target.value)})} className="w-full border rounded p-1" /><input value={state.sections.colDepth} onChange={(e)=>updateState('sections', {colDepth:Number(e.target.value)})} className="w-full border rounded p-1" /></div></div>
                         <div><label className="block text-slate-400 mb-0.5">Döşeme Kal. (cm)</label><input type="number" value={state.sections.slabThickness} onChange={(e)=>updateState('sections', {slabThickness:Number(e.target.value)})} className="w-full border rounded p-1" /></div>
+                        <div><label className="block text-slate-400 mb-0.5">Perde B/L</label><div className="flex gap-1"><input value={state.sections.wallThickness} onChange={(e)=>updateState('sections', {wallThickness:Number(e.target.value)})} className="w-full border rounded p-1" title="Kalınlık"/><input value={state.sections.wallLength} onChange={(e)=>updateState('sections', {wallLength:Number(e.target.value)})} className="w-full border rounded p-1" title="Uzunluk"/></div></div>
                      </div>
                  )}
               </div>
@@ -527,6 +528,7 @@ const App: React.FC = () => {
                    {[
                        { id: 'select', icon: MousePointer2, label: 'Seç' },
                        { id: 'column', icon: Box, label: 'Kolon' },
+                       { id: 'shear_wall', icon: RectangleVertical, label: 'Perde' },
                        { id: 'beam', icon: Grip, label: 'Kiriş' },
                        { id: 'slab', icon: Square, label: 'Döşeme' },
                        { id: 'delete', icon: Trash2, label: 'Sil' },
@@ -635,22 +637,61 @@ const App: React.FC = () => {
                     {(() => {
                         const el = state.definedElements.find(e => e.id === selectedElementId);
                         if (!el) return null;
-                        const w = el.properties?.width ?? (el.type === 'beam' ? state.sections.beamWidth : state.sections.colWidth);
-                        const d = el.properties?.depth ?? (el.type === 'beam' ? state.sections.beamDepth : state.sections.colDepth);
+                        
+                        // Perde mi?
+                        const isWall = el.type === 'shear_wall';
+                        
+                        const w = el.properties?.width ?? (el.type === 'beam' ? state.sections.beamWidth : (isWall ? state.sections.wallLength : state.sections.colWidth));
+                        const d = el.properties?.depth ?? (el.type === 'beam' ? state.sections.beamDepth : (isWall ? state.sections.wallThickness : state.sections.colDepth));
                         const t = el.properties?.thickness ?? state.sections.slabThickness;
                         const wallL = el.properties?.wallLoad ?? 3.5;
                         const liveL = el.properties?.liveLoad ?? state.loads.liveLoadKg;
+                        
+                        // Perde Properties
+                        const direction = el.properties?.direction || 'x';
+                        const alignment = el.properties?.alignment || 'center';
 
                         return (
                             <div className="space-y-3">
                                 <div className="text-[10px] font-mono bg-slate-50 p-1 text-center rounded text-slate-500 border border-slate-100">{el.id}</div>
                                 
-                                {/* KİRİŞ VE KOLON BOYUTLARI */}
-                                {(el.type === 'column' || el.type === 'beam') && (
+                                {/* KİRİŞ VE KOLON/PERDE BOYUTLARI */}
+                                {(el.type === 'column' || el.type === 'beam' || isWall) && (
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div><label className="text-[10px] font-bold text-slate-400">GENİŞLİK (cm)</label><input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={w} onChange={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">YÜKSEKLİK (cm)</label><input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={d} onChange={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} /></div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400">{isWall ? 'UZUNLUK (cm)' : 'GENİŞLİK (cm)'}</label>
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={w} onChange={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400">{isWall ? 'KALINLIK (cm)' : 'YÜKSEKLİK (cm)'}</label>
+                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" value={d} onChange={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} />
+                                        </div>
                                     </div>
+                                )}
+                                
+                                {/* PERDE ÖZEL AYARLARI */}
+                                {isWall && (
+                                    <>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400">YÖN</label>
+                                            <div className="flex gap-2">
+                                                <button onClick={()=>handleElementPropertyUpdate({direction:'x'})} className={`flex-1 text-xs border rounded p-1 ${direction==='x'?'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>X Yönü</button>
+                                                <button onClick={()=>handleElementPropertyUpdate({direction:'y'})} className={`flex-1 text-xs border rounded p-1 ${direction==='y'?'bg-blue-100 border-blue-300 text-blue-700':'bg-slate-50 text-slate-500'}`}>Y Yönü</button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400">YERLEŞİM (Düğüm Noktası)</label>
+                                            <select 
+                                                className="w-full border rounded p-1 text-xs bg-slate-50"
+                                                value={alignment}
+                                                onChange={(e) => handleElementPropertyUpdate({ alignment: e.target.value as any })}
+                                            >
+                                                <option value="center">Merkez</option>
+                                                <option value="start">Sol / Üst</option>
+                                                <option value="end">Sağ / Alt</option>
+                                            </select>
+                                        </div>
+                                    </>
                                 )}
                                 
                                 {/* KİRİŞ YÜKÜ */}
