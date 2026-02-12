@@ -258,6 +258,20 @@ const Visualizer: React.FC<Props> = ({
   // --- RENDER HELPERS ---
   const renderPlan = () => (
     <>
+        {/* Foundation Outline (Dashed) - Eğer zemin katta veya bodrumdaysak gösterelim */}
+        {activeStory === 0 && (
+             <rect 
+                x={startX - toPx(dimensions.foundationCantilever/100)} 
+                y={startY - toPx(dimensions.foundationCantilever/100)} 
+                width={drawW + 2*toPx(dimensions.foundationCantilever/100)} 
+                height={drawH + 2*toPx(dimensions.foundationCantilever/100)} 
+                fill="none" 
+                stroke="#94a3b8" 
+                strokeWidth="1" 
+                strokeDasharray="8 4" 
+             />
+        )}
+
         {/* SLABS */}
         {definedElements.filter(e => e.type === 'slab' && e.storyIndex === activeStory).map(el => {
             const minX = Math.min(el.x1, el.x2!);
@@ -442,12 +456,43 @@ const Visualizer: React.FC<Props> = ({
           x: startX + toPx(dist),
           y: startY + H_DRAW - toPx(z)
       });
+      
+      // Temel (Radye) Çizimi
+      const foundationDepth = toPx(dimensions.foundationHeight / 100);
+      const cantileverPx = toPx(dimensions.foundationCantilever / 100);
+
+      // Toplam yatay genişlik (Aksların en solu ile en sağı arası)
+      const totalWidthPx = toPx(horzCoords[horzCoords.length-1]);
+      
+      const foundX1 = getElevPx(0, 0).x - cantileverPx;
+      const foundY1 = getElevPx(0, 0).y;
+      const foundW = totalWidthPx + 2*cantileverPx;
+      const foundH = foundationDepth;
 
       return (
           <>
              {/* Zemin Çizgisi */}
              <line x1={startX-20} y1={startY+H_DRAW} x2={startX+drawW+20} y2={startY+H_DRAW} stroke="#000" strokeWidth="2" />
              
+             {/* TEMEL BLOĞU */}
+             <g>
+                <defs>
+                   <pattern id="foundationHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                        <line stroke="#94a3b8" strokeWidth="1" x1="0" y1="0" x2="0" y2="8" />
+                   </pattern>
+                </defs>
+                <rect 
+                    x={foundX1} 
+                    y={foundY1} 
+                    width={foundW} 
+                    height={foundH} 
+                    fill="url(#foundationHatch)" 
+                    stroke="#475569" 
+                    strokeWidth="1"
+                />
+                <text x={foundX1 - 5} y={foundY1 + foundH/2} textAnchor="end" fontSize="10" className="fill-slate-500 font-bold">RADYE h={dimensions.foundationHeight}</text>
+             </g>
+
              {/* Kot Çizgileri */}
              {zLevels.map((z, i) => (
                  <g key={`zl-${i}`}>
@@ -498,10 +543,42 @@ const Visualizer: React.FC<Props> = ({
   const render3D = () => {
     let cumH = 0;
     const zLevels = [0, ...dimensions.storyHeights.map(h => { cumH += h; return cumH; })];
+    
+    // Temel Köşe Noktaları (Cantilever Eklenmiş)
+    const cantM = dimensions.foundationCantilever / 100;
+    const foundH = dimensions.foundationHeight / 100;
+    
+    const minX = xCoords[0] - cantM;
+    const maxX = xCoords[xCoords.length-1] + cantM;
+    const minY = yCoords[0] - cantM;
+    const maxY = yCoords[yCoords.length-1] + cantM;
+
+    const f1 = project3D(minX, minY, 0); // Üst Yüzey Köşeler
+    const f2 = project3D(maxX, minY, 0);
+    const f3 = project3D(maxX, maxY, 0);
+    const f4 = project3D(minX, maxY, 0);
+
+    const f1b = project3D(minX, minY, -foundH); // Alt Yüzey Köşeler
+    const f2b = project3D(maxX, minY, -foundH);
+    const f3b = project3D(maxX, maxY, -foundH);
+    const f4b = project3D(minX, maxY, -foundH);
 
     return (
         <g>
-            {/* TABAN GRID */}
+            {/* TEMEL BLOĞU (Basit 3D Çizim) */}
+            <g opacity={0.6}>
+                 {/* Alt Yüzey */}
+                 <polygon points={`${f1b.x},${f1b.y} ${f2b.x},${f2b.y} ${f3b.x},${f3b.y} ${f4b.x},${f4b.y}`} fill="#94a3b8" stroke="#64748b" />
+                 {/* Yan Yüzeyler (Sadece görünenler basitçe çizilebilir veya wireframe) */}
+                 <line x1={f1.x} y1={f1.y} x2={f1b.x} y2={f1b.y} stroke="#64748b"/>
+                 <line x1={f2.x} y1={f2.y} x2={f2b.x} y2={f2b.y} stroke="#64748b"/>
+                 <line x1={f3.x} y1={f3.y} x2={f3b.x} y2={f3b.y} stroke="#64748b"/>
+                 <line x1={f4.x} y1={f4.y} x2={f4b.x} y2={f4b.y} stroke="#64748b"/>
+                 {/* Üst Yüzey */}
+                 <polygon points={`${f1.x},${f1.y} ${f2.x},${f2.y} ${f3.x},${f3.y} ${f4.x},${f4.y}`} fill="#cbd5e1" stroke="#64748b" />
+            </g>
+
+            {/* TABAN GRID (Temelin üstünde) */}
             {xCoords.map((x, i) => {
                 const p1 = project3D(x, yCoords[0], 0);
                 const p2 = project3D(x, yCoords[yCoords.length-1], 0);

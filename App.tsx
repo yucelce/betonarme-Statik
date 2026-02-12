@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -19,8 +19,8 @@ const INITIAL_STATE: AppState = {
     storyCount: 2,
     basementCount: 0,
     storyHeights: [4, 3], // Varsayılan kat yükseklikleri
-    foundationHeight: 50,
-    foundationCantilever: 50,
+    foundationHeight: 60, // Radye Kalınlığı (cm)
+    foundationCantilever: 50, // Ampatman (cm)
     lx: 9, 
     ly: 9  
   },
@@ -48,7 +48,7 @@ const INITIAL_STATE: AppState = {
   definedElements: [] 
 };
 
-type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | null;
+type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 'foundation' | null;
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
@@ -433,6 +433,29 @@ const App: React.FC = () => {
                                  ))}
                              </div>
                          </div>
+                     </div>
+                 )}
+              </div>
+
+               {/* SECTION: FOUNDATION (YENİ) */}
+               <div className="border border-slate-200 rounded-lg overflow-hidden">
+                 <button onClick={() => toggleSection('foundation')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
+                    <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><ArrowDownToLine className="w-4 h-4 text-emerald-600"/> Temel (Radye)</span>
+                    {openSection === 'foundation' ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
+                 </button>
+                 {openSection === 'foundation' && (
+                     <div className="p-3 bg-white grid grid-cols-2 gap-2 text-xs animate-in slide-in-from-top-2 fade-in duration-200">
+                        <div>
+                            <label className="block text-slate-400 mb-0.5">Radye Kalınlığı (cm)</label>
+                            <input type="number" className="w-full border rounded p-1" value={state.dimensions.foundationHeight} onChange={(e) => updateState('dimensions', { foundationHeight: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-0.5">Ampatman (cm)</label>
+                            <input type="number" className="w-full border rounded p-1" value={state.dimensions.foundationCantilever} onChange={(e) => updateState('dimensions', { foundationCantilever: Number(e.target.value) })} />
+                        </div>
+                        <div className="col-span-2 text-[10px] text-slate-400 bg-slate-50 p-1.5 rounded border border-slate-100 mt-1">
+                            Not: Tüm yapının altına, dış akslardan ampatman kadar taşan tek parça radye temel tanımlanır.
+                        </div>
                      </div>
                  )}
               </div>
