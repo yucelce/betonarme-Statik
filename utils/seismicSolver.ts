@@ -8,7 +8,6 @@ interface SeismicSolverResult {
   Vt_design_N: number;
   W_total_N: number;
   fi_story_N: number[];
-  // irregularities: IrregularityResult; // Bu artık FEM solver'dan gelecek verilerle birleştirilecek
 }
 
 export const solveSeismic = (
@@ -19,23 +18,52 @@ export const solveSeismic = (
   g_wall_N_m: number
 ): SeismicSolverResult => {
   const { dimensions, seismic, sections, materials, grid } = state;
-  const { concreteClass } = materials;
-  
   const storyCount = dimensions.storyCount || 1;
-  const h_story = dimensions.h; 
+  const basementCount = dimensions.basementCount || 0;
+  const storyHeights = dimensions.storyHeights;
 
   const numNodesX = grid.xAxis.length + 1;
   const numNodesY = grid.yAxis.length + 1;
   const Num_Cols = numNodesX * numNodesY; 
   
-  // Ağırlık Hesapları
   const area_m2 = dimensions.lx * dimensions.ly;
   const W_slab_N = (g_total_N_m2 + 0.3 * q_live_N_m2) * area_m2;
   const W_beam_N = g_beam_self_N_m * 2 * (dimensions.lx + dimensions.ly);
-  const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h_story * 25000) * Num_Cols; 
   const W_wall_N = g_wall_N_m * 2 * (dimensions.lx + dimensions.ly);
-  const Wi_story_N = W_slab_N + W_beam_N + W_col_N + W_wall_N;
-  const W_total_N = Wi_story_N * storyCount;
+
+  let W_total_N = 0;
+  const weightsPerStory: number[] = [];
+  const heightsPerStory: number[] = []; // Bina tabanından (zemin) itibaren yükseklikler
+  
+  let currentHeightAboveGround = 0;
+
+  for (let i = 0; i < storyCount; i++) {
+      const h = storyHeights[i] || 3;
+      const isBasement = i < basementCount;
+
+      // Bina yüksekliği (H) hesabı: Bodrum katlar periyot hesabına katılmaz (Rijit kabul)
+      // Ancak kuvvet dağılımında (Fi) kat yüksekliği önemlidir.
+      // TBDY 2018: Eğer bodrumlar rijitse, periyot üst yapı için hesaplanır.
+      
+      if (!isBasement) {
+         currentHeightAboveGround += h;
+         heightsPerStory.push(currentHeightAboveGround);
+      } else {
+         // Bodrum katlar için efektif yükseklik (kuvvet dağılımı için) 0 kabul edilebilir veya
+         // rijit diyaframdan aktarılan kesme kuvveti olarak işlenir.
+         // Basitlik adına: Periyot hesabında H = Zemin üstü toplam boy.
+         // Fi dağıtımında bodrumlara kütlesi oranında değil, üstten gelen kesme aktarılır.
+         // Biz burada Fi hesabında bodrum katların "Hi" değerini 0 alarak onlara deprem kuvveti dağıtmayacağız,
+         // ancak kütlelerini W_total'a ekleyeceğiz.
+         heightsPerStory.push(0); 
+      }
+      
+      const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h * 25000) * Num_Cols; 
+      // Bodrumda duvar yükleri genellikle perde olur ama burada basit duvar alıyoruz
+      const Wi = W_slab_N + W_beam_N + W_col_N + W_wall_N;
+      weightsPerStory.push(Wi);
+      W_total_N += Wi;
+  }
 
   // Spektrum ve Vt hesabı
   const Fs = getFs(seismic.ss, seismic.soilClass);
@@ -43,10 +71,10 @@ export const solveSeismic = (
   const Sds = seismic.ss * Fs;
   const Sd1 = seismic.s1 * F1;
   
-  const totalHeight_m = h_story * storyCount;
-  const T1 = 0.1 * Math.pow(totalHeight_m, 0.75); 
+  // T1 Periyodu sadece zemin üstü yükseklik (Hn) ile hesaplanır
+  const Hn = currentHeightAboveGround;
+  const T1 = 0.1 * Math.pow(Hn, 0.75); 
 
-  // Sae Hesabı
   const Sae_coeff = ((T: number): number => {
     const Ta = 0.2 * (Sd1 / Sds);
     const Tb = Sd1 / Sds;
@@ -57,24 +85,26 @@ export const solveSeismic = (
 
   const Ra = seismic.Rx || 8;
   const I_bldg = seismic.I || 1.0;
+  
+  // Taban kesme kuvveti
   const Vt_calc_N = (W_total_N * Sae_coeff * I_bldg) / Ra;
   const Vt_min_N = 0.04 * W_total_N * I_bldg * Sds;
   const Vt_design_N = Math.max(Vt_calc_N, Vt_min_N);
 
-  // Kat Kuvvetleri Dağılımı (Fi) - Eşdeğer Deprem Yükü Yöntemi
-  // TBDY 4.7.2
-  // DeltaFn hesabı (N=StoryCount) için 0.0075 N Vt formülü ihmal edildi (basitlik için)
+  // Kat Kuvvetleri Dağılımı
   let sum_Wi_Hi = 0;
-  for (let i = 1; i <= storyCount; i++) sum_Wi_Hi += Wi_story_N * (i * h_story);
+  for (let i = 0; i < storyCount; i++) {
+      sum_Wi_Hi += weightsPerStory[i] * heightsPerStory[i];
+  }
 
   const fi_story_N: number[] = [];
-  for (let i = 1; i <= storyCount; i++) {
-    const Hi = i * h_story;
-    const Fi = ((Wi_story_N * Hi) / sum_Wi_Hi) * Vt_design_N;
+  for (let i = 0; i < storyCount; i++) {
+    // Bodrum katların Hi değeri 0 olduğu için Fi = 0 çıkar (beklenen davranış).
+    // Deprem yükü sadece üst katlara etki eder, bodruma kesme olarak aktarılır.
+    const Fi = sum_Wi_Hi > 0 ? ((weightsPerStory[i] * heightsPerStory[i]) / sum_Wi_Hi) * Vt_design_N : 0;
     fi_story_N.push(Fi);
   }
 
-  // Geçici Boş Sonuç (Asıl sonuçlar Solver.ts içinde birleştirilecek)
   const seismicResult = {
     param_sds: Sds,
     param_sd1: Sd1,

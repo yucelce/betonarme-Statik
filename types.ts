@@ -1,5 +1,6 @@
 
-export type ViewMode = 'normal' | 'analysis';
+export type ViewMode = 'plan' | 'elevation' | '3d';
+export type EditorTool = 'select' | 'column' | 'beam' | 'slab' | 'delete';
 
 export enum SoilClass {
   ZA = 'ZA', ZB = 'ZB', ZC = 'ZC', ZD = 'ZD', ZE = 'ZE',
@@ -16,7 +17,8 @@ export interface AxisData {
 
 export interface Dimensions {
   storyCount: number;
-  h: number;
+  basementCount: number; // Bodrum kat sayısı
+  storyHeights: number[]; // Her katın yüksekliği (m)
   foundationHeight: number;
   foundationCantilever: number;
   lx: number;
@@ -52,7 +54,26 @@ export interface RebarSettings {
   colMainDia: number; colStirrupDia: number; foundationDia: number;
 }
 
-// --- MODEL TİPLERİ ---
+// --- KULLANICI TANIMLI CAD ELEMANLARI ---
+export interface UserElement {
+  id: string;
+  type: 'column' | 'beam' | 'slab';
+  storyIndex: number; // Hangi kata ait olduğu
+  // Grid İndeksleri (Koordinat değil, 0,1,2 gibi sıra noları)
+  x1: number; 
+  y1: number;
+  x2?: number; // Kiriş/Döşeme için bitiş
+  y2?: number; // Kiriş/Döşeme için bitiş
+  properties?: {
+    width?: number; // cm
+    depth?: number; // cm
+    thickness?: number; // Döşeme kalınlığı (cm)
+    wallLoad?: number; // Kiriş üzerindeki duvar yükü (kN/m)
+    liveLoad?: number; // Döşeme hareketli yükü (kg/m2)
+  }
+}
+
+// --- MODEL TİPLERİ (Solver'ın anladığı dil) ---
 
 export interface NodeEntity {
   id: string;
@@ -67,6 +88,7 @@ export interface ColumnEntity {
   nodeId: string;
   b: number;
   h: number;
+  isBasement: boolean; // Bodrum kat elemanı mı?
 }
 
 export interface BeamEntity {
@@ -75,9 +97,10 @@ export interface BeamEntity {
   endNodeId: string;
   length: number;
   axisId: string;
-  direction: 'X' | 'Y';
+  direction: 'X' | 'Y' | 'D'; // D: Diagonal
   bw: number;
   h: number;
+  isBasement: boolean; // Bodrum kat elemanı mı?
 }
 
 export interface SlabEntity {
@@ -103,7 +126,6 @@ export interface CheckStatus {
   reason?: string;
 }
 
-// YENİ: Kat Bazlı Analiz Sonuçları
 export interface StoryAnalysisResult {
   storyIndex: number;
   height: number;
@@ -115,6 +137,7 @@ export interface StoryAnalysisResult {
   eta_bi: number; // Burulma Düzensizliği Katsayısı
   torsionCheck: CheckStatus;
   driftCheck: CheckStatus;
+  isBasement: boolean;
 }
 
 export interface IrregularityResult {
@@ -136,11 +159,6 @@ export interface DetailedBeamResult {
   maxV: number;
 }
 
-export interface SectionOverride {
-  width?: number; 
-  depth?: number;
-}
-
 export interface AppState {
   grid: GridSettings;
   dimensions: Dimensions;
@@ -149,7 +167,7 @@ export interface AppState {
   seismic: SeismicParams;
   materials: MaterialParams;
   rebars: RebarSettings;
-  elementOverrides: Record<string, SectionOverride>; 
+  definedElements: UserElement[]; // CAD Verisi
 }
 
 export interface CalculationResult {

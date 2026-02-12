@@ -3,119 +3,113 @@
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
 
 export const generateModel = (state: AppState): StructuralModel => {
-  const { grid, sections, elementOverrides } = state; // elementOverrides'i buradan al
-  const getDims = (id: string, defaultW: number, defaultD: number) => {
-    const override = elementOverrides?.[id]; // Bu ID için kayıt var mı?
-    return {
-      b: override?.width ?? defaultW, // Varsa özel genişliği, yoksa geneli kullan
-      h: override?.depth ?? defaultD
-    };
-  };
+  const { grid, sections, definedElements, dimensions } = state;
+  
   const nodes: NodeEntity[] = [];
   const columns: ColumnEntity[] = [];
   const beams: BeamEntity[] = [];
   const slabs: SlabEntity[] = [];
 
-
-  // 1. Düğümleri (Nodes) ve Kolonları Oluştur
-  let currentY = 0;
-  // Y aksları döngüsü (Satırlar)
-  // Not: Grid array'i "açıklık" tutuyor. İlk aks 0. noktadır.
-  const ySpacings = [0, ...grid.yAxis.map(a => a.spacing)];
+  // 1. Grid Koordinatlarını Hesapla
   const xSpacings = [0, ...grid.xAxis.map(a => a.spacing)];
+  const ySpacings = [0, ...grid.yAxis.map(a => a.spacing)];
 
-  // Kümülatif koordinatları hesapla
-  const yCoords = ySpacings.map((s, i) => ySpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
-  const xCoords = xSpacings.map((s, i) => xSpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
+  const xCoords = xSpacings.map((_, i) => xSpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
+  const yCoords = ySpacings.map((_, i) => ySpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
 
+  // 2. Tüm Katlar İçin Düğüm Noktaları
   for (let i = 0; i < yCoords.length; i++) {
     for (let j = 0; j < xCoords.length; j++) {
       const nodeId = `N-${j}-${i}`;
-      const x = xCoords[j];
-      const y = yCoords[i];
+      nodes.push({ 
+        id: nodeId, 
+        x: xCoords[j], 
+        y: yCoords[i], 
+        axisX: `X${j + 1}`, 
+        axisY: `Y${i + 1}` 
+      });
+    }
+  }
 
-      // Düğüm Ekle
-      nodes.push({ id: nodeId, x, y, axisX: `X${j + 1}`, axisY: `Y${i + 1}` });
-      const colDims = getDims(`C-${j}-${i}`, sections.colWidth, sections.colDepth);
+  // 3. Kullanıcı Elemanlarını Modele Dönüştür
+  definedElements.forEach(el => {
+    const uniqueId = `${el.id}_S${el.storyIndex}`;
+    const isBasement = el.storyIndex < dimensions.basementCount;
+
+    // --- KOLONLAR ---
+    if (el.type === 'column') {
+      const nodeId = `N-${el.x1}-${el.y1}`;
       columns.push({
-        id: `C-${j}-${i}`,
+        id: uniqueId,
         nodeId: nodeId,
-        b: colDims.b, // Güncellendi
-        h: colDims.h  // Güncellendi
-      });
-
-      // Kolon Ekle (Her düğüme bir kolon varsayıyoruz)
-      columns.push({
-        id: `C-${j}-${i}`,
-        nodeId: nodeId,
-        b: sections.colWidth,
-        h: sections.colDepth
+        b: el.properties?.width || sections.colWidth,
+        h: el.properties?.depth || sections.colDepth,
+        isBasement
       });
     }
-  }
 
-  // 2. Kirişleri Oluştur (Yatay ve Dikey)
+    // --- KİRİŞLER ---
+    else if (el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
+      const n1 = `N-${el.x1}-${el.y1}`;
+      const n2 = `N-${el.x2}-${el.y2}`;
+      
+      const x1_pos = xCoords[el.x1];
+      const y1_pos = yCoords[el.y1];
+      const x2_pos = xCoords[el.x2];
+      const y2_pos = yCoords[el.y2];
+      const length = Math.sqrt(Math.pow(x2_pos - x1_pos, 2) + Math.pow(y2_pos - y1_pos, 2));
 
-  // Yatay Kirişler (X yönünde)
-  for (let i = 0; i < yCoords.length; i++) {
-    for (let j = 0; j < xCoords.length - 1; j++) {
-      const beamIdX = `Bx-${j}-${i}`;
-      const beamDimsX = getDims(beamIdX, sections.beamWidth, sections.beamDepth);
+      let direction: 'X' | 'Y' | 'D' = 'D';
+      let axisId = '';
+      
+      if (Math.abs(y1_pos - y2_pos) < 0.01) { 
+        direction = 'X'; 
+        axisId = `Y${el.y1 + 1}`; 
+      } else if (Math.abs(x1_pos - x2_pos) < 0.01) { 
+        direction = 'Y';
+        axisId = `X${el.x1 + 1}`; 
+      } else {
+        direction = 'D'; // Diagonal
+        axisId = 'D';
+      }
 
-      const startNode = `N-${j}-${i}`;
-      const endNode = `N-${j + 1}-${i}`;
       beams.push({
-        id: beamIdX,
-        startNodeId: startNode,
-        endNodeId: endNode,
-        length: grid.xAxis[j].spacing,
-        axisId: `Y${i + 1}`,
-        direction: 'X',
-        bw: beamDimsX.b, // Güncellendi
-        h: beamDimsX.h   // Güncellendi
-      });
-
-
-    }
-  }
-
-  // Dikey Kirişler (Y yönünde)
-  for (let j = 0; j < xCoords.length; j++) {
-    for (let i = 0; i < yCoords.length - 1; i++) {
-      const startNode = `N-${j}-${i}`;
-      const endNode = `N-${j}-${i + 1}`;
-      const beamIdY = `By-${j}-${i}`;
-      const beamDimsY = getDims(beamIdY, sections.beamWidth, sections.beamDepth);
-      beams.push({
-        id: beamIdY,
-        startNodeId: startNode,
-        endNodeId: endNode,
-        length: grid.yAxis[i].spacing,
-        axisId: `X${j + 1}`,
-        direction: 'Y',
-        bw: beamDimsY.b, // Güncellendi
-        h: beamDimsY.h   // Güncellendi
+        id: uniqueId,
+        startNodeId: n1,
+        endNodeId: n2,
+        length: length,
+        axisId: axisId,
+        direction: direction,
+        bw: el.properties?.width || sections.beamWidth,
+        h: el.properties?.depth || sections.beamDepth,
+        isBasement
       });
     }
-  }
 
-  // 3. Döşemeleri Oluştur (Her kapalı göz için)
-  for (let i = 0; i < yCoords.length - 1; i++) {
-    for (let j = 0; j < xCoords.length - 1; j++) {
-      const n1 = `N-${j}-${i}`;     // Sol Alt
-      const n2 = `N-${j + 1}-${i}`;   // Sağ Alt
-      const n3 = `N-${j + 1}-${i + 1}`; // Sağ Üst
-      const n4 = `N-${j}-${i + 1}`;   // Sol Üst
+    // --- DÖŞEMELER ---
+    else if (el.type === 'slab' && el.x2 !== undefined && el.y2 !== undefined) {
+      const minX = Math.min(el.x1, el.x2);
+      const maxX = Math.max(el.x1, el.x2);
+      const minY = Math.min(el.y1, el.y2);
+      const maxY = Math.max(el.y1, el.y2);
+
+      const n1 = `N-${minX}-${minY}`;
+      const n2 = `N-${maxX}-${minY}`;
+      const n3 = `N-${maxX}-${maxY}`;
+      const n4 = `N-${minX}-${maxY}`;
+
+      const lx = Math.abs(xCoords[maxX] - xCoords[minX]);
+      const ly = Math.abs(yCoords[maxY] - yCoords[minY]);
 
       slabs.push({
-        id: `S-${j}-${i}`,
+        id: uniqueId,
         nodes: [n1, n2, n3, n4],
-        lx: grid.xAxis[j].spacing,
-        ly: grid.yAxis[i].spacing,
+        lx: lx,
+        ly: ly,
         thickness: sections.slabThickness
       });
     }
-  }
+  });
 
   return { nodes, columns, beams, slabs };
 };

@@ -13,15 +13,20 @@ import { DetailedBeamResult, DiagramPoint } from "../types";
 import { createStatus } from "./shared";
 
 export const calculateStructure = (state: AppState): CalculationResult => {
-  const { materials } = state;
+  const { materials, sections } = state;
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
 
   // 1. DÖŞEME HESABI (Yük analizi için gerekli)
-  const { slabResult, q_beam_design_N_m, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m } = solveSlab(state);
+  // q_eq_slab_N_m: Döşemeden gelen yük (Duvar ve Kiriş ağırlığı HARİÇ)
+  const { slabResult, q_eq_slab_N_m, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
+
+  // Referans için varsayılan kiriş ve duvar ağırlıklarını alalım (Deprem hesabı için yaklaşık değerler)
+  const g_beam_self_approx = (sections.beamWidth/100) * (sections.beamDepth/100) * 25000;
+  const g_wall_approx = 3500; // 3.5 kN/m varsayılan
 
   // 2. YAKLAŞIK DEPREM VE KUVVET DAĞILIMI
   // Önce deprem kuvvetlerini hesapla ki FEM'e verebilelim
-  const { seismicResult: tempSeismicRes, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_N_m, g_wall_N_m);
+  const { seismicResult: tempSeismicRes, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_approx, g_wall_approx);
 
   // 3. MODEL VE FEM ANALİZİ
   const model = generateModel(state);
@@ -61,6 +66,32 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const memberResults = new Map<string, DetailedBeamResult>();
 
   model.beams.forEach(beam => {
+     // Kirişe özel yük hesabı
+     // Beam ID formatı: B-X1Y1-X2Y2_S0 gibi (modelGenerator'dan gelen)
+     // Orijinal UserElement'i bulmak için ID eşleştirmesi lazım.
+     // Ancak modelGenerator ID'ye '_S...' ekliyor.
+     const originalId = beam.id.split('_S')[0];
+     // Tam eşleşme için story index'e de bakmamız lazım
+     const parts = beam.id.split('_S');
+     const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
+     
+     // State içindeki kullanıcı elemanını bul (Properties için)
+     // Not: Auto-segmentation yapıldıysa ID değişmiş olabilir.
+     // Ancak segmentasyon sırasında yeni ID'ler UserElement olarak state'e kaydediliyor.
+     const userBeam = state.definedElements.find(e => e.id === originalId || e.id === beam.id.replace(`_S${storyIndex}`, ''));
+     
+     // Kiriş Zati Ağırlığı (Kendi boyutlarından)
+     const bw_m = beam.bw / 100;
+     const h_m = beam.h / 100;
+     const g_beam_self_N_m = bw_m * h_m * 25000;
+
+     // Duvar Yükü (Kullanıcı tanımlı veya varsayılan)
+     const g_wall_N_m = (userBeam?.properties?.wallLoad ?? 3.5) * 1000; // kN/m -> N/m
+
+     // Toplam Tasarım Yükü (1.4G + 1.6Q veya döşemeden gelen 1.4G+1.6Q kombinasyonu q_eq içinde)
+     // q_eq_slab zaten 1.4G + 1.6Q ile hesaplandı
+     const q_beam_design_N_m = q_eq_slab_N_m + 1.4 * g_beam_self_N_m + 1.4 * g_wall_N_m;
+
      const femForces = femResults.memberForces.get(beam.id);
      
      let V_start = 0; 
@@ -74,7 +105,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         M_start = 0; 
      }
 
-     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec);
+     const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
+
+     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec, storyHeight);
 
      // En kritik kiriş sonucunu sakla
      if (!criticalBeamResult || result.beamsResult.as_support_req > criticalBeamResult.as_support_req) {
@@ -119,7 +152,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      });
   });
 
-  if (!criticalBeamResult) criticalBeamResult = solveBeams(state, 5, 10000, 10000, fcd, fctd, Ec).beamsResult;
+  if (!criticalBeamResult) {
+    const h_dummy = state.dimensions.storyHeights[0] || 3;
+    criticalBeamResult = solveBeams(state, 5, 10000, 10000, fcd, fctd, Ec, h_dummy).beamsResult;
+  }
 
   // 6. KOLON TASARIMI (FEM KUVVETLERİ İLE)
   let criticalColumnResult: CalculationResult['columns'] | null = null;
@@ -136,6 +172,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       const connectedBeams = model.beams.filter(b => b.startNodeId === col.nodeId || b.endNodeId === col.nodeId);
       const isConfined = connectedBeams.length >= 3;
       
+      const parts = col.id.split('_S');
+      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
+      const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
+      
       const colRes = solveColumns(
         state,
         Nd_fem > 0 ? Nd_fem : 100000, 
@@ -143,7 +183,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         Md_fem, 
         0, 0, 
         isConfined,
-        fck, fcd, fctd, Ec
+        fck, fcd, fctd, Ec,
+        storyHeight
       );
 
       if(Md_fem > 0) {
@@ -159,7 +200,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   });
 
   if (!criticalColumnResult) {
-       const dummy = solveColumns(state, 100000, 10000, 0, 0, 0, false, fck, fcd, fctd, Ec);
+       const h_dummy = state.dimensions.storyHeights[0] || 3;
+       const dummy = solveColumns(state, 100000, 10000, 0, 0, 0, false, fck, fcd, fctd, Ec, h_dummy);
        criticalColumnResult = dummy.columnsResult;
        criticalJointResult = dummy.jointResult;
   }

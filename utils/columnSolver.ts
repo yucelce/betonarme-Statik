@@ -1,3 +1,4 @@
+
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYK } from "../constants";
 import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement } from "./shared";
@@ -19,7 +20,8 @@ export const solveColumns = (
   fck: number,
   fcd: number,
   fctd: number,
-  Ec: number
+  Ec: number,
+  storyHeight: number
 ): ColumnSolverResult => {
   const { dimensions, sections, rebars } = state;
 
@@ -29,7 +31,7 @@ export const solveColumns = (
   const h_beam_mm = sections.beamDepth * 10;
 
   // Moment (Basit Yaklaşım)
-  const M_elastic_Nmm = (Vt_design_N * (dimensions.h * 1000)) / 2;
+  const M_elastic_Nmm = (Vt_design_N * (storyHeight * 1000)) / 2;
   const Md_design_Nmm = M_elastic_Nmm;
 
   // Donatı
@@ -55,7 +57,7 @@ export const solveColumns = (
 
   // Kesme
   const M_capacity_hardening = Mr_col_Nmm * 1.4;
-  const ln_col_mm = (dimensions.h * 1000) - h_beam_mm;
+  const ln_col_mm = (storyHeight * 1000) - h_beam_mm;
   const Ve_col_N = (2 * M_capacity_hardening) / ln_col_mm;
 
   const d_col_shear = hc_mm - 30; 

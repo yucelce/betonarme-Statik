@@ -1,271 +1,209 @@
 
-// utils/report.tsx
 import React from 'react';
 import { AppState, CalculationResult } from '../types';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine } from 'lucide-react';
 
 interface Props {
   state: AppState;
   results: CalculationResult;
 }
 
-const StatusIcon = ({ isSafe }: { isSafe: boolean }) => 
-  isSafe ? <CheckCircle className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />;
+const StatusBadge = ({ isSafe }: { isSafe: boolean }) => 
+  isSafe ? 
+  <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><CheckCircle className="w-3 h-3"/> Uygun</span> : 
+  <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><XCircle className="w-3 h-3"/> Yetersiz</span>;
+
+const SummaryCard = ({ title, value, subtext, icon: Icon, status, colorClass }: any) => (
+  <div className={`bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between h-full relative overflow-hidden`}>
+      <div className={`absolute top-0 right-0 p-3 opacity-10 ${colorClass}`}>
+          <Icon className="w-16 h-16" />
+      </div>
+      <div>
+          <h4 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">{title}</h4>
+          <div className="text-2xl font-bold text-slate-800">{value}</div>
+          <div className="text-xs text-slate-400 mt-1">{subtext}</div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-50">
+          <StatusBadge isSafe={status} />
+      </div>
+  </div>
+);
 
 const Report: React.FC<Props> = ({ state, results }) => {
+  // Özet Verileri Hazırla
+  const maxColRatio = results.columns.interaction_ratio;
+  const colStatus = results.columns.checks.axial_limit.isSafe && results.columns.checks.shear_capacity.isSafe && results.columns.checks.strongColumn.isSafe;
+  
+  const beamDeflectionRatio = results.beams.deflection / results.beams.deflection_limit;
+  const beamStatus = results.beams.checks.shear.isSafe && results.beams.checks.deflection.isSafe;
+
+  const foundStressRatio = results.foundation.stress_actual / results.foundation.stress_limit;
+  const foundStatus = results.foundation.checks.bearing.isSafe && results.foundation.checks.punching.isSafe;
+
   return (
-    <div className="bg-white p-8 rounded-xl shadow-lg max-w-4xl mx-auto font-serif text-slate-800 space-y-8 border border-slate-200">
+    <div className="max-w-6xl mx-auto space-y-6 font-sans text-slate-800 pb-20">
       
-      {/* BAŞLIK */}
-      <div className="border-b-2 border-slate-800 pb-4 flex justify-between items-end">
+      <div className="flex justify-between items-end border-b border-slate-200 pb-4">
         <div>
-           <h1 className="text-3xl font-bold uppercase tracking-wide">Betonarme Statik Analiz Raporu</h1>
-           <p className="text-sm text-slate-500 mt-1">TS500 & TBDY 2018 Ön Tasarım Sonuçları</p>
+            <h1 className="text-2xl font-bold text-slate-900">Yapısal Analiz Özeti</h1>
+            <p className="text-sm text-slate-500">Performans Göstergeleri ve Kritik Kontroller</p>
         </div>
-        <div className="text-right text-xs">
-          <div>Tarih: {new Date().toLocaleDateString('tr-TR')}</div>
-          <div>Beton: {state.materials.concreteClass} / Çelik: B420C</div>
+        <div className="text-right text-xs text-slate-400">
+            TS500 & TBDY 2018
         </div>
       </div>
 
-      {/* 1. TASARIM VE DEPREM PARAMETRELERİ */}
-      <section>
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700">1. Tasarım Parametreleri ve Deprem Verileri</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
-          <div className="bg-slate-50 p-3 rounded">
-            <span className="block text-xs text-slate-500">Zemin Sınıfı</span>
-            <span className="font-bold">{state.seismic.soilClass}</span>
-          </div>
-          <div className="bg-slate-50 p-3 rounded">
-             <span className="block text-xs text-slate-500">Bina Ağırlığı (W)</span>
-             <span className="font-bold">{results.seismic.building_weight.toFixed(1)} kN</span>
-          </div>
-          <div className="bg-slate-50 p-3 rounded">
-             <span className="block text-xs text-slate-500">Taban Kesme (Vt)</span>
-             <span className="font-bold">{results.seismic.base_shear.toFixed(1)} kN</span>
-          </div>
-          <div className="bg-slate-50 p-3 rounded">
-             <span className="block text-xs text-slate-500">Periyot (T1)</span>
-             <span className="font-bold">{results.seismic.period_t1.toFixed(3)} sn</span>
-          </div>
-        </div>
-      </section>
+      {/* 1. DASHBOARD KARTLARI */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <SummaryCard 
+             title="Kritik Kolon Kapasitesi"
+             value={`%${(maxColRatio * 100).toFixed(0)}`}
+             subtext="Maksimum Eksenel Yük Oranı"
+             icon={Box}
+             status={colStatus}
+             colorClass="text-blue-600"
+          />
+          <SummaryCard 
+             title="Kiriş Sehim Durumu"
+             value={`%${(beamDeflectionRatio * 100).toFixed(0)}`}
+             subtext={`Maks: ${results.beams.deflection.toFixed(1)} mm / Lim: ${results.beams.deflection_limit.toFixed(1)} mm`}
+             icon={Activity}
+             status={beamStatus}
+             colorClass="text-purple-600"
+          />
+          <SummaryCard 
+             title="Temel & Zemin"
+             value={`%${(foundStressRatio * 100).toFixed(0)}`}
+             subtext={`Gerilme: ${results.foundation.stress_actual.toFixed(1)} kPa`}
+             icon={Layers}
+             status={foundStatus}
+             colorClass="text-green-600"
+          />
+      </div>
 
-      {/* 2. DÜZENSİZLİK VE GÖRELİ ÖTELEME ANALİZİ */}
-      <section>
-         <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            2. Düzensizlik Analizi (TBDY 2018)
-            <StatusIcon isSafe={results.seismic.story_drift.check.isSafe && results.seismic.irregularities.A1.isSafe} />
-         </h2>
-         
-         {/* KAT TABLOSU */}
-         <div className="overflow-x-auto border rounded-lg">
-           <table className="w-full text-xs text-center">
-              <thead className="bg-slate-100 uppercase font-bold text-slate-600">
-                <tr>
-                  <th className="p-2 border-r">Kat</th>
-                  <th className="p-2 border-r">Yük (Fi)</th>
-                  <th className="p-2 border-r">d_max (mm)</th>
-                  <th className="p-2 border-r">d_avg (mm)</th>
-                  <th className="p-2 border-r text-blue-700">η_bi (A1)</th>
-                  <th className="p-2 border-r">Drift (R)</th>
-                  <th className="p-2">Sonuç</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {results.seismic.irregularities.A1.details.slice().reverse().map(story => (
-                  <tr key={story.storyIndex} className={story.eta_bi > 1.2 || !story.driftCheck.isSafe ? 'bg-red-50' : ''}>
-                    <td className="p-2 border-r font-bold">{story.storyIndex}</td>
-                    <td className="p-2 border-r">{story.forceApplied.toFixed(1)} kN</td>
-                    <td className="p-2 border-r">{story.dispMax.toFixed(2)}</td>
-                    <td className="p-2 border-r">{story.dispAvg.toFixed(2)}</td>
-                    <td className={`p-2 border-r font-bold ${story.eta_bi > 1.2 ? 'text-red-600' : 'text-slate-800'}`}>
-                       {story.eta_bi.toFixed(2)}
-                    </td>
-                    <td className="p-2 border-r">{story.driftRatio.toFixed(5)}</td>
-                    <td className="p-2">
-                       {story.driftCheck.isSafe && story.torsionCheck.isSafe ? (
-                          <span className="text-green-600 font-bold">✔ OK</span>
-                       ) : (
-                          <span className="text-red-600 font-bold">❌ Limit Aşımı</span>
-                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-           </table>
-         </div>
-         <div className="mt-2 text-[10px] text-slate-500 flex gap-4">
-            <span>* A1 Burulma Sınırı: η_bi > 1.20</span>
-            <span>* Göreli Öteleme Sınırı: R > 0.008</span>
-         </div>
-      </section>
-
-      {/* 3. DÖŞEME ANALİZİ */}
-      <section>
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            3. Döşeme Analizi
-            <StatusIcon isSafe={results.slab.status.isSafe} />
-        </h2>
-        <table className="w-full text-sm text-left">
-           <thead className="bg-slate-100 text-xs uppercase">
-             <tr>
-               <th className="p-2">Kontrol Tipi</th>
-               <th className="p-2">Değer</th>
-               <th className="p-2">Sınır / Gereken</th>
-               <th className="p-2">Sonuç</th>
-             </tr>
-           </thead>
-           <tbody className="divide-y">
-             <tr>
-                <td className="p-2 font-medium">Kalınlık Kontrolü</td>
-                <td className="p-2">{state.sections.slabThickness} cm</td>
-                <td className="p-2">min {Math.max(results.slab.min_thickness_calculated, results.slab.min_thickness_limit).toFixed(1)} cm</td>
-                <td className="p-2 text-xs">{results.slab.thicknessStatus.message}</td>
-             </tr>
-             <tr>
-                <td className="p-2 font-medium">Eğilme Donatısı</td>
-                <td className="p-2">Ø{state.rebars.slabDia}/{results.slab.spacing}</td>
-                <td className="p-2">As_req: {results.slab.as_req.toFixed(0)} mm²/m</td>
-                <td className="p-2 text-green-600 font-bold">Yeterli</td>
-             </tr>
-           </tbody>
-        </table>
-      </section>
-
-      {/* 4. KRİTİK KİRİŞ KONTROLLERİ */}
-      <section>
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            4. Kritik Kiriş Kontrolleri
-            <StatusIcon isSafe={results.beams.checks.shear.isSafe && results.beams.checks.deflection.isSafe} />
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white border rounded-lg p-4">
-               <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">Eğilme ve Donatı</h3>
-               <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                     <span>Mesnet Momenti:</span>
-                     <span>{results.beams.moment_support.toFixed(1)} kNm</span>
-                  </div>
-                  <div className="flex justify-between border-b pb-2">
-                     <span>Açıklık Momenti:</span>
-                     <span>{results.beams.moment_span.toFixed(1)} kNm</span>
-                  </div>
-                  <div className="flex justify-between pt-1">
-                     <span>Seçilen Mesnet:</span>
-                     <span className="font-mono bg-slate-100 px-1 rounded">{results.beams.count_support}Ø{state.rebars.beamMainDia}</span>
-                  </div>
-                  <div className="flex justify-between">
-                     <span>Seçilen Açıklık:</span>
-                     <span className="font-mono bg-slate-100 px-1 rounded">{results.beams.count_span}Ø{state.rebars.beamMainDia}</span>
-                  </div>
-               </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* 2. DEPREM VE DÜZENSİZLİK */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-orange-500" /> Deprem Analizi (TBDY 2018)
+            </h3>
+            
+            <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                    <span className="text-sm font-medium">Bina Ağırlığı (W)</span>
+                    <span className="font-mono font-bold">{results.seismic.building_weight.toFixed(1)} kN</span>
+                </div>
+                <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                    <span className="text-sm font-medium">Taban Kesme Kuvveti (Vt)</span>
+                    <span className="font-mono font-bold">{results.seismic.base_shear.toFixed(1)} kN</span>
+                </div>
+                
+                {/* Düzensizlik Tablosu */}
+                <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-100 font-bold text-slate-600">
+                            <tr>
+                                <th className="p-2">Düzensizlik</th>
+                                <th className="p-2">Durum</th>
+                                <th className="p-2 text-right">Değer</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            <tr>
+                                <td className="p-2">A1 - Burulma Düzensizliği</td>
+                                <td className="p-2"><StatusBadge isSafe={results.seismic.irregularities.A1.isSafe} /></td>
+                                <td className="p-2 text-right font-mono">η = {results.seismic.irregularities.A1.eta_bi_max.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                                <td className="p-2">Göreli Kat Ötelemesi</td>
+                                <td className="p-2"><StatusBadge isSafe={results.seismic.story_drift.check.isSafe} /></td>
+                                <td className="p-2 text-right font-mono">R = {results.seismic.story_drift.drift_ratio.toFixed(5)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
+        </section>
 
-            <div className="bg-white border rounded-lg p-4">
-               <h3 className="text-xs font-bold uppercase text-slate-500 mb-2">Kesme ve Sehim</h3>
-               <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                     <span>Kesme Kuvveti (Vd):</span>
-                     <span className={results.beams.checks.shear.isSafe ? 'text-slate-800' : 'text-red-600 font-bold'}>
-                        {results.beams.shear_design.toFixed(1)} kN
-                     </span>
-                  </div>
-                   <div className="flex justify-between text-xs text-slate-500">
-                     <span>Kapasite (Vr_max):</span>
-                     <span>{results.beams.shear_limit.toFixed(1)} kN</span>
-                  </div>
-                  <div className="flex justify-between items-center border-t pt-2">
-                     <span>Etriye:</span>
-                     <span className="font-mono bg-slate-100 px-1 rounded">{results.beams.shear_reinf_type}</span>
-                  </div>
-                   <div className="flex justify-between items-center border-t pt-2">
-                     <span>Sehim:</span>
-                     <div className="text-right">
-                        <span className={results.beams.checks.deflection.isSafe ? 'text-green-600' : 'text-red-600'}>
-                             {results.beams.deflection.toFixed(1)} mm
+        {/* 3. KRİTİK ELEMAN DETAYLARI */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-yellow-500" /> Kritik Eleman Kontrolleri
+            </h3>
+            
+            <div className="space-y-3 text-sm">
+                <div className="p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                    <div className="flex justify-between font-bold mb-1">
+                        <span>Güçlü Kolon Kontrólu</span>
+                        <span className={results.columns.checks.strongColumn.isSafe ? 'text-green-600' : 'text-red-600'}>
+                            {results.columns.strong_col_ratio.toFixed(2)} {results.columns.checks.strongColumn.isSafe ? '≥' : '<'} 1.20
                         </span>
-                        <span className="text-[10px] text-slate-400 block">Limit: {results.beams.deflection_limit.toFixed(1)} mm</span>
-                     </div>
-                  </div>
-               </div>
-            </div>
-        </div>
-      </section>
+                    </div>
+                    <div className="text-xs text-slate-500">Kolon momenti kiriş momentlerinden %20 fazla olmalıdır.</div>
+                </div>
 
-       {/* 5. KRİTİK KOLON KONTROLLERİ */}
-      <section>
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            5. Kritik Kolon Kontrolleri
-            <StatusIcon isSafe={results.columns.checks.axial_limit.isSafe && results.columns.checks.shear_capacity.isSafe} />
-        </h2>
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-                <thead className="bg-slate-100 text-xs text-slate-600 uppercase">
+                <div className="p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                    <div className="flex justify-between font-bold mb-1">
+                        <span>Kolon Kesme Güvenliği (Ve)</span>
+                        <span className={results.columns.checks.shear_capacity.isSafe ? 'text-green-600' : 'text-red-600'}>
+                             {results.columns.shear.Ve.toFixed(1)} kN
+                        </span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500 mt-1">
+                         <span>Kapasite (Vr): {results.columns.shear.Vr.toFixed(1)} kN</span>
+                         <span>Sargı: Ø{results.columns.confinement.dia_used}/{results.columns.confinement.s_conf/10}</span>
+                    </div>
+                </div>
+
+                <div className="p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                    <div className="flex justify-between font-bold mb-1">
+                        <span>Temel Zımbalama</span>
+                        <StatusBadge isSafe={results.foundation.checks.punching.isSafe} />
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">
+                        Gerilme: {results.foundation.punching_stress.toFixed(2)} MPa (Limit: {results.foundation.punching_capacity.toFixed(2)} MPa)
+                    </div>
+                </div>
+            </div>
+        </section>
+
+      </div>
+
+      {/* DETAY TABLOSU (KATLAR) */}
+      <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-50 p-4 border-b font-bold text-slate-700 text-sm">
+              Kat Bazlı Deprem Analizi Detayları
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-center">
+                <thead className="text-slate-500 font-bold border-b">
                     <tr>
-                        <th className="p-2 text-left">Kontrol</th>
-                        <th className="p-2 text-right">Talep</th>
-                        <th className="p-2 text-right">Kapasite / Limit</th>
-                        <th className="p-2 text-center">Durum</th>
+                        <th className="p-3">Kat</th>
+                        <th className="p-3">Kuvvet (Fi)</th>
+                        <th className="p-3">Deplasman (d)</th>
+                        <th className="p-3">Burulma (η)</th>
+                        <th className="p-3">Drift (R)</th>
+                        <th className="p-3">Durum</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y">
-                    <tr>
-                        <td className="p-2 font-medium">Eksenel Yük (Nd)</td>
-                        <td className="p-2 text-right">{results.columns.axial_load_design.toFixed(0)} kN</td>
-                        <td className="p-2 text-right">{results.columns.axial_capacity_max.toFixed(0)} kN</td>
-                        <td className="p-2 text-center text-xs">{results.columns.checks.axial_limit.isSafe ? '✔ OK' : '❌ Aşıldı'}</td>
-                    </tr>
-                    <tr>
-                        <td className="p-2 font-medium">Güçlü Kolon (Mcol/Mbeam)</td>
-                        <td className="p-2 text-right">{results.columns.strong_col_ratio.toFixed(2)}</td>
-                        <td className="p-2 text-right">min 1.20</td>
-                        <td className="p-2 text-center text-xs">
-                            {results.columns.checks.strongColumn.isSafe ? '✔ OK' : <span className="text-red-600 font-bold">❌ Zayıf</span>}
-                        </td>
-                    </tr>
-                     <tr>
-                        <td className="p-2 font-medium">Kesme Güvenliği (Ve)</td>
-                        <td className="p-2 text-right">{results.columns.shear.Ve.toFixed(1)} kN</td>
-                        <td className="p-2 text-right">{results.columns.shear.Vr.toFixed(1)} kN</td>
-                        <td className="p-2 text-center text-xs">{results.columns.checks.shear_capacity.isSafe ? '✔ OK' : '❌ Yetersiz'}</td>
-                    </tr>
-                    <tr>
-                        <td className="p-2 font-medium">Sargı Donatısı</td>
-                        <td className="p-2 text-right">Ash: {results.columns.confinement.Ash_prov.toFixed(0)} mm²</td>
-                        <td className="p-2 text-right">Req: {results.columns.confinement.Ash_req.toFixed(0)} mm²</td>
-                        <td className="p-2 text-center text-xs font-mono">
-                             Ø{results.columns.confinement.dia_used}/{results.columns.confinement.s_conf/10}/{results.columns.confinement.s_middle/10}
-                        </td>
-                    </tr>
+                    {results.seismic.irregularities.A1.details.slice().reverse().map(s => (
+                        <tr key={s.storyIndex} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold">{s.storyIndex}. Kat</td>
+                            <td className="p-3">{s.forceApplied.toFixed(1)} kN</td>
+                            <td className="p-3">{s.dispMax.toFixed(2)} mm</td>
+                            <td className={`p-3 font-bold ${s.eta_bi > 1.2 ? 'text-red-600' : 'text-slate-600'}`}>{s.eta_bi.toFixed(2)}</td>
+                            <td className="p-3">{s.driftRatio.toFixed(5)}</td>
+                            <td className="p-3 flex justify-center">
+                                <StatusBadge isSafe={s.driftCheck.isSafe && s.torsionCheck.isSafe} />
+                            </td>
+                        </tr>
+                    ))}
                 </tbody>
             </table>
-        </div>
+          </div>
       </section>
-
-       {/* 6. TEMEL KONTROLLERİ */}
-      <section className="break-inside-avoid">
-        <h2 className="font-bold text-lg border-b border-slate-300 mb-3 text-slate-700 flex items-center gap-2">
-            6. Temel Kontrolleri
-            <StatusIcon isSafe={results.foundation.checks.bearing.isSafe && results.foundation.checks.punching.isSafe} />
-        </h2>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-             <div className={`p-4 rounded border ${results.foundation.checks.bearing.isSafe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                 <div className="font-bold mb-1">Zemin Gerilmesi</div>
-                 <div className="text-2xl font-bold">{results.foundation.stress_actual.toFixed(1)} <span className="text-sm font-normal">kPa</span></div>
-                 <div className="text-xs mt-1">Limit: {results.foundation.stress_limit} kPa</div>
-             </div>
-             <div className={`p-4 rounded border ${results.foundation.checks.punching.isSafe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                 <div className="font-bold mb-1">Zımbalama Kontrolü</div>
-                 <div className="text-2xl font-bold">{results.foundation.punching_stress.toFixed(2)} <span className="text-sm font-normal">MPa</span></div>
-                 <div className="text-xs mt-1">Kapasite: {results.foundation.punching_capacity.toFixed(2)} MPa</div>
-             </div>
-         </div>
-      </section>
-
-      <div className="text-center text-[10px] text-slate-400 mt-8 pt-4 border-t">
-        Not: Bu rapor ön tasarım amaçlıdır. Nihai projeler için detaylı analiz ve ilgili yönetmeliklerin tam kontrolü gereklidir.
-      </div>
 
     </div>
   );

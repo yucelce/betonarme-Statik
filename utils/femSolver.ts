@@ -10,7 +10,7 @@ interface Node3D {
   id: number;
   x: number; y: number; z: number;
   isFixed: boolean;
-  floorIndex: number; // 0 = zemin, 1 = 1.kat, vs.
+  floorIndex: number; // 0 = zemin/bodrum
   dofIndices: number[]; // 6 DOF: dx, dy, dz, rx, ry, rz
 }
 
@@ -20,6 +20,7 @@ interface Element3D {
   node1Index: number;
   node2Index: number;
   E: number; G: number; A: number; Iy: number; Iz: number; J: number;
+  floorIndex: number;
 }
 
 export interface FemResult {
@@ -30,8 +31,6 @@ export interface FemResult {
   storyAnalysis: StoryAnalysisResult[];
 }
 
-// --- YARDIMCI MATRİS FONKSİYONLARI ---
-
 // 12x12 Lokal Rijitlik Matrisi
 const getLocalStiffnessMatrix = (el: Element3D, L: number): Matrix => {
   const { E, G, A, Iy, Iz, J } = el;
@@ -41,11 +40,9 @@ const getLocalStiffnessMatrix = (el: Element3D, L: number): Matrix => {
      k.set([c, r], val); // Simetri
   };
 
-  // Eksenel (x)
   const Ax = (E * A) / L;
   set(0,0, Ax); set(0,6, -Ax); set(6,6, Ax);
 
-  // Burulma (rx)
   const GJ = (G * J) / L;
   set(3,3, GJ); set(3,9, -GJ); set(9,9, GJ);
 
@@ -86,12 +83,9 @@ const getTransformationMatrix = (n1: Node3D, n2: Node3D): Matrix => {
 
   let r = zeros(3, 3) as Matrix;
 
-  // Düşey eleman (Kolon) kontrolü
   if (Math.abs(cz) > 0.99) {
-     // Kolon: Global Z ekseniyle çakışık
      r = matrix([[0, 0, cz], [0, 1, 0], [-cz, 0, 0]]);
   } else {
-     // Yatay/Eğik Eleman (Kiriş)
      const D = Math.sqrt(cx*cx + cy*cy);
      r = matrix([
          [cx, cy, cz],
@@ -108,15 +102,11 @@ const getTransformationMatrix = (n1: Node3D, n2: Node3D): Matrix => {
 // --- ANA ÇÖZÜCÜ ---
 
 export const solveFEM = (state: AppState, seismicForces: number[]): FemResult => {
-  const { materials, dimensions, sections, grid } = state;
+  const { materials, dimensions, sections, grid, definedElements } = state;
   const props = getConcreteProperties(materials.concreteClass);
-  const E_mod = props.Ec * 1000; // kN/m2 -> N/m2 değil, kN/m2 kullanıyoruz. 
-  // DİKKAT: Diğer modüllerde birimler N ve mm iken burada kN ve m çalışıyoruz.
-  // E = 30000 MPa = 30,000,000 kN/m2
-  const E_used = E_mod; 
-  const G_mod = E_used / 2.4;
-
-  // 1. Düğüm ve Elemanları Oluştur
+  const E_base = props.Ec * 1000; // kN/m2
+  
+  // Düğüm ve Elemanları Oluştur
   const nodes: Node3D[] = [];
   const elements: Element3D[] = [];
   
@@ -131,7 +121,11 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
   let dofCnt = 0;
 
   for (let i = 0; i <= dimensions.storyCount; i++) {
-     const z = i * dimensions.h;
+     let z = 0;
+     for (let k = 0; k < i; k++) {
+         z += dimensions.storyHeights[k] || 3;
+     }
+
      const isFixed = (i === 0);
      for (let r = 0; r < ny; r++) {
        for (let c = 0; c < nx; c++) {
@@ -146,57 +140,56 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
      }
   }
 
-  // Kesit Özellikleri (m biriminde)
-  const colSec = {
-      A: (sections.colWidth * sections.colDepth) / 10000,
-      Iy: (sections.colWidth * Math.pow(sections.colDepth,3)) / 1200000000 * 0.7, 
-      Iz: (sections.colDepth * Math.pow(sections.colWidth,3)) / 1200000000 * 0.7,
-      J: 0.001 
-  };
-  const beamSec = {
-      A: (sections.beamWidth * sections.beamDepth) / 10000,
-      Iy: (sections.beamDepth * Math.pow(sections.beamWidth,3)) / 1200000000 * 0.35,
-      Iz: (sections.beamWidth * Math.pow(sections.beamDepth,3)) / 1200000000 * 0.35,
-      J: 0.001
-  };
+  // Elemanları Modelden Al (modelGenerator'a gerek yok, user defined elements ile doğrudan çalışabiliriz)
+  // Ancak coordinate mapping için grid index kullanıyoruz.
+  
+  // RİJİT BODRUM KATSAYISI
+  const BASEMENT_RIGIDITY_FACTOR = 10.0;
 
-  // Eleman Tanımları
-  // Kolonlar
-  for (let i = 0; i < dimensions.storyCount; i++) {
-     for (let j = 0; j < nPerFl; j++) {
-        elements.push({
-            id: `C-${j%nx}-${Math.floor(j/nx)}`, // ID formatını modelGenerator ile eşledik
-            type: 'column', node1Index: i*nPerFl+j, node2Index: (i+1)*nPerFl+j,
-            E: E_used, G: G_mod, ...colSec
-        });
-     }
-  }
-  // Kirişler
-  for (let i = 1; i <= dimensions.storyCount; i++) {
-     const off = i * nPerFl;
-     // X Yönü
-     for (let r = 0; r < ny; r++) {
-         for (let c = 0; c < nx - 1; c++) {
-             elements.push({
-                 id: `Bx-${c}-${r}`, type: 'beam',
-                 node1Index: off + r*nx + c, node2Index: off + r*nx + c + 1,
-                 E: E_used, G: G_mod, ...beamSec
-             });
-         }
-     }
-     // Y Yönü
-     for (let c = 0; c < nx; c++) {
-         for (let r = 0; r < ny - 1; r++) {
-             elements.push({
-                 id: `By-${c}-${r}`, type: 'beam',
-                 node1Index: off + r*nx + c, node2Index: off + (r+1)*nx + c,
-                 E: E_used, G: G_mod, ...beamSec
-             });
-         }
-     }
-  }
+  definedElements.forEach(el => {
+      const isBasement = el.storyIndex < dimensions.basementCount;
+      const E_used = isBasement ? E_base * BASEMENT_RIGIDITY_FACTOR : E_base;
+      const G_used = E_used / 2.4;
 
-  // 2. Global Matris
+      if(el.type === 'column') {
+         const w = (el.properties?.width || sections.colWidth) / 100; // m
+         const d = (el.properties?.depth || sections.colDepth) / 100; // m
+         const n1 = el.storyIndex * nPerFl + el.y1 * nx + el.x1;
+         const n2 = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
+         
+         elements.push({
+            id: `${el.id}_S${el.storyIndex}`,
+            type: 'column',
+            node1Index: n1, node2Index: n2,
+            E: E_used, G: G_used,
+            A: w * d,
+            Iy: (w * d**3)/12 * 0.7,
+            Iz: (d * w**3)/12 * 0.7,
+            J: 0.001,
+            floorIndex: el.storyIndex
+         });
+      } else if (el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
+         const w = (el.properties?.width || sections.beamWidth) / 100;
+         const d = (el.properties?.depth || sections.beamDepth) / 100;
+         const n1 = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
+         const n2 = (el.storyIndex + 1) * nPerFl + el.y2 * nx + el.x2;
+
+         elements.push({
+            id: `${el.id}_S${el.storyIndex}`,
+            type: 'beam',
+            node1Index: n1, node2Index: n2,
+            E: E_used, G: G_used,
+            A: w * d,
+            Iy: (d * w**3)/12 * 0.35,
+            Iz: (w * d**3)/12 * 0.35,
+            J: 0.001,
+            floorIndex: el.storyIndex
+         });
+      }
+  });
+
+
+  // Global Matris
   const K = zeros(dofCnt, dofCnt) as Matrix;
   
   elements.forEach(el => {
@@ -219,30 +212,27 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       }
   });
 
-  // 3. Yük Vektörü (Gerçek Deprem Yükleri)
+  // Yük Vektörü
   const F = zeros(dofCnt, 1) as Matrix;
-  
-  // Kat deprem yüklerini düğümlere dağıt
-  // seismicForces array indeksi: 0 -> 1. Kat, 1 -> 2. Kat ...
   const nodesPerFloor = nx * ny;
   
   nodes.forEach(n => {
       if (!n.isFixed && n.floorIndex > 0) {
-          const forceIndex = n.floorIndex - 1; // Array 0-based
+          // Bodrum kat hariç tutulmaz, kuvvetler tüm katlara etki ettirilir.
+          // Ancak seismicSolver'da kat kuvvetleri (Fi) bodrum katlar dahil hesaplanmış olmalı 
+          // (fakat bodrum kütlesi periyot hesabına katılmaz).
+          const forceIndex = n.floorIndex - 1; 
           if (forceIndex < seismicForces.length) {
               const F_story_total_N = seismicForces[forceIndex];
               const F_story_total_kN = F_story_total_N / 1000;
               const F_node = F_story_total_kN / nodesPerFloor;
               
-              // X yönünde uygula (Basitlik için sadece X depremi analizi)
-              if (n.dofIndices[0] !== -1) {
-                  F.set([n.dofIndices[0], 0], F_node);
-              }
+              if (n.dofIndices[0] !== -1) F.set([n.dofIndices[0], 0], F_node);
           }
       }
   });
 
-  // 4. Çözüm
+  // Çözüm
   let U: Matrix;
   try {
       U = multiply(inv(K), F);
@@ -251,7 +241,7 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       return { nodes, elements, displacements: [], memberForces: new Map(), storyAnalysis: [] };
   }
 
-  // 5. Sonuçların İşlenmesi
+  // Sonuçlar
   const memberForces = new Map<string, { fx: number; fy: number; fz: number; mx: number; my: number; mz: number }>();
   
   elements.forEach(el => {
@@ -270,21 +260,16 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       const f_loc = multiply(k_loc, u_loc) as Matrix;
 
       memberForces.set(el.id, {
-          fx: f_loc.get([0,0]),
-          fy: f_loc.get([1,0]),
-          fz: f_loc.get([2,0]), 
-          mx: f_loc.get([3,0]), 
-          my: f_loc.get([4,0]), 
-          mz: f_loc.get([5,0]) 
+          fx: f_loc.get([0,0]), fy: f_loc.get([1,0]), fz: f_loc.get([2,0]), 
+          mx: f_loc.get([3,0]), my: f_loc.get([4,0]), mz: f_loc.get([5,0]) 
       });
   });
 
-  // --- 6. KAT ANALİZİ VE DÜZENSİZLİK KONTROLÜ (POST-PROCESSING) ---
+  // Kat Analizi
   const storyAnalysis: StoryAnalysisResult[] = [];
   const u_data = (U as any)._data;
-
-  // Düğümlerin deplasmanlarını map'e al
   const nodeDisps = new Map<number, {dx: number, dy: number}>();
+  
   nodes.forEach(n => {
       const dx = n.dofIndices[0] !== -1 ? u_data[n.dofIndices[0]][0] : 0;
       const dy = n.dofIndices[1] !== -1 ? u_data[n.dofIndices[1]][0] : 0;
@@ -292,41 +277,41 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
   });
 
   for (let i = 1; i <= dimensions.storyCount; i++) {
-      // Bu kata ait düğümler
+      const isBasement = (i - 1) < dimensions.basementCount; // i=1 -> Zemin Kat (0. indis), BasementCount=1 ise True
+      
       const storyNodes = nodes.filter(n => n.floorIndex === i);
       const lowerNodes = nodes.filter(n => n.floorIndex === i - 1);
 
-      // X Yönü Deplasmanları (Sadece X depremi uyguladığımız için)
       const displacements = storyNodes.map(n => nodeDisps.get(n.id)?.dx || 0);
-      
-      // Göreli Öteleme için alt katın ortalama deplasmanını al
       const lowerDisps = lowerNodes.map(n => nodeDisps.get(n.id)?.dx || 0);
       const avgLowerDisp = lowerDisps.reduce((a, b) => a + b, 0) / (lowerDisps.length || 1);
 
-      // Göreli Ötelemeler
       const drifts = displacements.map(d => Math.abs(d - avgLowerDisp));
-      
       const maxDrift = Math.max(...drifts);
       const avgDrift = drifts.reduce((a,b) => a+b, 0) / drifts.length;
       
-      // A1 Burulma Düzensizliği Katsayısı
       const eta_bi = avgDrift > 0 ? maxDrift / avgDrift : 1.0;
-
-      // Göreli Öteleme Oranı
-      const h_mm = dimensions.h * 1000;
-      const driftRatio = (maxDrift * 1000) / h_mm; // Metre -> mm çevrimi
+      const h_mm = (dimensions.storyHeights[i-1] || 3) * 1000;
+      const driftRatio = (maxDrift * 1000) / h_mm; 
       
+      let z = 0;
+      for (let k = 0; k < i; k++) { z += dimensions.storyHeights[k] || 3; }
+
+      // Bodrum katlarda deplasman kontrolü gevşetilebilir veya rijit olduğu için çok düşük çıkar.
+      const driftLimit = 0.008;
+
       storyAnalysis.push({
           storyIndex: i,
-          height: i * dimensions.h,
-          forceApplied: (seismicForces[i-1] || 0) / 1000, // kN
-          dispAvg: (avgDrift * 1000), // mm
-          dispMax: (maxDrift * 1000), // mm
-          drift: (maxDrift * 1000), // mm
+          height: z,
+          forceApplied: (seismicForces[i-1] || 0) / 1000,
+          dispAvg: (avgDrift * 1000),
+          dispMax: (maxDrift * 1000),
+          drift: (maxDrift * 1000),
           driftRatio: driftRatio,
           eta_bi: eta_bi,
-          torsionCheck: createStatus(eta_bi <= 1.2, 'A1 Yok', 'A1 Düzensizliği Var', `η=${eta_bi.toFixed(2)}`),
-          driftCheck: createStatus(driftRatio <= 0.008, 'OK', 'Sınır Aşıldı', `R=${driftRatio.toFixed(4)}`)
+          torsionCheck: createStatus(eta_bi <= 1.2, 'A1 Yok', 'A1 Düzensizliği', `η=${eta_bi.toFixed(2)}`),
+          driftCheck: createStatus(driftRatio <= driftLimit, 'OK', 'Sınır Aşıldı', `R=${driftRatio.toFixed(4)}`),
+          isBasement: isBasement
       });
   }
 

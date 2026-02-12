@@ -17,7 +17,8 @@ export const solveBeams = (
   Vt_total_N: number,
   fcd: number,
   fctd: number,
-  Ec: number
+  Ec: number,
+  storyHeight: number
 ): BeamSolverResult => {
   const { dimensions, sections, rebars, grid } = state; // grid eklendi
   
@@ -33,7 +34,7 @@ export const solveBeams = (
   // Kesme kuvvetini kolon sayısına oranla (Yaklaşık Yöntem)
   const V_col_avg_N = Vt_total_N / Math.max(totalCols, 1); 
   
-  const M_col_seismic_Nmm = (V_col_avg_N * (dimensions.h * 1000)) / 2;
+  const M_col_seismic_Nmm = (V_col_avg_N * (storyHeight * 1000)) / 2;
   const joint_factor = 1.0; 
   const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor;
 
