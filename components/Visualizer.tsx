@@ -1,6 +1,7 @@
 
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { AppState, EditorTool, UserElement, ViewMode } from '../types';
+import { AppState, EditorTool, UserElement, ViewMode, CalculationResult } from '../types';
 import { generateModel } from '../utils/modelGenerator';
 import { Scan, MousePointer2, Box } from 'lucide-react';
 
@@ -15,6 +16,7 @@ interface Props {
   onElementSelect?: (id: string | null) => void;
   selectedElementId?: string | null;
   interactive?: boolean; 
+  results?: CalculationResult | null; // Sonuçlar opsiyonel olarak gelir
 }
 
 const Visualizer: React.FC<Props> = ({ 
@@ -27,7 +29,8 @@ const Visualizer: React.FC<Props> = ({
   onElementRemove, 
   onElementSelect, 
   selectedElementId,
-  interactive = true
+  interactive = true,
+  results
 }) => {
   const { dimensions, definedElements, grid } = state;
   const model = useMemo(() => generateModel(state), [state]);
@@ -44,6 +47,40 @@ const Visualizer: React.FC<Props> = ({
   const [hoverSegment, setHoverSegment] = useState<{x1: number, y1: number, x2: number, y2: number} | null>(null);
   const [hoverCell, setHoverCell] = useState<{x: number, y: number} | null>(null);
   const [dragStartNode, setDragStartNode] = useState<{x: number, y: number} | null>(null);
+
+  // --- RENK FONKSİYONLARI ---
+  const getElementColor = (el: UserElement, isSelected: boolean) => {
+      // Eğer seçiliyse
+      if (isSelected) return "#fcd34d"; // Sarı (Highlight)
+
+      // Eğer sonuçlar varsa, duruma göre boya
+      if (results && results.elementResults) {
+          const status = results.elementResults.get(el.id);
+          if (status) {
+              return status.isSafe ? "#22c55e" : "#ef4444"; // Yeşil (Safe) / Kırmızı (Unsafe)
+          }
+      }
+
+      // Varsayılan renkler (Analiz öncesi)
+      switch (el.type) {
+          case 'slab': return "#fed7aa";
+          case 'beam': return "#94a3b8";
+          case 'shear_wall': return "#334155";
+          case 'column': return "#475569";
+          default: return "#cbd5e1";
+      }
+  };
+  
+  const getStrokeColor = (el: UserElement, isSelected: boolean) => {
+       if (isSelected) return "#2563eb";
+       if (results && results.elementResults) {
+           const status = results.elementResults.get(el.id);
+           if (status) {
+               return status.isSafe ? "#15803d" : "#b91c1c"; // Koyu Yeşil / Koyu Kırmızı
+           }
+       }
+       return el.type === 'beam' ? "#94a3b8" : "none";
+  };
 
   // --- KOORDİNAT SİSTEMİ ---
   const canvasSize = 600;
@@ -285,7 +322,8 @@ const Visualizer: React.FC<Props> = ({
             const sh = Math.abs(yCoords[maxY] - yCoords[minY]);
             
             const isSel = selectedElementId === el.id;
-            const fillColor = isSel ? "#fcd34d" : "#fed7aa";
+            const fillColor = getElementColor(el, isSel);
+            const opacity = (results && !isSel) ? 0.6 : 0.4;
             const hoverClass = activeTool === 'delete' ? 'hover:fill-red-400' : '';
 
             // Çapraz Kiriş Kontrolü
@@ -318,13 +356,13 @@ const Visualizer: React.FC<Props> = ({
                 
                 return (
                     <g key={el.id} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} >
-                        <polygon points={points1} fill={fillColor} fillOpacity={0.4} stroke="none" />
-                        <polygon points={points2} fill={fillColor} fillOpacity={0.4} stroke="none" />
+                        <polygon points={points1} fill={fillColor} fillOpacity={opacity} stroke="none" />
+                        <polygon points={points2} fill={fillColor} fillOpacity={opacity} stroke="none" />
                     </g>
                 );
             }
 
-            return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={0.4} stroke="none" onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
+            return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
         })}
 
         {/* GRID */}
@@ -338,7 +376,9 @@ const Visualizer: React.FC<Props> = ({
              const x2 = startX + toPx(xCoords[el.x2!]);
              const y2 = startY + toPx(yCoords[el.y2!]);
              const isSel = selectedElementId === el.id;
-             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={isSel?"#2563eb":"#94a3b8"} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
+             const strokeColor = getStrokeColor(el, isSel);
+
+             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
         })}
 
         {/* COLUMNS & SHEAR WALLS */}
@@ -346,6 +386,7 @@ const Visualizer: React.FC<Props> = ({
              const cx = startX + toPx(xCoords[el.x1]);
              const cy = startY + toPx(yCoords[el.y1]);
              const isSel = selectedElementId === el.id;
+             const fillColor = getElementColor(el, isSel);
              
              let w = 0, h = 0;
              let offsetX = 0, offsetY = 0;
@@ -388,7 +429,7 @@ const Visualizer: React.FC<Props> = ({
                     y={cy + offsetY} 
                     width={w} 
                     height={h} 
-                    fill={isSel ? "#2563eb" : (el.type === 'shear_wall' ? "#334155" : "#475569")} 
+                    fill={fillColor} 
                     onClick={(e)=>{e.stopPropagation(); onElementSelect?.(el.id); if(activeTool==='delete') onElementRemove?.(el.id);}} 
                     className={activeTool==='delete'?'hover:fill-red-500':''} 
                 />
@@ -515,7 +556,11 @@ const Visualizer: React.FC<Props> = ({
                  const zTop = zLevels[col.storyIndex + 1];
                  const p1 = getElevPx(posH, zBottom);
                  const p2 = getElevPx(posH, zTop);
-                 return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill={col.type === 'shear_wall' ? "#334155" : "#475569"} stroke="black" strokeWidth="1" />;
+
+                 // Renk Kontrolü
+                 const fillColor = getElementColor(col, false);
+
+                 return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill={fillColor} stroke="black" strokeWidth="1" />;
              })}
 
              {definedElements.filter(e => e.type === 'beam').map(beam => {
@@ -532,7 +577,10 @@ const Visualizer: React.FC<Props> = ({
                      const h2 = isXAxis ? yCoords[beam.y2!] : xCoords[beam.x2!];
                      const p1 = getElevPx(Math.min(h1,h2), zLevel);
                      const p2 = getElevPx(Math.max(h1,h2), zLevel);
-                     return <rect key={beam.id} x={p1.x} y={p1.y} width={p2.x - p1.x} height={10} fill="#94a3b8" />;
+                     
+                     const strokeColor = getStrokeColor(beam, false);
+
+                     return <rect key={beam.id} x={p1.x} y={p1.y} width={p2.x - p1.x} height={10} fill={strokeColor} />;
                  }
                  return null;
              })}
@@ -602,8 +650,9 @@ const Visualizer: React.FC<Props> = ({
                  
                  // Perdeleri biraz daha kalın çiz
                  const strokeW = col.type === 'shear_wall' ? 8 : 4;
-                 
-                 return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={col.type === 'shear_wall' ? "#334155" : "#475569"} strokeWidth={strokeW} strokeLinecap="round" />;
+                 const strokeColor = getElementColor(col, false);
+
+                 return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth={strokeW} strokeLinecap="round" />;
             })}
 
             {/* KİRİŞLER */}
@@ -615,7 +664,9 @@ const Visualizer: React.FC<Props> = ({
                 const p1 = project3D(x1, y1, z);
                 const p2 = project3D(x2, y2, z);
 
-                return <line key={beam.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#2563eb" strokeWidth="2" />;
+                const strokeColor = getStrokeColor(beam, false);
+
+                return <line key={beam.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="2" />;
             })}
         </g>
     )

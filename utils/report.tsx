@@ -1,7 +1,8 @@
 
+
 import React from 'react';
 import { AppState, CalculationResult } from '../types';
-import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine, Info } from 'lucide-react';
 
 interface Props {
   state: AppState;
@@ -39,6 +40,9 @@ const Report: React.FC<Props> = ({ state, results }) => {
 
   const foundStressRatio = results.foundation.stress_actual / results.foundation.stress_limit;
   const foundStatus = results.foundation.checks.bearing.isSafe && results.foundation.checks.punching.isSafe;
+
+  // Hatalı Elemanları Filtrele
+  const failedElements = Array.from(results.elementResults.values()).filter(e => !e.isSafe);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 font-sans text-slate-800 pb-20">
@@ -80,6 +84,42 @@ const Report: React.FC<Props> = ({ state, results }) => {
              colorClass="text-green-600"
           />
       </div>
+
+      {/* 1.5 ANALİZ YÖNTEMİ KONTROLÜ (TBDY 2018 4.3.2) */}
+      <section className={`rounded-xl shadow-sm border p-6 ${results.seismic.method_check.isApplicable ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
+              <Info className="w-5 h-5" /> Analiz Yöntemi Kontrolü (TBDY 2018 4.3)
+          </h3>
+          <p className="text-sm mb-4">
+             {results.seismic.method_check.reason}
+          </p>
+          <div className="bg-white rounded-lg border overflow-hidden">
+             <table className="w-full text-xs text-left">
+                 <thead className="bg-slate-50 font-bold text-slate-600">
+                    <tr>
+                        <th className="p-2">Kontrol</th>
+                        <th className="p-2">Kriter</th>
+                        <th className="p-2">Değer</th>
+                        <th className="p-2">Sonuç</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y">
+                    <tr>
+                        <td className="p-2 font-medium">Bina Yüksekliği (Hn)</td>
+                        <td className="p-2">≤ 40m</td>
+                        <td className="p-2">{results.seismic.method_check.checks.height.reason}</td>
+                        <td className="p-2"><StatusBadge isSafe={results.seismic.method_check.checks.height.isSafe} /></td>
+                    </tr>
+                    <tr>
+                        <td className="p-2 font-medium">Burulma Düzensizliği (ηbi)</td>
+                        <td className="p-2">≤ 2.0</td>
+                        <td className="p-2">{results.seismic.method_check.checks.torsion.reason}</td>
+                        <td className="p-2"><StatusBadge isSafe={results.seismic.method_check.checks.torsion.isSafe} /></td>
+                    </tr>
+                 </tbody>
+             </table>
+          </div>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -204,6 +244,30 @@ const Report: React.FC<Props> = ({ state, results }) => {
             </table>
           </div>
       </section>
+
+      {/* YETERSİZ ELEMANLAR LİSTESİ */}
+      {failedElements.length > 0 && (
+          <section className="bg-red-50 rounded-xl shadow-sm border border-red-200 p-6">
+              <h3 className="font-bold text-lg mb-4 text-red-800 flex items-center gap-2">
+                  <XCircle className="w-5 h-5" /> Kontrolleri Sağlamayan Elemanlar ({failedElements.length})
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {failedElements.map((el, i) => (
+                      <div key={i} className="bg-white border border-red-100 rounded p-2 text-xs flex justify-between items-center shadow-sm">
+                          <div>
+                              <span className="font-bold font-mono text-slate-700">{el.id}</span>
+                              <span className="ml-2 text-slate-400 capitalize">({el.type})</span>
+                          </div>
+                          <div className="flex gap-1">
+                              {el.messages.map(msg => (
+                                  <span key={msg} className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">{msg}</span>
+                              ))}
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </section>
+      )}
 
     </div>
   );

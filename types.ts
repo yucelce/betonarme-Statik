@@ -95,6 +95,7 @@ export interface ColumnEntity {
   b: number;
   h: number;
   isBasement: boolean; // Bodrum kat elemanı mı?
+  type: 'column' | 'shear_wall';
 }
 
 export interface BeamEntity {
@@ -176,6 +177,15 @@ export interface AppState {
   definedElements: UserElement[]; // CAD Verisi
 }
 
+// Tekil eleman durumu (Görselleştirme için)
+export interface ElementAnalysisStatus {
+  id: string;
+  type: 'column' | 'beam' | 'slab' | 'shear_wall' | 'foundation';
+  isSafe: boolean;
+  ratio: number; // Kullanım oranı (Demand/Capacity)
+  messages: string[]; // Hata mesajları
+}
+
 export interface CalculationResult {
   slab: {
     pd: number; alpha: number; d: number; m_x: number;
@@ -212,6 +222,7 @@ export interface CalculationResult {
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
     building_weight: number; base_shear: number; 
+    method_check: { isApplicable: boolean; reason: string; checks: { height: CheckStatus; torsion: CheckStatus } };
     story_drift: {
         check: CheckStatus;
         delta_max: number;
@@ -232,4 +243,5 @@ export interface CalculationResult {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
   memberResults: Map<string, DetailedBeamResult>; 
+  elementResults: Map<string, ElementAnalysisStatus>; // Tüm elemanların tek tek durumları
 }

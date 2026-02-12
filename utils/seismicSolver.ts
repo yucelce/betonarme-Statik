@@ -1,4 +1,5 @@
 
+
 import { AppState, CalculationResult, CheckStatus, IrregularityResult } from "../types";
 import { getFs, getF1 } from "../constants";
 import { createStatus } from "./shared";
@@ -40,26 +41,15 @@ export const solveSeismic = (
   for (let i = 0; i < storyCount; i++) {
       const h = storyHeights[i] || 3;
       const isBasement = i < basementCount;
-
-      // Bina yüksekliği (H) hesabı: Bodrum katlar periyot hesabına katılmaz (Rijit kabul)
-      // Ancak kuvvet dağılımında (Fi) kat yüksekliği önemlidir.
-      // TBDY 2018: Eğer bodrumlar rijitse, periyot üst yapı için hesaplanır.
       
       if (!isBasement) {
          currentHeightAboveGround += h;
          heightsPerStory.push(currentHeightAboveGround);
       } else {
-         // Bodrum katlar için efektif yükseklik (kuvvet dağılımı için) 0 kabul edilebilir veya
-         // rijit diyaframdan aktarılan kesme kuvveti olarak işlenir.
-         // Basitlik adına: Periyot hesabında H = Zemin üstü toplam boy.
-         // Fi dağıtımında bodrumlara kütlesi oranında değil, üstten gelen kesme aktarılır.
-         // Biz burada Fi hesabında bodrum katların "Hi" değerini 0 alarak onlara deprem kuvveti dağıtmayacağız,
-         // ancak kütlelerini W_total'a ekleyeceğiz.
          heightsPerStory.push(0); 
       }
       
       const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h * 25000) * Num_Cols; 
-      // Bodrumda duvar yükleri genellikle perde olur ama burada basit duvar alıyoruz
       const Wi = W_slab_N + W_beam_N + W_col_N + W_wall_N;
       weightsPerStory.push(Wi);
       W_total_N += Wi;
@@ -71,7 +61,7 @@ export const solveSeismic = (
   const Sds = seismic.ss * Fs;
   const Sd1 = seismic.s1 * F1;
   
-  // T1 Periyodu sadece zemin üstü yükseklik (Hn) ile hesaplanır
+  // T1 Periyodu
   const Hn = currentHeightAboveGround;
   const T1 = 0.1 * Math.pow(Hn, 0.75); 
 
@@ -99,12 +89,16 @@ export const solveSeismic = (
 
   const fi_story_N: number[] = [];
   for (let i = 0; i < storyCount; i++) {
-    // Bodrum katların Hi değeri 0 olduğu için Fi = 0 çıkar (beklenen davranış).
-    // Deprem yükü sadece üst katlara etki eder, bodruma kesme olarak aktarılır.
     const Fi = sum_Wi_Hi > 0 ? ((weightsPerStory[i] * heightsPerStory[i]) / sum_Wi_Hi) * Vt_design_N : 0;
     fi_story_N.push(Fi);
   }
 
+  // --- YÖNTEM GEÇERLİLİK KONTROLÜ (TBDY 2018 4.3.2) ---
+  // 1. Yükseklik Kontrolü (Hn <= 40m ? DTS 1,2 için. Basitlik adına genel 40m limiti koyuyoruz)
+  const isHeightSafe = Hn <= 40;
+  // 2. Burulma Düzensizliği Kontrolü (Solver sonunda update edilecek, burada başlangıç değeri)
+  // Eta_bi <= 2.0 ise Eşdeğer Deprem Yükü kullanılabilir. 
+  
   const seismicResult = {
     param_sds: Sds,
     param_sd1: Sd1,
@@ -114,6 +108,14 @@ export const solveSeismic = (
     base_shear: Vt_design_N / 1000,
     R_coefficient: seismic.Rx,
     I_coefficient: seismic.I,
+    method_check: {
+        isApplicable: true, // Solver sonunda güncellenecek
+        reason: '',
+        checks: {
+            height: createStatus(isHeightSafe, `Hn = ${Hn.toFixed(1)}m ≤ 40m`, 'Bina Yüksekliği Sınırı Aşıldı', `Hn = ${Hn.toFixed(1)}m`),
+            torsion: createStatus(true, 'Kontrol Bekleniyor')
+        }
+    },
     story_drift: {
         check: createStatus(true, 'FEM Bekleniyor'),
         delta_max: 0,

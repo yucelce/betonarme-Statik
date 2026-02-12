@@ -66,7 +66,8 @@ export const generateModel = (state: AppState): StructuralModel => {
         nodeId: nodeId,
         b: b,
         h: h,
-        isBasement
+        isBasement,
+        type: el.type
       });
     }
 
