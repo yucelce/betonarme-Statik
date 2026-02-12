@@ -377,15 +377,13 @@ const Visualizer: React.FC<Props> = ({
               }
           });
 
-          if (foundIds.length > 0 && onMultiElementSelect) {
-              // Mevcut seçimleri koru? Hayır, yeni kutu seçimi genelde eskileri temizler.
-              // Shift tuşu desteği eklenebilir ama şu an resetliyoruz.
-              onMultiElementSelect(foundIds);
-          } else if (onMultiElementSelect) {
-             // Boş alana tıklayıp bıraktıysa seçimi kaldır
-             if (Math.abs(boxEnd.x - boxStart.x) < 5 && Math.abs(boxEnd.y - boxStart.y) < 5) {
-                 onMultiElementSelect([]);
-             }
+          if (onMultiElementSelect) {
+              const isClick = Math.abs(boxEnd.x - boxStart.x) < 5 && Math.abs(boxEnd.y - boxStart.y) < 5;
+              if (foundIds.length > 0) {
+                  onMultiElementSelect(foundIds);
+              } else if (isClick || foundIds.length === 0) {
+                  onMultiElementSelect([]); // Boş seçim veya boş alana tıklama = Temizle
+              }
           }
 
           setIsBoxSelecting(false);

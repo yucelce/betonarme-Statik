@@ -156,6 +156,20 @@ const App: React.FC = () => {
       updateState('dimensions', { basementCount: count });
   };
 
+  // --- TOOL DEĞİŞİMİ VE FİLTRELEME ---
+  const handleToolChange = (toolId: EditorTool) => {
+      setActiveTool(toolId);
+      
+      // İSTEK: Tool değişince seçimi o tiple filtrele
+      if (toolId !== 'select' && toolId !== 'delete' && selectedElementIds.length > 0) {
+          const filtered = selectedElementIds.filter(id => {
+              const el = state.definedElements.find(e => e.id === id);
+              return el?.type === toolId;
+          });
+          setSelectedElementIds(filtered);
+      }
+  };
+
   // --- ELEMAN YÖNETİMİ ---
   const handleElementAdd = (el: UserElement) => {
       const isDiagonal = el.type === 'beam' && el.x1 !== el.x2 && el.y1 !== el.y2;
@@ -448,7 +462,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* SECTION: STORIES (Mevcut kod...) */}
+              {/* SECTION: STORIES */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('stories')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Layers className="w-4 h-4 text-purple-500"/> Katlar & Bodrum</span>
@@ -482,8 +496,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
-               {/* SECTION: FOUNDATION, SECTIONS, LOADS, SEISMIC ... (Mevcut kodlar aynen kalacak, yer tasarrufu için kısalttım) */}
-               {/* ... (Foundation, Sections, Loads, Seismic accordion blocks) ... */}
+               {/* SECTION: FOUNDATION */}
                <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('foundation')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><ArrowDownToLine className="w-4 h-4 text-emerald-600"/> Temel (Radye)</span>
@@ -506,6 +519,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
+              {/* SECTION: SECTIONS */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('sections')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/> Genel Kesitler</span>
@@ -521,6 +535,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
+              {/* SECTION: LOADS */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('loads')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Weight className="w-4 h-4 text-orange-500"/> Yükler</span>
@@ -540,6 +555,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
+               {/* SECTION: SEISMIC */}
                <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('seismic')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
                     <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Activity className="w-4 h-4 text-red-500"/> Deprem & Zemin</span>
@@ -601,7 +617,7 @@ const App: React.FC = () => {
                    ].map(tool => (
                        <button 
                          key={tool.id}
-                         onClick={() => setActiveTool(tool.id as EditorTool)}
+                         onClick={() => handleToolChange(tool.id as EditorTool)}
                          className={`p-2 rounded transition-colors flex items-center justify-center relative group ${activeTool === tool.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
                          title={tool.label}
                        >
@@ -817,6 +833,7 @@ const App: React.FC = () => {
                 </div>
            )}
 
+           {/* activeTab === 'report' ... same code ... */}
            {activeTab === 'report' && results && (
              <div className="absolute inset-0 bg-white z-30 overflow-auto p-6">
                 <button onClick={() => setActiveTab('inputs')} className="fixed top-20 right-8 bg-slate-800 text-white p-2 rounded-full shadow-lg z-50 hover:bg-slate-700"><X className="w-6 h-6"/></button>
