@@ -1,6 +1,6 @@
 
 // utils/femSolver.ts
-import { matrix, multiply, inv, zeros, Matrix, index, transpose } from 'mathjs';
+import { matrix, multiply, zeros, Matrix, index, transpose, lusolve } from 'mathjs';
 import { AppState, StoryAnalysisResult } from '../types';
 import { getConcreteProperties } from '../constants';
 import { createStatus } from './shared';
@@ -10,8 +10,26 @@ interface Node3D {
   id: number;
   x: number; y: number; z: number;
   isFixed: boolean;
-  floorIndex: number; // 0 = zemin/bodrum
-  dofIndices: number[]; // 6 DOF: dx, dy, dz, rx, ry, rz
+  floorIndex: number; // 0 = temel, 1..N = katlar
+  // Equation Indices (System DOF Mapping)
+  // Bağımsız: Z, Rx, Ry (Node başına)
+  // Bağımlı: X, Y, Rz (Kata bağlı - Rigid Diaphragm)
+  dofIndices: {
+    z: number;
+    rx: number;
+    ry: number;
+  }; 
+}
+
+interface FloorMaster {
+  floorIndex: number;
+  z: number;
+  massCenter: { x: number, y: number };
+  dofIndices: {
+    x: number;
+    y: number;
+    rz: number;
+  }
 }
 
 interface Element3D {
@@ -32,12 +50,14 @@ export interface FemResult {
 }
 
 // 12x12 Lokal Rijitlik Matrisi
-const getLocalStiffnessMatrix = (el: Element3D, L: number): Matrix => {
+const getLocalStiffnessMatrix = (el: Element3D, L: number): number[][] => {
   const { E, G, A, Iy, Iz, J } = el;
-  const k = zeros(12, 12) as Matrix;
+  // Javascript array performansı için raw array kullanıyoruz, Matrix objesi değil.
+  const k = Array(12).fill(0).map(() => Array(12).fill(0));
+  
   const set = (r: number, c: number, val: number) => {
-     k.set([r, c], val);
-     k.set([c, r], val); // Simetri
+     k[r][c] = val;
+     k[c][r] = val; // Simetri
   };
 
   const Ax = (E * A) / L;
@@ -46,7 +66,7 @@ const getLocalStiffnessMatrix = (el: Element3D, L: number): Matrix => {
   const GJ = (G * J) / L;
   set(3,3, GJ); set(3,9, -GJ); set(9,9, GJ);
 
-  // Eğilme (Iz etrafında - XY düzlemi)
+  // Eğilme (Iz etrafında - XY düzlemi) - 12, 6, 4, 2 katsayıları
   const iz12 = (12 * E * Iz) / (L ** 3);
   const iz6 = (6 * E * Iz) / (L ** 2);
   const iz4 = (4 * E * Iz) / L;
@@ -72,7 +92,7 @@ const getLocalStiffnessMatrix = (el: Element3D, L: number): Matrix => {
 };
 
 // 12x12 Dönüşüm Matrisi (T)
-const getTransformationMatrix = (n1: Node3D, n2: Node3D): Matrix => {
+const getTransformationMatrix = (n1: Node3D, n2: Node3D): number[][] => {
   const dx = n2.x - n1.x;
   const dy = n2.y - n1.y;
   const dz = n2.z - n1.z;
@@ -81,21 +101,36 @@ const getTransformationMatrix = (n1: Node3D, n2: Node3D): Matrix => {
   const cy = dy / L;
   const cz = dz / L;
 
-  let r = zeros(3, 3) as Matrix;
+  // 3x3 Rotasyon Matrisi
+  let R: number[][] = [];
 
   if (Math.abs(cz) > 0.99) {
-     r = matrix([[0, 0, cz], [0, 1, 0], [-cz, 0, 0]]);
+     // Eleman düşey (Kolon)
+     const sign = cz > 0 ? 1 : -1;
+     R = [
+         [0, 0, sign],
+         [0, 1, 0],
+         [-1 * sign, 0, 0]
+     ];
   } else {
+     // Eleman yatay veya eğik
      const D = Math.sqrt(cx*cx + cy*cy);
-     r = matrix([
+     R = [
          [cx, cy, cz],
          [-cy/D, cx/D, 0],
          [-cx*cz/D, -cy*cz/D, D]
-     ]);
+     ];
   }
   
-  const T = zeros(12, 12) as Matrix;
-  for(let i=0; i<4; i++) T.subset(index([i*3, i*3+1, i*3+2], [i*3, i*3+1, i*3+2]), r);
+  // 12x12 Blok Matris Oluştur
+  const T = Array(12).fill(0).map(() => Array(12).fill(0));
+  for(let i=0; i<4; i++) {
+      for(let r=0; r<3; r++) {
+          for(let c=0; c<3; c++) {
+              T[i*3 + r][i*3 + c] = R[r][c];
+          }
+      }
+  }
   return T;
 };
 
@@ -104,10 +139,11 @@ const getTransformationMatrix = (n1: Node3D, n2: Node3D): Matrix => {
 export const solveFEM = (state: AppState, seismicForces: number[]): FemResult => {
   const { materials, dimensions, sections, grid, definedElements } = state;
   const props = getConcreteProperties(materials.concreteClass);
-  const E_base = props.Ec * 1000; // kN/m2
+  const E_base = props.Ec * 1000; // kN/m2 (MPa -> kN/m2)
   
-  // Düğüm ve Elemanları Oluştur
+  // 1. DÜĞÜM NOKTALARINI VE KATLARI OLUŞTUR
   const nodes: Node3D[] = [];
+  const floors: FloorMaster[] = [];
   const elements: Element3D[] = [];
   
   const xAx = [0, ...grid.xAxis.map(a => a.spacing)];
@@ -118,15 +154,37 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
   const nx = xC.length;
   const ny = yC.length;
   const nPerFl = nx * ny;
-  let dofCnt = 0;
+  
+  // -- A. Serbestlik Derecesi Sayacı --
+  let globalEqCount = 0;
 
+  // Kat Master Node'ları için serbestlik ata (Her kat için 3 DOF: Ux, Uy, Rz)
+  for (let i = 1; i <= dimensions.storyCount; i++) {
+      let z = 0;
+      for (let k = 0; k < i; k++) z += dimensions.storyHeights[k] || 3;
+      
+      // Kütle Merkezi (Basitçe geometrik merkez alıyoruz)
+      const centerX = xC[xC.length - 1] / 2;
+      const centerY = yC[yC.length - 1] / 2;
+
+      floors.push({
+          floorIndex: i,
+          z: z,
+          massCenter: { x: centerX, y: centerY },
+          dofIndices: {
+              x: globalEqCount++,
+              y: globalEqCount++,
+              rz: globalEqCount++
+          }
+      });
+  }
+
+  // Node'lar için serbestlik ata (Sadece Z, Rx, Ry bağımsızdır. X, Y, Rz kata bağlıdır)
   for (let i = 0; i <= dimensions.storyCount; i++) {
      let z = 0;
-     for (let k = 0; k < i; k++) {
-         z += dimensions.storyHeights[k] || 3;
-     }
-
+     for (let k = 0; k < i; k++) z += dimensions.storyHeights[k] || 3;
      const isFixed = (i === 0);
+
      for (let r = 0; r < ny; r++) {
        for (let c = 0; c < nx; c++) {
            nodes.push({
@@ -134,26 +192,40 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
                x: xC[c], y: yC[r], z, 
                isFixed,
                floorIndex: i,
-               dofIndices: isFixed ? Array(6).fill(-1) : Array.from({length:6}, ()=> dofCnt++)
+               dofIndices: {
+                   z: isFixed ? -1 : globalEqCount++,
+                   rx: isFixed ? -1 : globalEqCount++,
+                   ry: isFixed ? -1 : globalEqCount++
+               }
            });
        }
      }
   }
 
-  // Elemanları Modelden Al (modelGenerator'a gerek yok, user defined elements ile doğrudan çalışabiliriz)
-  // Ancak coordinate mapping için grid index kullanıyoruz.
-  
-  // RİJİT BODRUM KATSAYISI
+  // 2. ELEMANLARI OLUŞTUR
   const BASEMENT_RIGIDITY_FACTOR = 10.0;
 
   definedElements.forEach(el => {
       const isBasement = el.storyIndex < dimensions.basementCount;
       const E_used = isBasement ? E_base * BASEMENT_RIGIDITY_FACTOR : E_base;
-      const G_used = E_used / 2.4;
+      const G_used = E_used / 2.4; // Poisson 0.2
 
-      if(el.type === 'column') {
-         const w = (el.properties?.width || sections.colWidth) / 100; // m
-         const d = (el.properties?.depth || sections.colDepth) / 100; // m
+      if(el.type === 'column' || el.type === 'shear_wall') {
+         // Perde davranışı için atalet momentleri hesaplanmalı
+         // Perde ise: width=length, depth=thickness (kullanıcı girdisine göre modelGenerator'da ayarlandı)
+         // Burada properties'den alıp tekrar hesaplıyoruz.
+         let w = 0, d = 0;
+         if (el.type === 'shear_wall') {
+             // Shear wall boyutları modelGenerator'da ayarlandı ama burada da logic gerekebilir
+             const len = (el.properties?.width || sections.wallLength) / 100;
+             const thk = (el.properties?.depth || sections.wallThickness) / 100;
+             const dir = el.properties?.direction || 'x';
+             if (dir === 'x') { w = len; d = thk; } else { w = thk; d = len; }
+         } else {
+             w = (el.properties?.width || sections.colWidth) / 100; 
+             d = (el.properties?.depth || sections.colDepth) / 100;
+         }
+
          const n1 = el.storyIndex * nPerFl + el.y1 * nx + el.x1;
          const n2 = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
          
@@ -163,9 +235,9 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
             node1Index: n1, node2Index: n2,
             E: E_used, G: G_used,
             A: w * d,
-            Iy: (w * d**3)/12 * 0.7,
+            Iy: (w * d**3)/12 * 0.7, // Çatlamış kesit
             Iz: (d * w**3)/12 * 0.7,
-            J: 0.001,
+            J: el.type === 'shear_wall' ? 1.0 : 0.001, // Perdelerde burulma rijitliği alınabilir
             floorIndex: el.storyIndex
          });
       } else if (el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
@@ -180,7 +252,7 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
             node1Index: n1, node2Index: n2,
             E: E_used, G: G_used,
             A: w * d,
-            Iy: (d * w**3)/12 * 0.35,
+            Iy: (d * w**3)/12 * 0.35, // Çatlamış kesit
             Iz: (w * d**3)/12 * 0.35,
             J: 0.001,
             floorIndex: el.storyIndex
@@ -188,132 +260,258 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       }
   });
 
+  // 3. GLOBAL RİJİTLİK MATRİSİNİ OLUŞTUR (DIRECT STIFFNESS METHOD WITH RIGID DIAPHRAGM)
+  // Büyük matris işlemleri için düz array kullanıyoruz, MathJS Matrix çok yavaş kalabilir.
+  // Sparse matris kütüphanesi olmadığı için dense array kullanacağız ama boyut azaldı.
+  const K = Array(globalEqCount).fill(0).map(() => Array(globalEqCount).fill(0));
 
-  // Global Matris
-  const K = zeros(dofCnt, dofCnt) as Matrix;
-  
-  elements.forEach(el => {
+  // Yardımcı Fonksiyon: Bir elemanın 12x12 matrisini Global K'ya Rijit Diyafram kuralına göre ekle
+  const addElementStiffness = (el: Element3D) => {
       const n1 = nodes[el.node1Index];
       const n2 = nodes[el.node2Index];
       const L = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2 + (n2.z-n1.z)**2);
       
       const k_loc = getLocalStiffnessMatrix(el, L);
       const T = getTransformationMatrix(n1, n2);
-      const k_glob = multiply(multiply(transpose(T), k_loc), T) as Matrix;
+      
+      // k_glob = T_transpose * k_loc * T
+      // Matris çarpımı (Manuel döngü daha hızlı)
+      const k_glob = Array(12).fill(0).map(() => Array(12).fill(0));
+      for(let i=0; i<12; i++) {
+          for(let j=0; j<12; j++) {
+              let sum = 0;
+              for(let k=0; k<12; k++) { // k_loc * T
+                  let term = 0;
+                  for(let m=0; m<12; m++) {
+                      term += k_loc[k][m] * T[m][j];
+                  }
+                  sum += T[k][i] * term; // T_trans * (k_loc * T)
+              }
+              k_glob[i][j] = sum;
+          }
+      }
 
-      const indices = [...n1.dofIndices, ...n2.dofIndices];
+      // Kinematik Dönüşüm ve Montaj (Assembly)
+      // 12 serbestlik derecesini global denklem numaralarına eşle
+      const mapDofToEq = (node: Node3D, localDof: number): { eq: number, factor: number }[] => {
+          if (node.isFixed) return []; // Ankastre
+
+          // Floor Master Bilgisi
+          const floor = floors.find(f => f.floorIndex === node.floorIndex);
+          
+          // Bağımsız DOF'lar
+          if (localDof === 2) return node.dofIndices.z !== -1 ? [{ eq: node.dofIndices.z, factor: 1 }] : []; // Z
+          if (localDof === 3) return node.dofIndices.rx !== -1 ? [{ eq: node.dofIndices.rx, factor: 1 }] : []; // Rx
+          if (localDof === 4) return node.dofIndices.ry !== -1 ? [{ eq: node.dofIndices.ry, factor: 1 }] : []; // Ry
+
+          // Bağımlı DOF'lar (Rijit Diyafram)
+          if (!floor) return []; // Teorik olarak olamaz (zemin hariç)
+
+          const dx = node.x - floor.massCenter.x;
+          const dy = node.y - floor.massCenter.y;
+
+          if (localDof === 0) { // Ux = Ux_m - dy * Rz_m
+              return [
+                  { eq: floor.dofIndices.x, factor: 1 },
+                  { eq: floor.dofIndices.rz, factor: -dy }
+              ];
+          }
+          if (localDof === 1) { // Uy = Uy_m + dx * Rz_m
+              return [
+                  { eq: floor.dofIndices.y, factor: 1 },
+                  { eq: floor.dofIndices.rz, factor: dx }
+              ];
+          }
+          if (localDof === 5) { // Rz = Rz_m
+              return [{ eq: floor.dofIndices.rz, factor: 1 }];
+          }
+
+          return [];
+      };
+
+      // 12x12 matrisi K sistem matrisine dağıt
       for(let r=0; r<12; r++) {
-          if(indices[r] === -1) continue;
+          const nodeRow = r < 6 ? n1 : n2;
+          const localDofRow = r % 6;
+          const eqMapRow = mapDofToEq(nodeRow, localDofRow);
+
           for(let c=0; c<12; c++) {
-              if(indices[c] === -1) continue;
-              const val = k_glob.get([r,c]);
-              K.set([indices[r], indices[c]], K.get([indices[r], indices[c]]) + val);
-          }
-      }
-  });
-
-  // Yük Vektörü
-  const F = zeros(dofCnt, 1) as Matrix;
-  const nodesPerFloor = nx * ny;
-  
-  nodes.forEach(n => {
-      if (!n.isFixed && n.floorIndex > 0) {
-          // Bodrum kat hariç tutulmaz, kuvvetler tüm katlara etki ettirilir.
-          // Ancak seismicSolver'da kat kuvvetleri (Fi) bodrum katlar dahil hesaplanmış olmalı 
-          // (fakat bodrum kütlesi periyot hesabına katılmaz).
-          const forceIndex = n.floorIndex - 1; 
-          if (forceIndex < seismicForces.length) {
-              const F_story_total_N = seismicForces[forceIndex];
-              const F_story_total_kN = F_story_total_N / 1000;
-              const F_node = F_story_total_kN / nodesPerFloor;
+              const nodeCol = c < 6 ? n1 : n2;
+              const localDofCol = c % 6;
+              const eqMapCol = mapDofToEq(nodeCol, localDofCol);
               
-              if (n.dofIndices[0] !== -1) F.set([n.dofIndices[0], 0], F_node);
+              const val = k_glob[r][c];
+              if (val === 0) continue;
+
+              // Çapraz çarpım ile katkıları ekle
+              for(const mR of eqMapRow) {
+                  for(const mC of eqMapCol) {
+                      K[mR.eq][mC.eq] += val * mR.factor * mC.factor;
+                  }
+              }
           }
+      }
+  };
+
+  elements.forEach(el => addElementStiffness(el));
+
+  // 4. YÜK VEKTÖRÜNÜ OLUŞTUR (F)
+  const F = Array(globalEqCount).fill(0);
+  
+  // Deprem Yüklerini Master Node'lara Uygula
+  seismicForces.forEach((force, idx) => {
+      const floorIdx = idx + 1; // 1. Kattan başlar
+      const floor = floors.find(f => f.floorIndex === floorIdx);
+      if (floor) {
+          // Deprem yükü FX (veya FY) olarak uygulanır. Basitlik için sadece FX kabul edelim.
+          // TBDY analizinde her iki yön ayrı ayrı çözülmeli ama burada tek yönlü analiz yapıyoruz.
+          const F_kN = force / 1000;
+          F[floor.dofIndices.x] += F_kN; 
+          // %5 Ek Dışmerkezlik Momenti
+          const ex = 0.05 * dimensions.ly; // Y yönündeki boyutun %5'i
+          const M_torsion = F_kN * ex;
+          F[floor.dofIndices.rz] += M_torsion; 
       }
   });
 
-  // Çözüm
-  let U: Matrix;
+  // 5. SİSTEMİ ÇÖZ (LU Decomposition)
+  let U_system: any;
   try {
-      U = multiply(inv(K), F);
+      // MathJS lusolve kullanarak lineer denklem sistemini çöz: K * U = F
+      // Dense matris formatına çevirmemiz gerekiyor.
+      if(globalEqCount > 0) {
+          U_system = lusolve(matrix(K), matrix(F));
+      } else {
+          U_system = matrix(zeros(0));
+      }
   } catch(e) {
-      console.error("Matris çözülemedi", e);
+      console.error("Matris çözülemedi (Singüler olabilir)", e);
       return { nodes, elements, displacements: [], memberForces: new Map(), storyAnalysis: [] };
   }
 
-  // Sonuçlar
+  // 6. SONUÇLARI İŞLE
+  // U_system bir Matrix objesi veya array döner. Array'e çevirelim.
+  const U_array = (U_system as any)._data ? (U_system as any)._data : (U_system as any);
+  const displacements = U_array.flat(); // [u1, u2, ...]
+
   const memberForces = new Map<string, { fx: number; fy: number; fz: number; mx: number; my: number; mz: number }>();
   
+  // Eleman Kuvvetlerini Geri Hesapla
   elements.forEach(el => {
       const n1 = nodes[el.node1Index];
       const n2 = nodes[el.node2Index];
       const L = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2 + (n2.z-n1.z)**2);
       
-      const u_glob = zeros(12, 1) as Matrix;
-      [...n1.dofIndices, ...n2.dofIndices].forEach((dof, idx) => {
-          if(dof !== -1) u_glob.set([idx, 0], U.get([dof, 0]));
-      });
+      // Global Displacements for Nodes (12x1 vector)
+      const u_glob_el = Array(12).fill(0);
+      
+      const fillNodeDisp = (node: Node3D, offset: number) => {
+          if (node.isFixed) return;
+          const floor = floors.find(f => f.floorIndex === node.floorIndex);
+          if (!floor) return;
 
+          // Kinematik Ters Dönüşüm: Master -> Slave
+          const dx = node.x - floor.massCenter.x;
+          const dy = node.y - floor.massCenter.y;
+          
+          const Um_x = displacements[floor.dofIndices.x];
+          const Um_y = displacements[floor.dofIndices.y];
+          const Um_rz = displacements[floor.dofIndices.rz];
+          
+          // Ux = Um_x - dy * Rz
+          u_glob_el[offset + 0] = Um_x - dy * Um_rz;
+          // Uy = Um_y + dx * Rz
+          u_glob_el[offset + 1] = Um_y + dx * Um_rz;
+          // Uz = Bağımsız
+          u_glob_el[offset + 2] = node.dofIndices.z !== -1 ? displacements[node.dofIndices.z] : 0;
+          // Rx = Bağımsız
+          u_glob_el[offset + 3] = node.dofIndices.rx !== -1 ? displacements[node.dofIndices.rx] : 0;
+          // Ry = Bağımsız
+          u_glob_el[offset + 4] = node.dofIndices.ry !== -1 ? displacements[node.dofIndices.ry] : 0;
+          // Rz = Master Rz
+          u_glob_el[offset + 5] = Um_rz;
+      };
+
+      fillNodeDisp(n1, 0);
+      fillNodeDisp(n2, 6);
+
+      // f_local = k_local * T * u_global
+      // Ancak T * u_global = u_local (direkt dönüşüm)
       const T = getTransformationMatrix(n1, n2);
       const k_loc = getLocalStiffnessMatrix(el, L);
-      const u_loc = multiply(T, u_glob);
-      const f_loc = multiply(k_loc, u_loc) as Matrix;
+      
+      // u_local = T * u_glob
+      const u_loc = Array(12).fill(0);
+      for(let i=0; i<12; i++) {
+          for(let j=0; j<12; j++) {
+              u_loc[i] += T[i][j] * u_glob_el[j];
+          }
+      }
+
+      // f_local = k_loc * u_loc
+      const f_loc = Array(12).fill(0);
+      for(let i=0; i<12; i++) {
+          for(let j=0; j<12; j++) {
+              f_loc[i] += k_loc[i][j] * u_loc[j];
+          }
+      }
 
       memberForces.set(el.id, {
-          fx: f_loc.get([0,0]), fy: f_loc.get([1,0]), fz: f_loc.get([2,0]), 
-          mx: f_loc.get([3,0]), my: f_loc.get([4,0]), mz: f_loc.get([5,0]) 
+          fx: f_loc[0], fy: f_loc[1], fz: f_loc[2], 
+          mx: f_loc[3], my: f_loc[4], mz: f_loc[5] 
       });
   });
 
-  // Kat Analizi
+  // Kat Analizi Raporu
   const storyAnalysis: StoryAnalysisResult[] = [];
-  const u_data = (U as any)._data;
-  const nodeDisps = new Map<number, {dx: number, dy: number}>();
   
-  nodes.forEach(n => {
-      const dx = n.dofIndices[0] !== -1 ? u_data[n.dofIndices[0]][0] : 0;
-      const dy = n.dofIndices[1] !== -1 ? u_data[n.dofIndices[1]][0] : 0;
-      nodeDisps.set(n.id, {dx, dy});
-  });
-
   for (let i = 1; i <= dimensions.storyCount; i++) {
-      const isBasement = (i - 1) < dimensions.basementCount; // i=1 -> Zemin Kat (0. indis), BasementCount=1 ise True
+      const isBasement = (i - 1) < dimensions.basementCount;
+      const floor = floors.find(f => f.floorIndex === i);
+      const lowerFloor = floors.find(f => f.floorIndex === i - 1);
       
-      const storyNodes = nodes.filter(n => n.floorIndex === i);
-      const lowerNodes = nodes.filter(n => n.floorIndex === i - 1);
+      const dispX = floor ? displacements[floor.dofIndices.x] : 0;
+      const lowerDispX = lowerFloor ? displacements[lowerFloor.dofIndices.x] : 0;
 
-      const displacements = storyNodes.map(n => nodeDisps.get(n.id)?.dx || 0);
-      const lowerDisps = lowerNodes.map(n => nodeDisps.get(n.id)?.dx || 0);
-      const avgLowerDisp = lowerDisps.reduce((a, b) => a + b, 0) / (lowerDisps.length || 1);
-
-      const drifts = displacements.map(d => Math.abs(d - avgLowerDisp));
-      const maxDrift = Math.max(...drifts);
-      const avgDrift = drifts.reduce((a,b) => a+b, 0) / drifts.length;
-      
-      const eta_bi = avgDrift > 0 ? maxDrift / avgDrift : 1.0;
+      const delta = Math.abs(dispX - lowerDispX);
       const h_mm = (dimensions.storyHeights[i-1] || 3) * 1000;
-      const driftRatio = (maxDrift * 1000) / h_mm; 
+      const driftRatio = (delta * 1000) / h_mm;
       
-      let z = 0;
-      for (let k = 0; k < i; k++) { z += dimensions.storyHeights[k] || 3; }
+      // Burulma Düzensizliği (Eta_bi)
+      // Master Rz'ye göre köşe noktaların deplasmanlarını bul
+      // dx_max / dx_avg
+      let maxD = delta;
+      let minD = delta;
 
-      // Bodrum katlarda deplasman kontrolü gevşetilebilir veya rijit olduğu için çok düşük çıkar.
+      if (floor && lowerFloor) {
+          const rotation = displacements[floor.dofIndices.rz] - displacements[lowerFloor.dofIndices.rz];
+          const Lx = xC[xC.length-1];
+          const Ly = yC[yC.length-1];
+          // Köşe noktalarındaki ilave deplasman: d_torsion = r * theta
+          // Basit yaklaşım: D_corner = D_center +/- (Ly/2 * Rotation)
+          const torsionDisp = (Ly/2) * Math.abs(rotation);
+          maxD = delta + torsionDisp;
+          minD = Math.max(0, delta - torsionDisp);
+      }
+      
+      const avgD = (maxD + minD) / 2;
+      const eta_bi = avgD > 0.000001 ? maxD / avgD : 1.0;
       const driftLimit = 0.008;
 
       storyAnalysis.push({
           storyIndex: i,
-          height: z,
+          height: floor ? floor.z : 0,
           forceApplied: (seismicForces[i-1] || 0) / 1000,
-          dispAvg: (avgDrift * 1000),
-          dispMax: (maxDrift * 1000),
-          drift: (maxDrift * 1000),
+          dispAvg: avgD * 1000,
+          dispMax: maxD * 1000,
+          drift: maxD * 1000,
           driftRatio: driftRatio,
           eta_bi: eta_bi,
           torsionCheck: createStatus(eta_bi <= 1.2, 'A1 Yok', 'A1 Düzensizliği', `η=${eta_bi.toFixed(2)}`),
           driftCheck: createStatus(driftRatio <= driftLimit, 'OK', 'Sınır Aşıldı', `R=${driftRatio.toFixed(4)}`),
-          isBasement: isBasement
+          isBasement
       });
   }
 
-  return { nodes, elements, displacements: u_data || [], memberForces, storyAnalysis };
+  return { nodes, elements, displacements, memberForces, storyAnalysis };
 };
