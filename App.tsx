@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
@@ -121,6 +120,10 @@ const App: React.FC = () => {
   const updateStoryCount = (count: number) => {
       const current = state.dimensions.storyHeights;
       let newHeights = [...current];
+      
+      // Elemanları temizle: Eğer kat sayısı azalıyorsa, silinen katlardaki elemanları kaldır
+      const validElements = state.definedElements.filter(e => e.storyIndex < count);
+
       if (count > current.length) {
           // Yeni katlar ekle (varsayılan 3m)
           newHeights = [...newHeights, ...Array(count - current.length).fill(3)];
@@ -128,7 +131,26 @@ const App: React.FC = () => {
           // Kat sil
           newHeights = newHeights.slice(0, count);
       }
-      updateState('dimensions', { storyCount: count, storyHeights: newHeights });
+
+      // Bodrum kat sayısı toplam kat sayısından fazla olamaz
+      const newBasementCount = Math.min(state.dimensions.basementCount, count - 1 < 0 ? 0 : count - 1);
+
+      setState(prev => ({
+          ...prev,
+          dimensions: { 
+              ...prev.dimensions, 
+              storyCount: count, 
+              storyHeights: newHeights,
+              basementCount: newBasementCount 
+          },
+          definedElements: validElements
+      }));
+      setResults(null);
+      
+      // Eğer aktif kat silindiyse, aktif katı en üst kata çek
+      if (activeStory >= count) {
+          setActiveStory(Math.max(0, count - 1));
+      }
   };
 
   const updateBasementCount = (count: number) => {

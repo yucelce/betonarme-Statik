@@ -1,5 +1,4 @@
 
-
 // utils/modelGenerator.ts
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
 
@@ -34,6 +33,9 @@ export const generateModel = (state: AppState): StructuralModel => {
 
   // 3. Kullanıcı Elemanlarını Modele Dönüştür
   definedElements.forEach(el => {
+    // GÜVENLİK KONTROLÜ: Eğer elemanın katı mevcut kat sayısından fazlaysa (örn: kat 2 silindi ama eleman duruyor), bunu modele ekleme.
+    if (el.storyIndex >= dimensions.storyCount) return;
+
     const uniqueId = `${el.id}_S${el.storyIndex}`;
     const isBasement = el.storyIndex < dimensions.basementCount;
 

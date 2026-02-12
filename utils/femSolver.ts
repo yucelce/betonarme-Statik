@@ -192,6 +192,9 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
   const BASEMENT_RIGIDITY_FACTOR = 10.0;
 
   definedElements.forEach(el => {
+      // GÜVENLİK KONTROLÜ: Eğer elemanın kat indeksi, mevcut kat sayısından büyükse veya eşitse (0-indexli), bu elemanı modele dahil etme.
+      if (el.storyIndex >= dimensions.storyCount) return;
+
       const isBasement = el.storyIndex < dimensions.basementCount;
       const E_used = isBasement ? E_base * BASEMENT_RIGIDITY_FACTOR : E_base;
       const G_used = E_used / 2.4; 
