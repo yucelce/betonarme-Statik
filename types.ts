@@ -193,14 +193,8 @@ export interface ElementAnalysisStatus {
   recommendations: string[]; // Çözüm önerileri
 }
 
-export interface CalculationResult {
-  slab: {
-    pd: number; alpha: number; d: number; m_x: number;
-    as_req: number; as_min: number; spacing: number;
-    min_thickness_calculated: number; min_thickness_limit: number; rho: number;
-    thicknessStatus: CheckStatus; status: CheckStatus;
-  };
-  beams: {
+// --- DETAYLI SONUÇ TİPLERİ (TABLO İÇİN) ---
+export interface BeamDesignResult {
     load_design: number; moment_support: number; moment_span: number;
     as_support_req: number; as_span_req: number;
     count_support: number; count_span: number;
@@ -211,8 +205,9 @@ export interface CalculationResult {
     shear_reinf_type: string;
     deflection: number; deflection_limit: number;
     checks: { shear: CheckStatus; deflection: CheckStatus; min_reinf: CheckStatus; max_reinf: CheckStatus };
-  };
-  columns: {
+}
+
+export interface ColumnDesignResult {
     axial_load_design: number; axial_capacity_max: number;
     moment_design: number; moment_magnified: number;
     slenderness: { lambda: number; lambda_lim: number; beta: number; isSlender: boolean; i_rad: number };
@@ -225,7 +220,17 @@ export interface CalculationResult {
       strongColumn: CheckStatus; minDimensions: CheckStatus; minRebar: CheckStatus;
       maxRebar: CheckStatus; confinement: CheckStatus; slendernessCheck: CheckStatus;
     };
+}
+
+export interface CalculationResult {
+  slab: {
+    pd: number; alpha: number; d: number; m_x: number;
+    as_req: number; as_min: number; spacing: number;
+    min_thickness_calculated: number; min_thickness_limit: number; rho: number;
+    thicknessStatus: CheckStatus; status: CheckStatus;
   };
+  beams: BeamDesignResult; // Kritik Kiriş (Özet için)
+  columns: ColumnDesignResult; // Kritik Kolon (Özet için)
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
     period_rayleigh_x?: number; // YENİ: Hesaplanan Rayleigh Periyodu X
@@ -255,4 +260,8 @@ export interface CalculationResult {
   };
   memberResults: Map<string, DetailedBeamResult>; 
   elementResults: Map<string, ElementAnalysisStatus>; // Tüm elemanların tek tek durumları
+  
+  // Rapor Tabloları İçin Tüm Sonuçlar
+  detailedBeams: Map<string, BeamDesignResult>;
+  detailedColumns: Map<string, ColumnDesignResult>;
 }

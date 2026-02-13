@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw, Loader2 } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -54,6 +54,8 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [results, setResults] = useState<CalculationResult | null>(null);
   const [isDirty, setIsDirty] = useState(false); // Yeni Dirty State
+  const [isAnalyzing, setIsAnalyzing] = useState(false); // Yükleme Durumu
+  const [showAnalysisSuccess, setShowAnalysisSuccess] = useState(false); // Başarı Bildirimi
   
   // ÇOKLU SEÇİM İÇİN STATE
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -103,6 +105,13 @@ const App: React.FC = () => {
         setState(prev => ({...prev, definedElements: els}));
      }
   }, []);
+
+  useEffect(() => {
+      if (showAnalysisSuccess) {
+          const timer = setTimeout(() => setShowAnalysisSuccess(false), 3000);
+          return () => clearTimeout(timer);
+      }
+  }, [showAnalysisSuccess]);
 
   const updateState = (section: keyof AppState, payload: any) => {
     setState(prev => {
@@ -369,18 +378,26 @@ const App: React.FC = () => {
       setCopyTargets(prev => prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]);
   };
 
-  // --- ANALİZ ---
-  const handleCalculate = () => {
-    try {
-      const res = calculateStructure(state);
-      setResults(res);
-      setIsDirty(false); // Analiz güncel
-      setActiveTab('report');
-      setDisplayMode('analysis'); // Analiz bitince otomatik analiz moduna geç
-    } catch (e) {
-      console.error(e);
-      alert("Hesaplama hatası. Lütfen yapının stabil olduğundan emin olun.");
-    }
+  // --- ANALİZ (ASYNC) ---
+  const handleCalculate = async () => {
+    setIsAnalyzing(true);
+    
+    // UI'ın render edilmesi için kısa bir gecikme
+    setTimeout(() => {
+        try {
+            const res = calculateStructure(state);
+            setResults(res);
+            setIsDirty(false); 
+            setActiveTab('report');
+            setDisplayMode('analysis');
+            setShowAnalysisSuccess(true);
+        } catch (e) {
+            console.error(e);
+            alert("Hesaplama hatası. Lütfen yapının stabil olduğundan emin olun.");
+        } finally {
+            setIsAnalyzing(false);
+        }
+    }, 500); // 500ms simüle edilmiş işlem süresi veya render fırsatı
   };
 
   // Grid Fonksiyonları
@@ -460,6 +477,23 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-slate-100 flex flex-col font-sans text-slate-900 overflow-hidden relative">
       
+      {/* ANALİZ LOADING OVERLAY */}
+      {isAnalyzing && (
+          <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200">
+              <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+              <h2 className="text-xl font-bold text-slate-800">Analiz Yapılıyor...</h2>
+              <p className="text-slate-500 mt-2">Lütfen bekleyiniz, yapı modeli çözülüyor.</p>
+          </div>
+      )}
+
+      {/* ANALİZ BAŞARI BİLDİRİMİ */}
+      {showAnalysisSuccess && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300">
+              <Check className="w-5 h-5" />
+              <span className="font-bold">Analiz Başarıyla Tamamlandı</span>
+          </div>
+      )}
+
       {/* HEADER */}
       <header className="bg-slate-900 text-white p-3 shadow-md z-20 shrink-0">
         <div className="container mx-auto flex flex-row justify-between items-center gap-4">
@@ -481,10 +515,11 @@ const App: React.FC = () => {
              )}
              <button 
                 onClick={handleCalculate} 
-                className={`px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-all shadow-md ${isDirty ? 'bg-orange-500 hover:bg-orange-600 text-white animate-pulse' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+                disabled={isAnalyzing}
+                className={`px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-all shadow-md ${isDirty ? 'bg-orange-500 hover:bg-orange-600 text-white animate-pulse' : 'bg-green-600 hover:bg-green-700 text-white'} disabled:opacity-50 disabled:cursor-not-allowed`}
              >
-                {isDirty ? <RefreshCw className="w-3 h-3 animate-spin"/> : <Play className="w-3 h-3 fill-current" />} 
-                {isDirty ? 'ANALİZİ GÜNCELLE' : 'ANALİZ'}
+                {isAnalyzing ? <RefreshCw className="w-3 h-3 animate-spin"/> : (isDirty ? <RefreshCw className="w-3 h-3"/> : <Play className="w-3 h-3 fill-current" />)} 
+                {isAnalyzing ? 'HESAPLANIYOR' : (isDirty ? 'ANALİZİ GÜNCELLE' : 'ANALİZ')}
              </button>
           </div>
         </div>

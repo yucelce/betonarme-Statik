@@ -1,6 +1,6 @@
 
 // utils/solver.ts
-import { AppState, CalculationResult, ElementAnalysisStatus, StructuralModel, StoryAnalysisResult, DetailedBeamResult, DiagramPoint } from "../types";
+import { AppState, CalculationResult, ElementAnalysisStatus, StructuralModel, StoryAnalysisResult, DetailedBeamResult, DiagramPoint, BeamDesignResult, ColumnDesignResult } from "../types";
 import { getConcreteProperties } from "../constants";
 import { solveSlab } from "./slabSolver";
 import { solveSeismic, calculateRayleighPeriod } from "./seismicSolver";
@@ -67,6 +67,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
 
   const elementResults = new Map<string, ElementAnalysisStatus>();
+  const detailedBeams = new Map<string, BeamDesignResult>();
+  const detailedColumns = new Map<string, ColumnDesignResult>();
 
   // 1. DÖŞEME HESABI
   const { slabResult, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
@@ -274,6 +276,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
          h: beam.h * 10
      });
 
+     // Detaylı Sonuçları Map'e Ekle
+     detailedBeams.set(originalId, result.beamsResult);
+
      const isSafeBeam = result.beamsResult.checks.shear.isSafe && 
                         result.beamsResult.checks.deflection.isSafe &&
                         result.beamsResult.checks.min_reinf.isSafe &&
@@ -366,19 +371,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
           forcesY ? Math.abs(forcesY.fz) * 1000 : 0
       );
       
-      // Kolon Düşey Yüklerini Yaklaşık Hesapla (Tribüter alan basitliği için FEM Fz'yi sadece deprem alıyoruz,
-      // ancak FEM düşey yükleri de içeriyorsa ayıramayız.
-      // Mevcut FEM sadece Yatay yük ile çalışıyor (seismicForces vektörü). 
-      // Dolayısıyla forcesX.fz sadece depremden gelen eksenel yüktür (+/-).
-      
-      // Düşey Yükleri (G ve Q) bulmak için basit tribüter alan (Kat sayısı kadar birikimli)
-      // Bu çok kaba bir yaklaşım, ama FEM gravity yoksa zorunlu.
-      // Basitleştirme: Kolon başına ortalama yük * kat sayısı
       const parts = col.id.split('_S');
       const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
       const storiesAbove = state.dimensions.storyCount - storyIndex;
       
-      // Kolon başına düşen yaklaşık alan
       const avgArea = (state.dimensions.lx * state.dimensions.ly) / (state.grid.xAxis.length+1 * state.grid.yAxis.length+1);
       
       const Nd_g_approx = (g_total_N_m2 + 0.3*25000) * avgArea * storiesAbove; // Döşeme + Kiriş/Kolon ağırlığı
@@ -438,6 +434,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
         colRes.columnsResult.moment_design = Md_fem_seismic / 1e6;
         colRes.columnsResult.moment_magnified = Math.max(colRes.columnsResult.moment_magnified, Md_fem_seismic / 1e6);
       }
+
+      // Detaylı Sonuçları Map'e Ekle
+      detailedColumns.set(originalId, colRes.columnsResult);
 
       const isSafeCol = colRes.columnsResult.checks.axial_limit.isSafe &&
                         colRes.columnsResult.checks.shear_capacity.isSafe &&
@@ -527,6 +526,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     foundation: foundationResult,
     joint: criticalJointResult!,
     memberResults: memberResults,
-    elementResults: elementResults
+    elementResults: elementResults,
+    detailedBeams: detailedBeams,
+    detailedColumns: detailedColumns
   };
 };
