@@ -3,17 +3,17 @@
 import { AppState, CalculationResult, ElementAnalysisStatus, StructuralModel, StoryAnalysisResult, DetailedBeamResult, DiagramPoint } from "../types";
 import { getConcreteProperties } from "../constants";
 import { solveSlab } from "./slabSolver";
-import { solveSeismic } from "./seismicSolver";
+import { solveSeismic, calculateRayleighPeriod } from "./seismicSolver";
 import { solveBeams } from "./beamSolver";
 import { solveColumns } from "./columnSolver";
 import { solveFoundation } from "./foundationSolver";
 import { generateModel } from "./modelGenerator";
 import { solveFEM } from './femSolver';
-import { createStatus } from "./shared";
+import { createStatus, GRAVITY } from "./shared";
 
 // Kiriş Yüklerini Döşemelerden Hesaplayan Yardımcı Fonksiyon
-const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<string, number> => {
-    const beamLoads = new Map<string, number>();
+const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<string, { q_g: number, q_q: number }> => {
+    const beamLoads = new Map<string, { q_g: number, q_q: number }>();
 
     model.slabs.forEach(slab => {
         const slabNodes = slab.nodes.map(nid => model.nodes.find(n => n.id === nid)!);
@@ -22,9 +22,11 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
         const userSlab = appState.definedElements.find(e => `${e.id}_S${e.storyIndex}` === slab.id);
         const liveLoadKg = userSlab?.properties?.liveLoad ?? appState.loads.liveLoadKg;
         const g_slab = (slab.thickness / 100) * 25000;
-        const g_coating = appState.loads.deadLoadCoatingsKg * 9.81;
-        const q_live = liveLoadKg * 9.81;
-        const pd = 1.4 * (g_slab + g_coating) + 1.6 * q_live;
+        const g_coating = appState.loads.deadLoadCoatingsKg * GRAVITY;
+        const q_live = liveLoadKg * GRAVITY;
+        
+        const pd_g = g_slab + g_coating; // Ölü Yük (N/m2)
+        const pd_q = q_live; // Hareketli Yük (N/m2)
 
         const cx = slabNodes.reduce((sum, n) => sum + n.x, 0) / slabNodes.length;
         const cy = slabNodes.reduce((sum, n) => sum + n.y, 0) / slabNodes.length;
@@ -45,11 +47,14 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
                     cx * (n1.y - n2.y)
                 );
 
-                const totalLoadOnBeamPart = areaTributary * pd; 
-                const q_add = totalLoadOnBeamPart / beam.length; 
+                const load_g = (areaTributary * pd_g) / beam.length; 
+                const load_q = (areaTributary * pd_q) / beam.length;
 
-                const currentLoad = beamLoads.get(beam.id) || 0;
-                beamLoads.set(beam.id, currentLoad + q_add);
+                const current = beamLoads.get(beam.id) || { q_g: 0, q_q: 0 };
+                beamLoads.set(beam.id, { 
+                    q_g: current.q_g + load_g,
+                    q_q: current.q_q + load_q
+                });
             }
         }
     });
@@ -83,15 +88,61 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const g_beam_self_approx = (sections.beamWidth/100) * (sections.beamDepth/100) * 25000;
   const g_wall_approx = 3500; 
 
-  // 2. YAKLAŞIK DEPREM VE KUVVET DAĞILIMI
-  const { seismicResult: tempSeismicRes, Vt_design_X, Vt_design_Y, W_total_N, fi_story_X, fi_story_Y } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_approx, g_wall_approx);
-
-  // 3. MODEL VE FEM ANALİZİ
+  // =========================================================================
+  // İTERATİF ANALİZ DÖNGÜSÜ
+  // Adım 1: Ampirik Periyot ile Başlangıç Deprem Kuvvetleri
+  // =========================================================================
+  
+  const seismicRes_Init = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_approx, g_wall_approx);
+  
+  // Model Oluşturma
   const model = generateModel(state);
+  
+  // Adım 2: İlk FEM Analizi (Başlangıç Kuvvetleri ile)
+  const femX_1 = solveFEM(state, seismicRes_Init.fi_story_X, 'X');
+  const femY_1 = solveFEM(state, seismicRes_Init.fi_story_Y, 'Y');
+
+  // Adım 3: Rayleigh Periyot Hesabı
+  // X Yönü için Veri Hazırla
+  const rayleighDataX = seismicRes_Init.weightsPerStory.map((w, i) => {
+      const storyIdx = i + 1; // 1. kattan başlar
+      const res = femX_1.storyAnalysis.find(s => s.storyIndex === storyIdx);
+      return {
+          mass: w / (1000 * GRAVITY), // ton (N -> kg -> ton)
+          force: seismicRes_Init.fi_story_X[i] / 1000, // kN
+          displacement: res ? res.dispAvgX : 0 // mm
+      };
+  });
+
+  // Y Yönü için Veri Hazırla
+  const rayleighDataY = seismicRes_Init.weightsPerStory.map((w, i) => {
+      const storyIdx = i + 1; 
+      const res = femY_1.storyAnalysis.find(s => s.storyIndex === storyIdx);
+      return {
+          mass: w / (1000 * GRAVITY),
+          force: seismicRes_Init.fi_story_Y[i] / 1000,
+          displacement: res ? res.dispAvgY : 0
+      };
+  });
+
+  const Tx_Rayleigh = calculateRayleighPeriod(rayleighDataX);
+  const Ty_Rayleigh = calculateRayleighPeriod(rayleighDataY);
+
+  // Adım 4: Yeni Periyotlar ile Deprem Kuvvetlerini Güncelle
+  const { seismicResult: finalSeismicRes, Vt_design_X, Vt_design_Y, W_total_N, fi_story_X, fi_story_Y } = solveSeismic(
+      state, 
+      g_total_N_m2, 
+      q_live_N_m2, 
+      g_beam_self_approx, 
+      g_wall_approx,
+      { Tx: Tx_Rayleigh, Ty: Ty_Rayleigh }
+  );
+
+  // Adım 5: Final FEM Analizi (Güncel Kuvvetler ile)
   const femResultsX = solveFEM(state, fi_story_X, 'X');
   const femResultsY = solveFEM(state, fi_story_Y, 'Y');
-  
-  // 3.5 DÖŞEME YÜKLERİ
+
+  // 3.5 DÖŞEME YÜKLERİ (Kirişlere Aktar)
   const beamSlabLoads = calculateBeamLoads(model, state);
 
   // 4. SONUÇLARI BİRLEŞTİR (ZARF)
@@ -106,6 +157,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
           mergedStoryAnalysis.push({
               storyIndex: resX.storyIndex,
               height: resX.height,
+              mass: seismicRes_Init.weightsPerStory[i] / (1000 * GRAVITY), // ton
               forceAppliedX: resX.forceAppliedX,
               forceAppliedY: resY.forceAppliedY,
               dispAvgX: resX.dispAvgX,
@@ -125,7 +177,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const maxEtaBi = mergedStoryAnalysis.length > 0 ? Math.max(...mergedStoryAnalysis.map(s => Math.max(s.eta_bi_x, s.eta_bi_y))) : 1.0;
   const driftCheck = mergedStoryAnalysis.every(s => s.driftCheck.isSafe);
 
-  const methodCheck = { ...tempSeismicRes.method_check };
+  const methodCheck = { ...finalSeismicRes.method_check };
   methodCheck.checks.torsion = createStatus(
       maxEtaBi <= 2.0, 
       `η = ${maxEtaBi.toFixed(2)} ≤ 2.0`, 
@@ -137,7 +189,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   methodCheck.reason = !methodCheck.isApplicable ? 'Eşdeğer Deprem Yükü Yöntemi uygulanamaz.' : 'Eşdeğer Deprem Yükü Yöntemi Uygulanabilir.';
 
   const finalSeismicResult: CalculationResult['seismic'] = {
-      ...tempSeismicRes,
+      ...finalSeismicRes,
       base_shear_x: Vt_design_X / 1000,
       base_shear_y: Vt_design_Y / 1000,
       method_check: methodCheck,
@@ -180,8 +232,10 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      const g_beam_self_N_m = bw_m * h_m * 25000;
      const g_wall_N_m = (userBeam?.properties?.wallLoad ?? 3.5) * 1000; 
      
-     const q_slab_N_m = beamSlabLoads.get(beam.id) || 0;
-     const q_beam_design_N_m = q_slab_N_m + 1.4 * g_beam_self_N_m + 1.4 * g_wall_N_m;
+     // Ayrık Yükler
+     const loads = beamSlabLoads.get(beam.id) || { q_g: 0, q_q: 0 };
+     const q_g_N_m = loads.q_g + g_beam_self_N_m + g_wall_N_m;
+     const q_q_N_m = loads.q_q;
 
      const forcesX = femResultsX.memberForces.get(beam.id);
      const forcesY = femResultsY.memberForces.get(beam.id);
@@ -201,9 +255,16 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      }
 
      const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
-     const Vt_global_design = Math.max(Vt_design_X, Vt_design_Y);
-
-     const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_global_design, fcd, fctd, Ec, storyHeight, beam.bw, beam.h);
+     
+     const result = solveBeams(
+         state, 
+         beam.length, 
+         q_g_N_m, 
+         q_q_N_m, 
+         Math.abs(fem_M_start), // Mutlak değer (Kombinasyonda +/- dikkate alınır)
+         Math.abs(fem_V_start), 
+         fcd, fctd, Ec, storyHeight, beam.bw, beam.h
+     );
 
      // Sonuçları Kaydet (Kolon hesabı için)
      beamReinforcementData.set(beam.id, {
@@ -254,17 +315,20 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      const points: DiagramPoint[] = [];
      const steps = 20; 
      const dx = beam.length / steps;
-     const q = q_beam_design_N_m; 
+     const q_design = result.beamsResult.load_design * 1000; // N/m
+     
      let maxM = -Infinity, minM = Infinity, maxV = 0;
      
-     const V_start_calc = forcesX ? fem_V_start : (q * beam.length / 2); 
+     // Grafik için basitleştirilmiş G+Q+E zarfı yerine
+     // Sadece 1.4G+1.6Q+1.0E'yi görselleştirelim (Yaklaşık)
+     const V_start_calc = forcesX ? fem_V_start : (q_design * beam.length / 2); 
      const M_start_calc = forcesX ? -fem_M_start : 0;
 
      for (let i = 0; i <= steps; i++) {
         const x = i * dx; 
-        const Vx = (V_start_calc - (q * x)) / 1000; 
+        const Vx = (V_start_calc - (q_design * x)) / 1000; 
         const V_start_kN = V_start_calc / 1000;
-        const q_kN_m = q / 1000;
+        const q_kN_m = q_design / 1000;
         const M_start_kNm = M_start_calc / 1e6;
         
         const Mx = M_start_kNm + V_start_kN * x - (q_kN_m * x * x) / 2;
@@ -279,7 +343,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   if (!criticalBeamResult) {
     const h_dummy = state.dimensions.storyHeights[0] || 3;
-    criticalBeamResult = solveBeams(state, 5, 10000, 10000, fcd, fctd, Ec, h_dummy).beamsResult;
+    criticalBeamResult = solveBeams(state, 5, 10000, 5000, 0, 0, fcd, fctd, Ec, h_dummy).beamsResult;
   }
 
   // 6. KOLON TASARIMI
@@ -297,32 +361,47 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       const forcesX = femResultsX.memberForces.get(col.id);
       const forcesY = femResultsY.memberForces.get(col.id);
       
-      const Nd_fem = Math.max(
+      const Nd_fem_seismic = Math.max(
           forcesX ? Math.abs(forcesX.fz) * 1000 : 0,
           forcesY ? Math.abs(forcesY.fz) * 1000 : 0
       );
       
+      // Kolon Düşey Yüklerini Yaklaşık Hesapla (Tribüter alan basitliği için FEM Fz'yi sadece deprem alıyoruz,
+      // ancak FEM düşey yükleri de içeriyorsa ayıramayız.
+      // Mevcut FEM sadece Yatay yük ile çalışıyor (seismicForces vektörü). 
+      // Dolayısıyla forcesX.fz sadece depremden gelen eksenel yüktür (+/-).
+      
+      // Düşey Yükleri (G ve Q) bulmak için basit tribüter alan (Kat sayısı kadar birikimli)
+      // Bu çok kaba bir yaklaşım, ama FEM gravity yoksa zorunlu.
+      // Basitleştirme: Kolon başına ortalama yük * kat sayısı
+      const parts = col.id.split('_S');
+      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
+      const storiesAbove = state.dimensions.storyCount - storyIndex;
+      
+      // Kolon başına düşen yaklaşık alan
+      const avgArea = (state.dimensions.lx * state.dimensions.ly) / (state.grid.xAxis.length+1 * state.grid.yAxis.length+1);
+      
+      const Nd_g_approx = (g_total_N_m2 + 0.3*25000) * avgArea * storiesAbove; // Döşeme + Kiriş/Kolon ağırlığı
+      const Nd_q_approx = q_live_N_m2 * avgArea * storiesAbove;
+
       // Temel Yükleri (Sadece Zemin Kat Kolonları)
       if (col.id.endsWith('_S0')) {
-          totalFoundationAxial += Nd_fem; // Zati ağırlıklar içinde
-          // Devrilme momenti hesabı (Global tabana göre)
-          if (forcesX) totalFoundationMomentY += forcesX.my * 1000; // My X yönünde eğilme
-          if (forcesY) totalFoundationMomentX += forcesY.mx * 1000; // Mx Y yönünde eğilme
+          totalFoundationAxial += (Nd_g_approx + Nd_q_approx); 
+          if (forcesX) totalFoundationMomentY += forcesX.my * 1000; 
+          if (forcesY) totalFoundationMomentX += forcesY.mx * 1000; 
       }
 
       const Mx = Math.max(forcesX ? Math.abs(forcesX.mx) : 0, forcesY ? Math.abs(forcesY.mx) : 0);
       const My = Math.max(forcesX ? Math.abs(forcesX.my) : 0, forcesY ? Math.abs(forcesY.my) : 0);
-      const Md_fem = Math.sqrt(Mx*Mx + My*My) * 1e6;
+      const Md_fem_seismic = Math.sqrt(Mx*Mx + My*My) * 1e6;
 
-      const V_fem = Math.max(
+      const V_fem_seismic = Math.max(
           forcesX ? Math.abs(forcesX.fy) : 0,
           forcesY ? Math.abs(forcesY.fy) : 0
       ) * 1000;
       
-      // --- BİRLEŞİM BÖLGESİ KONTROLÜ (GEOMETRİK) ---
-      // Kolona X ve Y yönünde saplanan kirişleri bul
+      // --- BİRLEŞİM BÖLGESİ KONTROLÜ ---
       const connectedBeams = model.beams.filter(b => b.startNodeId === col.nodeId || b.endNodeId === col.nodeId);
-      
       let beamsX = 0;
       let beamsY = 0;
       const connectedBeamsData: { b_mm: number, h_mm: number, As_prov_mm2: number }[] = [];
@@ -333,35 +412,31 @@ export const calculateStructure = (state: AppState): CalculationResult => {
               connectedBeamsData.push({
                   b_mm: bData.b,
                   h_mm: bData.h,
-                  As_prov_mm2: Math.max(bData.As_supp, bData.As_span) // Mesnet donatısı esas alınmalı
+                  As_prov_mm2: Math.max(bData.As_supp, bData.As_span) 
               });
           }
           if (b.direction === 'X') beamsX++;
           if (b.direction === 'Y') beamsY++;
       });
 
-      // TBDY 7.5.1: Kolona dört taraftan kiriş saplanıyorsa ve kiriş genişliği kolon genişliğinin 3/4'ü ise kuşatılmış sayılır.
-      // Basitleştirilmiş: 4 tarafında kiriş varsa kuşatılmış kabul edelim.
-      // Modelimizde her aks arasına bir kiriş atıldığı için X ve Y yönünde en az 2'şer kiriş olması gerekir (orta kolon).
-      // Kenar kolonlar kuşatılmamış kabul edilir.
       const isJointConfined = (beamsX >= 2 && beamsY >= 2);
-
-      const parts = col.id.split('_S');
-      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
       const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
       
       const colRes = solveColumns(
           state, 
-          Nd_fem > 0 ? Nd_fem : 100000, 
-          V_fem > 0 ? V_fem : 10000, 
+          Nd_g_approx,
+          Nd_q_approx,
+          Nd_fem_seismic,
+          Md_fem_seismic,
+          V_fem_seismic,
           connectedBeamsData,
           isJointConfined,
           fck, fcd, fctd, Ec, storyHeight, col.b, col.h
       );
 
-      if(Md_fem > 0) {
-        colRes.columnsResult.moment_design = Md_fem / 1e6;
-        colRes.columnsResult.moment_magnified = Math.max(colRes.columnsResult.moment_magnified, Md_fem / 1e6);
+      if(Md_fem_seismic > 0) {
+        colRes.columnsResult.moment_design = Md_fem_seismic / 1e6;
+        colRes.columnsResult.moment_magnified = Math.max(colRes.columnsResult.moment_magnified, Md_fem_seismic / 1e6);
       }
 
       const isSafeCol = colRes.columnsResult.checks.axial_limit.isSafe &&
@@ -412,20 +487,19 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   if (!criticalColumnResult) {
        const h_dummy = state.dimensions.storyHeights[0] || 3;
-       const dummy = solveColumns(state, 100000, 10000, [], false, fck, fcd, fctd, Ec, h_dummy);
+       const dummy = solveColumns(state, 100000, 20000, 0, 0, 0, [], false, fck, fcd, fctd, Ec, h_dummy);
        criticalColumnResult = dummy.columnsResult;
        criticalJointResult = dummy.jointResult;
   }
 
   // 7. TEMEL HESABI
-  // Devrilme Momentleri (Basitleştirilmiş: Kolon taban momentleri + Kesme * H_temel (ihmal))
-  // Daha doğru bir yaklaşım için yapı devrilme momentini (Vt * 2/3 Hn) kullanabiliriz.
+  // Devrilme Momentleri
   const Mx_overturning_kNm = (totalFoundationMomentX / 1000) + (Vt_design_Y / 1000) * (state.dimensions.foundationHeight / 100);
   const My_overturning_kNm = (totalFoundationMomentY / 1000) + (Vt_design_X / 1000) * (state.dimensions.foundationHeight / 100);
 
   const { foundationResult } = solveFoundation(
       state, 
-      W_total_N, 
+      totalFoundationAxial > 0 ? totalFoundationAxial : W_total_N, // Kolonlardan gelen yük yoksa yaklaşık ağırlık
       criticalColumnResult!.axial_load_design * 1000, 
       fctd,
       Mx_overturning_kNm,

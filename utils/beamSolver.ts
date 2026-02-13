@@ -13,8 +13,12 @@ interface BeamSolverResult {
 export const solveBeams = (
   state: AppState,
   spanLength_m: number,
-  q_beam_design_N_m: number,
-  Vt_total_N: number,
+  // Ayrık Yükler (Zarf Kombinasyonları İçin)
+  q_g_N_m: number, // Ölü Yük (Zati + Kaplama)
+  q_q_N_m: number, // Hareketli Yük
+  fem_M_support_seismic_Nmm: number, // FEM'den gelen Deprem Momenti (Mutlak Değer)
+  Vt_total_seismic_N: number, // FEM'den gelen Deprem Kesmesi (Mutlak Değer)
+  // Malzeme
   fcd: number,
   fctd: number,
   Ec: number,
@@ -34,26 +38,31 @@ export const solveBeams = (
   const h_beam_mm = h_cm * 10;
   const d_beam_mm = h_beam_mm - 30; // Paspayı
 
-  // --- A. DEPREM ETKİSİ ---
-  const numColsX = grid.xAxis.length + 1;
-  const numColsY = grid.yAxis.length + 1;
-  const totalCols = numColsX * numColsY;
+  // --- STATİK MOMENTLER (Basit Kiriş Yaklaşımı) ---
+  const M_g_supp_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
+  const M_q_supp_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
   
-  const V_col_avg_N = Vt_total_N / Math.max(totalCols, 1); 
-  
-  const M_col_seismic_Nmm = (V_col_avg_N * (storyHeight * 1000)) / 2;
-  const joint_factor = 1.0; 
-  const M_beam_seismic_Nmm = M_col_seismic_Nmm * joint_factor;
+  const M_g_span_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) / 24) * 1000; // Açıklık için yaklaşık qL^2/24 (sürekli) veya qL^2/8 (basit)
+  const M_q_span_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) / 24) * 1000; // Burada güvenli tarafta qL^2/12 - qL^2/24 arası bir kabul yapıyoruz
 
-  // --- B. YÜK KOMBİNASYONLARI ---
-  const M_supp_static_Nmm = (q_beam_design_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
-  const M_span_static_Nmm = (q_beam_design_N_m * Math.pow(L_beam_m, 2) / 14) * 1000;
-
-  const q_beam_service_N_m = q_beam_design_N_m / 1.45;
-  const M_supp_service_Nmm = (q_beam_service_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
+  // --- YÜK KOMBİNASYONLARI (TS500 & TBDY) ---
+  // M_E = fem_M_support_seismic_Nmm (Deprem)
   
-  const M_supp_design_Nmm = Math.max(M_supp_static_Nmm, M_supp_service_Nmm + M_beam_seismic_Nmm);
-  const M_span_design_Nmm = M_span_static_Nmm;
+  // 1. 1.4G + 1.6Q
+  const Md_combo1 = 1.4 * M_g_supp_Nmm + 1.6 * M_q_supp_Nmm;
+  
+  // 2. G + 1.2Q + E
+  const Md_combo2 = 1.0 * M_g_supp_Nmm + 1.2 * M_q_supp_Nmm + 1.0 * fem_M_support_seismic_Nmm;
+  
+  // 3. 0.9G + E (Hafiflik kontrolü - Çekme yaratabilir, ama donatı hesabında mutlak max'a bakıyoruz)
+  const Md_combo3 = 0.9 * M_g_supp_Nmm + 1.0 * fem_M_support_seismic_Nmm;
+
+  // ZARF (Envelope) Tasarım Momenti
+  const M_supp_design_Nmm = Math.max(Md_combo1, Md_combo2, Md_combo3);
+  
+  // Açıklık Momenti (Genelde 1.4G + 1.6Q belirleyici olur)
+  // Basitlik için açıklıkta deprem etkisini düşük kabul edip Combo 1'i kullanıyoruz.
+  const M_span_design_Nmm = 1.4 * M_g_span_Nmm + 1.6 * M_q_span_Nmm;
 
   // --- C. DONATI HESABI ---
   const M_beam_supp_Nmm = M_supp_design_Nmm;
@@ -82,8 +91,15 @@ export const solveBeams = (
 
   const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, As_beam_supp_prov, fcd);
 
-  // --- D. KESME HESABI ---
-  const V_beam_design_N = (q_beam_design_N_m * L_beam_m / 2); 
+  // --- D. KESME HESABI (ZARF) ---
+  const V_g = q_g_N_m * L_beam_m / 2;
+  const V_q = q_q_N_m * L_beam_m / 2;
+  const V_e = Vt_total_seismic_N; // FEM'den gelen deprem kesmesi
+
+  const Vd_combo1 = 1.4 * V_g + 1.6 * V_q;
+  const Vd_combo2 = 1.0 * V_g + 1.2 * V_q + 1.0 * V_e;
+  const V_beam_design_N = Math.max(Vd_combo1, Vd_combo2);
+
   const Vcr_N = 0.65 * fctd * bw_mm * d_beam_mm;
   const Vmax_N = 0.22 * fcd * bw_mm * d_beam_mm;
   const Vc_beam_N = 0.8 * Vcr_N;
@@ -106,15 +122,15 @@ export const solveBeams = (
   const s_span_beam = Math.floor(Math.min(d_beam_mm / 2, 200) / 10) * 10;
   const s_supp_final_beam = Math.max(s_supp_beam, 50);
 
-  // --- E. SEHİM HESABI ---
+  // --- E. SEHİM HESABI (Sadece Düşey Yükler 1.0G + 1.0Q veya G+Q) ---
+  const q_service_N_mm = (q_g_N_m + q_q_N_m) / 1000;
   const I_beam = (bw_mm * Math.pow(h_beam_mm, 3)) / 12;
-  const q_line_N_mm = q_beam_design_N_m / 1000;
-  const delta_elastic = (5 * q_line_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5)); 
-  const delta_total = delta_elastic * 3; 
+  const delta_elastic = (5 * q_service_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5)); 
+  const delta_total = delta_elastic * 3; // Sünme etkileri vs.
   const delta_limit = L_beam_mm / 240;
 
   const beamsResult = {
-    load_design: q_beam_design_N_m / 1000,
+    load_design: (1.4*q_g_N_m + 1.6*q_q_N_m) / 1000, // Rapor için yaklaşık değer
     moment_support: M_beam_supp_Nmm / 1e6,
     moment_span: M_beam_span_Nmm / 1e6,
     as_support_req: As_beam_supp_req,

@@ -139,6 +139,7 @@ export interface CheckStatus {
 export interface StoryAnalysisResult {
   storyIndex: number;
   height: number;
+  mass: number; // ton (Yeni: Rayleigh için)
   forceAppliedX: number; // kN (X Yönü)
   forceAppliedY: number; // kN (Y Yönü)
   dispAvgX: number;
@@ -227,6 +228,8 @@ export interface CalculationResult {
   };
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
+    period_rayleigh_x?: number; // YENİ: Hesaplanan Rayleigh Periyodu X
+    period_rayleigh_y?: number; // YENİ: Hesaplanan Rayleigh Periyodu Y
     building_weight: number; 
     base_shear_x: number; 
     base_shear_y: number;

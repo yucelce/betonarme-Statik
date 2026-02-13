@@ -1,7 +1,7 @@
 
 import { AppState, CalculationResult, CheckStatus, IrregularityResult } from "../types";
 import { getFs, getF1 } from "../constants";
-import { createStatus } from "./shared";
+import { createStatus, GRAVITY } from "./shared";
 
 interface SeismicSolverResult {
   seismicResult: CalculationResult['seismic'];
@@ -10,14 +10,42 @@ interface SeismicSolverResult {
   W_total_N: number;
   fi_story_X: number[];
   fi_story_Y: number[];
+  weightsPerStory: number[];
 }
+
+/**
+ * Rayleigh Metodu ile Doğal Titreşim Periyodu Hesabı
+ * T = 2 * PI * sqrt( sum(mi * di^2) / sum(Fi * di) )
+ */
+export const calculateRayleighPeriod = (
+    data: { mass: number; force: number; displacement: number }[]
+): number => {
+    let sum_m_d2 = 0;
+    let sum_F_d = 0;
+
+    data.forEach(d => {
+        // mass (ton) -> kg için * 1000
+        // force (kN) -> N için * 1000
+        // displacement (mm) -> m için / 1000
+        const m_kg = d.mass * 1000;
+        const F_N = d.force * 1000;
+        const disp_m = d.displacement / 1000;
+
+        sum_m_d2 += m_kg * Math.pow(disp_m, 2);
+        sum_F_d += F_N * disp_m;
+    });
+
+    if (sum_F_d === 0) return 0;
+    return 2 * Math.PI * Math.sqrt(sum_m_d2 / sum_F_d);
+};
 
 export const solveSeismic = (
   state: AppState, 
   g_total_N_m2: number, 
   q_live_N_m2: number,
   g_beam_self_N_m: number,
-  g_wall_N_m: number
+  g_wall_N_m: number,
+  periodOverride?: { Tx?: number, Ty?: number } // İterasyon için opsiyonel periyotlar
 ): SeismicSolverResult => {
   const { dimensions, seismic, sections, materials, grid } = state;
   const storyCount = dimensions.storyCount || 1;
@@ -52,39 +80,52 @@ export const solveSeismic = (
       
       const W_col_N = (sections.colWidth / 100 * sections.colDepth / 100 * h * 25000) * Num_Cols; 
       const Wi = W_slab_N + W_beam_N + W_col_N + W_wall_N;
-      weightsPerStory.push(Wi);
+      weightsPerStory.push(Wi); // N biriminde
       W_total_N += Wi;
   }
 
-  // Spektrum ve Vt hesabı
+  // Spektrum
   const Fs = getFs(seismic.ss, seismic.soilClass);
   const F1 = getF1(seismic.s1, seismic.soilClass);
   const Sds = seismic.ss * Fs;
   const Sd1 = seismic.s1 * F1;
   
-  // T1 Periyodu (Basit yaklaşım, hem X hem Y için benzer kabul edilir eğer rijitlikler aşırı farklı değilse)
-  // TBDY 4.7.3 Yaklaşık Periyot
+  // Ampirik Periyot (Başlangıç veya Kontrol)
   const Hn = currentHeightAboveGround;
-  const Ct = 0.1; // Betonarme çerçeve için yaklaşık
-  const T1 = Ct * Math.pow(Hn, 0.75); 
+  const Ct = 0.1; 
+  const T_empirical = Ct * Math.pow(Hn, 0.75); 
 
-  const Sae_coeff = ((T: number): number => {
+  // Periyot Belirleme (Override varsa kullan, yoksa ampirik)
+  // TBDY 4.7.3.1: Hesaplanan periyot, ampirik periyodun 1.4 katından fazla olamaz.
+  let Tx = periodOverride?.Tx || T_empirical;
+  let Ty = periodOverride?.Ty || T_empirical;
+
+  const T_max_limit = 1.4 * T_empirical;
+  if (Tx > T_max_limit) Tx = T_max_limit;
+  if (Ty > T_max_limit) Ty = T_max_limit;
+
+  const getSae = (T: number): number => {
     const Ta = 0.2 * (Sd1 / Sds);
     const Tb = Sd1 / Sds;
     if (T < Ta) return (0.4 + 0.6 * (T / Ta)) * Sds;
     if (T <= Tb) return Sds;
     return Sd1 / T;
-  })(T1);
+  };
+
+  const Sae_X = getSae(Tx);
+  const Sae_Y = getSae(Ty);
 
   const Ra = seismic.Rx || 8;
   const I_bldg = seismic.I || 1.0;
   
-  // Taban kesme kuvveti (X ve Y yönü için aynı kabul, rijitlik farkı FEM'de çıkacak)
-  const Vt_calc_N = (W_total_N * Sae_coeff * I_bldg) / Ra;
+  // Taban Kesme Kuvvetleri
+  const Vt_calc_N_X = (W_total_N * Sae_X * I_bldg) / Ra;
+  const Vt_calc_N_Y = (W_total_N * Sae_Y * I_bldg) / Ra;
+  
   const Vt_min_N = 0.04 * W_total_N * I_bldg * Sds;
   
-  const Vt_design_X = Math.max(Vt_calc_N, Vt_min_N);
-  const Vt_design_Y = Math.max(Vt_calc_N, Vt_min_N);
+  const Vt_design_X = Math.max(Vt_calc_N_X, Vt_min_N);
+  const Vt_design_Y = Math.max(Vt_calc_N_Y, Vt_min_N);
 
   // Kat Kuvvetleri Dağılımı
   let sum_Wi_Hi = 0;
@@ -106,8 +147,10 @@ export const solveSeismic = (
   const seismicResult = {
     param_sds: Sds,
     param_sd1: Sd1,
-    period_t1: T1,
-    spectrum_sae: Sae_coeff,
+    period_t1: T_empirical,
+    period_rayleigh_x: Tx,
+    period_rayleigh_y: Ty,
+    spectrum_sae: Math.max(Sae_X, Sae_Y),
     building_weight: W_total_N / 1000,
     base_shear_x: Vt_design_X / 1000,
     base_shear_y: Vt_design_Y / 1000,
@@ -133,5 +176,5 @@ export const solveSeismic = (
     }
   };
 
-  return { seismicResult, Vt_design_X, Vt_design_Y, W_total_N, fi_story_X, fi_story_Y };
+  return { seismicResult, Vt_design_X, Vt_design_Y, W_total_N, fi_story_X, fi_story_Y, weightsPerStory };
 };

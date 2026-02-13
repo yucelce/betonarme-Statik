@@ -1,4 +1,3 @@
-
 // utils/femSolver.ts
 import { matrix, multiply, zeros, Matrix, index, transpose, lusolve } from 'mathjs';
 import { AppState, StoryAnalysisResult } from '../types';
@@ -474,6 +473,7 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
       storyAnalysis.push({
           storyIndex: i,
           height: floor ? floor.z : 0,
+          mass: 0, // Placeholder as mass is calculated in seismicSolver/solver logic, but required by type
           forceAppliedX: direction === 'X' ? (seismicForces[i-1] || 0) / 1000 : 0,
           forceAppliedY: direction === 'Y' ? (seismicForces[i-1] || 0) / 1000 : 0,
           dispAvgX: direction === 'X' ? avgD * 1000 : 0,

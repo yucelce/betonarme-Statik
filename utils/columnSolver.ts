@@ -11,8 +11,15 @@ interface ColumnSolverResult {
 
 export const solveColumns = (
   state: AppState,
-  Nd_design_N: number, 
-  Vt_design_N: number,
+  // Eksenel Yük Bileşenleri
+  Nd_g_N: number, // Ölü Yük
+  Nd_q_N: number, // Hareketli Yük
+  Nd_e_N: number, // Deprem (Mutlak)
+  // Moment Bileşenleri (Deprem ve Düşey)
+  Md_e_Nmm: number, // Deprem Momenti (Mutlak)
+  // Kesme Bileşenleri
+  V_e_N: number, // Deprem Kesmesi (Mutlak)
+  
   // Güçlü Kolon ve Joint için Gerekli Kiriş Bilgileri
   connectedBeamsData: { 
       b_mm: number, 
@@ -38,9 +45,23 @@ export const solveColumns = (
   const Ac_col_mm2 = bc_mm * hc_mm;
   const h_beam_mm = sections.beamDepth * 10; 
 
-  // Moment (Basit Yaklaşım - Depremden gelen)
-  const M_elastic_Nmm = (Vt_design_N * (storyHeight * 1000)) / 2;
-  const Md_design_Nmm = M_elastic_Nmm;
+  // --- YÜK KOMBİNASYONLARI (ZARF) ---
+  // Eksenel Yük (Basınç Pozitif)
+  const Nd_1 = 1.4 * Nd_g_N + 1.6 * Nd_q_N;
+  const Nd_2 = 1.0 * Nd_g_N + 1.2 * Nd_q_N + 1.0 * Nd_e_N;
+  const Nd_3 = 0.9 * Nd_g_N - 1.0 * Nd_e_N; // Çekme kontrolü için min yük
+  
+  // Tasarım için en kritik basınç yükü (Maksimum)
+  const Nd_design_N = Math.max(Nd_1, Nd_2);
+  
+  // Moment (Kolonda düşey yüklerden gelen moment genellikle azdır, burada deprem momenti esas alınır)
+  // Ancak eksenel yükün değişimi (P-M) kapasiteyi etkiler. 
+  // Basitleştirme: Max Eksenel + Max Moment durumunu kontrol ediyoruz.
+  // Combo 2: 1.0E + ...
+  const Md_design_Nmm = 1.0 * Md_e_Nmm; 
+
+  // Kesme
+  const V_design_N = 1.0 * V_e_N; // Kesme esas olarak depremden gelir
 
   // Donatı
   const barAreaCol = Math.PI * Math.pow(rebars.colMainDia / 2, 2);
@@ -71,10 +92,13 @@ export const solveColumns = (
   const safe_beam_moment = sum_Mpr_beams === 0 ? 1 : sum_Mpr_beams;
   const strongColRatio = sum_M_col_ultimate / safe_beam_moment;
 
-  // Kesme
+  // Kesme (TBDY 7.3.7) -> Ve = (Mra + Mrü) / ln
   const ln_col_mm = (storyHeight * 1000) - h_beam_mm;
-  // Ve = (Mra + Mrü) / ln
-  const Ve_col_N = sum_M_col_ultimate / ln_col_mm;
+  // Ve (Kapasite Tasarımı Kesmesi)
+  const Ve_col_cap_N = sum_M_col_ultimate / ln_col_mm;
+  
+  // Tasarım Kesmesi (Max of Analyze or Capacity)
+  const Ve_col_N = Math.max(V_design_N, Ve_col_cap_N);
 
   const d_col_shear = hc_mm - 30; 
   const Vcr_col = 0.65 * fctd * bc_mm * d_col_shear;
@@ -109,16 +133,13 @@ export const solveColumns = (
   const Md_col_magnified_Nmm = Md_design_Nmm * beta;
 
   // --- JOINT (BİRLEŞİM) KESME GÜVENLİĞİ (TBDY 7.5) ---
-  // Ve = 1.25 * fyk * As_beam_top - V_col
-  // Buradaki V_col (Kolon kesmesi) basitleştirme için ihmal veya min alınabilir, güvenli tarafta As * 1.25fyk çekme kuvveti alınır.
   let F_tensile_total = 0;
   connectedBeamsData.forEach(b => {
       F_tensile_total += 1.25 * STEEL_FYK * b.As_prov_mm2;
   });
   
-  // Basitleştirilmiş: Joint Kesmesi yaklaşık olarak kiriş donatısı akma kuvveti eksi kolon kesmesidir.
-  // Burada kolon kesme kuvvetini (Vt_design_N) düşüyoruz.
-  const Ve_joint_N = Math.max(0, F_tensile_total - Vt_design_N); 
+  // Basitleştirilmiş: Joint Kesmesi kiriş donatısı akma kuvveti eksi kolon kesmesi
+  const Ve_joint_N = Math.max(0, F_tensile_total - V_design_N); 
   
   const bj_mm = Math.min(bc_mm, sections.beamWidth * 10); 
 
