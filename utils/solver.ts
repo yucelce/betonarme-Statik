@@ -11,11 +11,12 @@ import { generateModel } from "./modelGenerator";
 import { solveFEM } from './femSolver';
 import { createStatus, GRAVITY } from "./shared";
 
-// Kiriş Yüklerini Döşemelerden Hesaplayan Yardımcı Fonksiyon
+// Kiriş Yüklerini Döşemelerden Hesaplayan Yardımcı Fonksiyon (Trapez/Üçgen)
 const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<string, { q_g: number, q_q: number }> => {
     const beamLoads = new Map<string, { q_g: number, q_q: number }>();
 
     model.slabs.forEach(slab => {
+        // Döşeme Düğümleri
         const slabNodes = slab.nodes.map(nid => model.nodes.find(n => n.id === nid)!);
         if (!slabNodes.every(n => n)) return;
 
@@ -28,9 +29,17 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
         const pd_g = g_slab + g_coating; // Ölü Yük (N/m2)
         const pd_q = q_live; // Hareketli Yük (N/m2)
 
-        const cx = slabNodes.reduce((sum, n) => sum + n.x, 0) / slabNodes.length;
-        const cy = slabNodes.reduce((sum, n) => sum + n.y, 0) / slabNodes.length;
+        // Döşeme Boyutları ve Yük Dağılımı
+        const lx = slab.lx; // Kısa Kenar
+        const ly = slab.ly; // Uzun Kenar
+        const m = ly / lx;
 
+        // Üçgen Yük (Kısa kenar kirişleri için) eşdeğer düzgün yayılı yük katsayısı
+        const coef_triangle = lx / 3;
+        // Trapez Yük (Uzun kenar kirişleri için) eşdeğer düzgün yayılı yük katsayısı
+        const coef_trapezoid = (lx / 3) * (1.5 - 0.5 / (m * m));
+
+        // Kenarları Tara ve Kirişleri Bul
         for (let i = 0; i < slabNodes.length; i++) {
             const n1 = slabNodes[i];
             const n2 = slabNodes[(i + 1) % slabNodes.length]; 
@@ -41,14 +50,17 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
             );
 
             if (beam) {
-                const areaTributary = 0.5 * Math.abs(
-                    n1.x * (n2.y - cy) + 
-                    n2.x * (cy - n1.y) + 
-                    cx * (n1.y - n2.y)
-                );
+                // Kenar uzunluğu
+                const edgeLen = Math.sqrt(Math.pow(n2.x - n1.x, 2) + Math.pow(n2.y - n1.y, 2));
+                
+                // Kısa kenar mı Uzun kenar mı?
+                // Toleranslı karşılaştırma
+                const isShortEdge = Math.abs(edgeLen - lx) < 0.1;
+                
+                const coef = isShortEdge ? coef_triangle : coef_trapezoid;
 
-                const load_g = (areaTributary * pd_g) / beam.length; 
-                const load_q = (areaTributary * pd_q) / beam.length;
+                const load_g = pd_g * coef; 
+                const load_q = pd_q * coef;
 
                 const current = beamLoads.get(beam.id) || { q_g: 0, q_q: 0 };
                 beamLoads.set(beam.id, { 
@@ -61,6 +73,26 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
 
     return beamLoads;
 };
+
+// Kiriş Süreklilik Kontrolü (Hangi ucunda komşu kiriş var?)
+const checkBeamContinuity = (model: StructuralModel): Map<string, { start: boolean, end: boolean }> => {
+    const continuity = new Map<string, { start: boolean, end: boolean }>();
+
+    model.beams.forEach(beam => {
+        // Start Node'da başka kiriş var mı ve doğrusal mı?
+        const beamsAtStart = model.beams.filter(b => b.id !== beam.id && (b.startNodeId === beam.startNodeId || b.endNodeId === beam.startNodeId));
+        // Basit kontrol: Aynı aksta (axisId) başka kiriş varsa süreklidir.
+        const isContStart = beamsAtStart.some(b => b.axisId === beam.axisId && beam.axisId !== 'D');
+
+        // End Node'da
+        const beamsAtEnd = model.beams.filter(b => b.id !== beam.id && (b.startNodeId === beam.endNodeId || b.endNodeId === beam.endNodeId));
+        const isContEnd = beamsAtEnd.some(b => b.axisId === beam.axisId && beam.axisId !== 'D');
+
+        continuity.set(beam.id, { start: isContStart, end: isContEnd });
+    });
+
+    return continuity;
+}
 
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { materials, sections } = state;
@@ -144,8 +176,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const femResultsX = solveFEM(state, fi_story_X, 'X');
   const femResultsY = solveFEM(state, fi_story_Y, 'Y');
 
-  // 3.5 DÖŞEME YÜKLERİ (Kirişlere Aktar)
+  // 3.5 DÖŞEME YÜKLERİ (Kirişlere Aktar - Trapez/Üçgen)
   const beamSlabLoads = calculateBeamLoads(model, state);
+  const beamContinuity = checkBeamContinuity(model);
 
   // 4. SONUÇLARI BİRLEŞTİR (ZARF)
   const mergedStoryAnalysis: StoryAnalysisResult[] = [];
@@ -257,7 +290,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      }
 
      const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
-     
+     const cont = beamContinuity.get(beam.id) || { start: false, end: false };
+
      const result = solveBeams(
          state, 
          beam.length, 
@@ -265,7 +299,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
          q_q_N_m, 
          Math.abs(fem_M_start), // Mutlak değer (Kombinasyonda +/- dikkate alınır)
          Math.abs(fem_V_start), 
-         fcd, fctd, Ec, storyHeight, beam.bw, beam.h
+         fcd, fctd, Ec, storyHeight, 
+         cont.start, cont.end, // Süreklilik
+         beam.bw, beam.h
      );
 
      // Sonuçları Kaydet (Kolon hesabı için)
@@ -324,8 +360,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      
      let maxM = -Infinity, minM = Infinity, maxV = 0;
      
-     // Grafik için basitleştirilmiş G+Q+E zarfı yerine
-     // Sadece 1.4G+1.6Q+1.0E'yi görselleştirelim (Yaklaşık)
      const V_start_calc = forcesX ? fem_V_start : (q_design * beam.length / 2); 
      const M_start_calc = forcesX ? -fem_M_start : 0;
 
@@ -348,7 +382,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
   if (!criticalBeamResult) {
     const h_dummy = state.dimensions.storyHeights[0] || 3;
-    criticalBeamResult = solveBeams(state, 5, 10000, 5000, 0, 0, fcd, fctd, Ec, h_dummy).beamsResult;
+    criticalBeamResult = solveBeams(state, 5, 10000, 5000, 0, 0, fcd, fctd, Ec, h_dummy, false, false).beamsResult;
   }
 
   // 6. KOLON TASARIMI
@@ -442,7 +476,8 @@ export const calculateStructure = (state: AppState): CalculationResult => {
                         colRes.columnsResult.checks.shear_capacity.isSafe &&
                         colRes.columnsResult.checks.moment_capacity.isSafe &&
                         colRes.columnsResult.checks.strongColumn.isSafe &&
-                        colRes.columnsResult.checks.slendernessCheck.isSafe;
+                        colRes.columnsResult.checks.slendernessCheck.isSafe &&
+                        colRes.columnsResult.checks.tension_check.isSafe;
 
       const colFailMessages = [];
       const colRecommendations = [];
@@ -450,6 +485,9 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       if(!colRes.columnsResult.checks.axial_limit.isSafe) {
           colFailMessages.push(`Eksenel`);
           if(colRes.columnsResult.checks.axial_limit.recommendation) colRecommendations.push(colRes.columnsResult.checks.axial_limit.recommendation);
+      }
+      if(!colRes.columnsResult.checks.tension_check.isSafe) {
+          colFailMessages.push(`Çekme`);
       }
       if(!colRes.columnsResult.checks.shear_capacity.isSafe) {
           colFailMessages.push(`Kesme`);

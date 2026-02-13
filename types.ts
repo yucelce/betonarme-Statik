@@ -197,7 +197,8 @@ export interface ElementAnalysisStatus {
 export interface BeamDesignResult {
     load_design: number; moment_support: number; moment_span: number;
     as_support_req: number; as_span_req: number;
-    count_support: number; count_span: number;
+    as_support_bottom_req: number; // YENİ: Mesnet Alt Donatısı (TBDY)
+    count_support: number; count_span: number; count_support_bottom: number; // YENİ
     shear_design: number; shear_cracking: number; shear_limit: number;
     shear_Vc: number; shear_Vw: number;
     rho_support: number; rho_span: number; rho_min: number; rho_max: number;
@@ -209,6 +210,7 @@ export interface BeamDesignResult {
 
 export interface ColumnDesignResult {
     axial_load_design: number; axial_capacity_max: number;
+    axial_load_min_combo: number; // YENİ: 0.9G - E (Çekme Kontrolü İçin)
     moment_design: number; moment_magnified: number;
     slenderness: { lambda: number; lambda_lim: number; beta: number; isSlender: boolean; i_rad: number };
     shear: { Ve: number; Vr: number; Vc: number; Vw: number; Vr_max: number };
@@ -216,7 +218,9 @@ export interface ColumnDesignResult {
     interaction_ratio: number; strong_col_ratio: number;
     req_area: number; rho_provided: number; count_main: number;
     checks: {
-      axial_limit: CheckStatus; moment_capacity: CheckStatus; shear_capacity: CheckStatus;
+      axial_limit: CheckStatus; 
+      tension_check: CheckStatus; // YENİ: Çekme kontrolü
+      moment_capacity: CheckStatus; shear_capacity: CheckStatus;
       strongColumn: CheckStatus; minDimensions: CheckStatus; minRebar: CheckStatus;
       maxRebar: CheckStatus; confinement: CheckStatus; slendernessCheck: CheckStatus;
     };

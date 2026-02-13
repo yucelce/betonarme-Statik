@@ -313,6 +313,7 @@ const Report: React.FC<Props> = ({ state, results }) => {
                           <th className="p-3 text-right">M-Açıklık (kNm)</th>
                           <th className="p-3 text-right">Donatı (Mesnet)</th>
                           <th className="p-3 text-right">Donatı (Açıklık)</th>
+                          <th className="p-3 text-right text-purple-600">Mesnet Alt</th>
                           <th className="p-3 text-right">Sehim (mm)</th>
                           <th className="p-3 text-center">Durum</th>
                       </tr>
@@ -334,6 +335,7 @@ const Report: React.FC<Props> = ({ state, results }) => {
                                   <td className="p-3 text-right">{res.moment_span.toFixed(1)}</td>
                                   <td className="p-3 text-right font-mono text-blue-600">{res.count_support}Ø{state.rebars.beamMainDia}</td>
                                   <td className="p-3 text-right font-mono text-blue-600">{res.count_span}Ø{state.rebars.beamMainDia}</td>
+                                  <td className="p-3 text-right font-mono text-purple-600">{res.count_support_bottom}Ø{state.rebars.beamMainDia}</td>
                                   <td className={`p-3 text-right ${!res.checks.deflection.isSafe ? 'text-red-600 font-bold':''}`}>{res.deflection.toFixed(1)}</td>
                                   <td className="p-3 text-center"><StatusBadge isSafe={status} text={status ? 'OK' : 'HATA'} /></td>
                               </tr>
@@ -360,6 +362,7 @@ const Report: React.FC<Props> = ({ state, results }) => {
                           <th className="p-3 text-right">Vr (kN)</th>
                           <th className="p-3 text-right">Donatı</th>
                           <th className="p-3 text-right">Sargı</th>
+                          <th className="p-3 text-center">Çekme (kN)</th>
                           <th className="p-3 text-center">Durum</th>
                       </tr>
                   </thead>
@@ -369,7 +372,7 @@ const Report: React.FC<Props> = ({ state, results }) => {
                           const w = colEl?.properties?.width ?? (colEl?.type === 'shear_wall' ? state.sections.wallLength : state.sections.colWidth);
                           const d = colEl?.properties?.depth ?? (colEl?.type === 'shear_wall' ? state.sections.wallThickness : state.sections.colDepth);
                           
-                          const status = res.checks.axial_limit.isSafe && res.checks.shear_capacity.isSafe && res.checks.moment_capacity.isSafe;
+                          const status = res.checks.axial_limit.isSafe && res.checks.shear_capacity.isSafe && res.checks.moment_capacity.isSafe && res.checks.tension_check.isSafe;
 
                           return (
                               <tr key={id} className="hover:bg-slate-50 transition-colors">
@@ -382,6 +385,9 @@ const Report: React.FC<Props> = ({ state, results }) => {
                                   <td className="p-3 text-right text-slate-500">{res.shear.Vr.toFixed(1)}</td>
                                   <td className="p-3 text-right font-mono text-blue-600">{res.count_main}Ø{state.rebars.colMainDia}</td>
                                   <td className="p-3 text-right font-mono text-slate-500">Ø{res.confinement.dia_used}/{res.confinement.s_conf/10}</td>
+                                  <td className={`p-3 text-center font-mono ${res.axial_load_min_combo < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                                      {res.axial_load_min_combo.toFixed(0)}
+                                  </td>
                                   <td className="p-3 text-center"><StatusBadge isSafe={status} text={status ? 'OK' : 'HATA'} /></td>
                               </tr>
                           );

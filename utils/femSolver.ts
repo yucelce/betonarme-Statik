@@ -1,3 +1,4 @@
+
 // utils/femSolver.ts
 import { matrix, multiply, zeros, Matrix, index, transpose, lusolve } from 'mathjs';
 import { AppState, StoryAnalysisResult } from '../types';
@@ -15,6 +16,7 @@ interface Node3D {
     rx: number;
     ry: number;
   }; 
+  columnSize?: { bx: number, by: number }; // Rijit bölge hesabı için
 }
 
 interface FloorMaster {
@@ -35,6 +37,7 @@ interface Element3D {
   node2Index: number;
   E: number; G: number; A: number; Iy: number; Iz: number; J: number;
   floorIndex: number;
+  rigidOffsets: { off1: number, off2: number }; // YENİ: Rijit Uç Mesafeleri
 }
 
 export interface FemResult {
@@ -45,43 +48,124 @@ export interface FemResult {
   storyAnalysis: StoryAnalysisResult[];
 }
 
-// 12x12 Lokal Rijitlik Matrisi
+// 12x12 Lokal Rijitlik Matrisi (Çubuk Eleman)
 const getLocalStiffnessMatrix = (el: Element3D, L: number): number[][] => {
-  const { E, G, A, Iy, Iz, J } = el;
+  const { E, G, A, Iy, Iz, J, rigidOffsets } = el;
+  const { off1, off2 } = rigidOffsets;
+  
+  // Clear Span
+  const L_clear = L - off1 - off2;
+  // Basitlik için Rijit Uç dönüşüm matrisi yerine, eleman boyunu net açıklık olarak alıp
+  // düğüm noktalarını rijit kollarla bağlamak daha doğrudur.
+  // Ancak standart FEM'de düğüm noktaları akslardadır.
+  // Rijit uçlar için Transformasyon Matrisi yaklaşımını kullanacağız.
+  // K_new = T_rigid^T * K_elastic(L) * T_rigid
+  // BURADA: K_elastic'i akslar arası mesafe (L) ile hesaplayıp sonra Rigid Arm dönüşümü yapmak 
+  // yerine, genellikle ticari yazılımlarda eleman net açıklık (L_clear) üzerinden rijitlenir.
+  // Biz burada basit bir Rigid Arm dönüşüm matrisi (Transformation Matrix for Rigid Offsets) uygulayacağız.
+  
+  // Önce standart elastik matrisi (L üzerinden) hesaplayalım. 
+  // (Daha ileri seviyede L_clear kullanılıp T matrisi ile taşınmalı, ancak bu web app için L yeterli
+  // ve rijitliği simüle etmek için E modülünü rijit bölgelerde sonsuz kabul etmek zordur.)
+  // Basitleştirme: Rijit uçları simüle etmek için atalet momentlerini artırmak yerine,
+  // Doğrudan Rigid Offset Transformasyonu yapıyoruz.
+  
+  // 1. Elastik Matris (Merkezden Merkeze L boyunda)
   const k = Array(12).fill(0).map(() => Array(12).fill(0));
   
-  const set = (r: number, c: number, val: number) => {
-     k[r][c] = val;
-     k[c][r] = val; // Simetri
+  const set = (mat: number[][], r: number, c: number, val: number) => {
+     mat[r][c] = val;
+     mat[c][r] = val; 
   };
 
   const Ax = (E * A) / L;
-  set(0,0, Ax); set(0,6, -Ax); set(6,6, Ax);
+  set(k,0,0, Ax); set(k,0,6, -Ax); set(k,6,6, Ax);
 
   const GJ = (G * J) / L;
-  set(3,3, GJ); set(3,9, -GJ); set(9,9, GJ);
+  set(k,3,3, GJ); set(k,3,9, -GJ); set(k,9,9, GJ);
 
   const iz12 = (12 * E * Iz) / (L ** 3);
   const iz6 = (6 * E * Iz) / (L ** 2);
   const iz4 = (4 * E * Iz) / L;
   const iz2 = (2 * E * Iz) / L;
   
-  set(1,1, iz12); set(1,5, iz6); set(1,7, -iz12); set(1,11, iz6);
-  set(5,5, iz4); set(5,7, -iz6); set(5,11, iz2);
-  set(7,7, iz12); set(7,11, -iz6);
-  set(11,11, iz4);
+  set(k,1,1, iz12); set(k,1,5, iz6); set(k,1,7, -iz12); set(k,1,11, iz6);
+  set(k,5,5, iz4); set(k,5,7, -iz6); set(k,5,11, iz2);
+  set(k,7,7, iz12); set(k,7,11, -iz6);
+  set(k,11,11, iz4);
 
   const iy12 = (12 * E * Iy) / (L ** 3);
   const iy6 = (6 * E * Iy) / (L ** 2);
   const iy4 = (4 * E * Iy) / L;
   const iy2 = (2 * E * Iy) / L;
 
-  set(2,2, iy12); set(2,4, -iy6); set(2,8, -iy12); set(2,10, -iy6);
-  set(4,4, iy4); set(4,8, iy6); set(4,10, iy2);
-  set(8,8, iy12); set(8,10, iy6);
-  set(10,10, iy4);
+  set(k,2,2, iy12); set(k,2,4, -iy6); set(k,2,8, -iy12); set(k,2,10, -iy6);
+  set(k,4,4, iy4); set(k,4,8, iy6); set(k,4,10, iy2);
+  set(k,8,8, iy12); set(k,8,10, iy6);
+  set(k,10,10, iy4);
 
-  return k;
+  // 2. Rigid Offset Dönüşüm Matrisi (Tr)
+  // Eğer offset varsa (off1, off2), düğüm noktasındaki deplasmanlar
+  // eleman ucundaki deplasmanlara dönüşür.
+  // u_end = u_node + theta_node * offset
+  // Matris yapısı (2D düzlemde):
+  // [ 1  0  0 ]
+  // [ 0  1  off]
+  // [ 0  0  1 ]
+  // 3D için bu matrisi 12x12 olarak genişletiyoruz.
+  
+  if (off1 === 0 && off2 === 0) return k;
+
+  const Tr = Array(12).fill(0).map((_, i) => {
+      const row = Array(12).fill(0);
+      row[i] = 1;
+      return row;
+  });
+
+  // Node 1 (Start) - Offset: off1 (Pozitif yönde öteler)
+  // Local Y ekseninde eğilme (Z rotasyonu): ry (dof 5) -> x (dof 1)
+  // Local Z ekseninde eğilme (Y rotasyonu): rz (dof 4) -> x (dof 2)
+  // Basitleştirilmiş: Sadece Y-ekseni (düşey) eğilmesi için rijit kol ekliyoruz.
+  // Dof 1 (y) += Dof 5 (rz) * off1
+  // Dof 2 (z) -= Dof 4 (ry) * off1
+  Tr[1][5] = off1; 
+  Tr[2][4] = -off1;
+
+  // Node 2 (End) - Offset: -off2 (Negatif yönde, eleman içine doğru)
+  // Dof 7 (y) += Dof 11 (rz) * (-off2)
+  // Dof 8 (z) -= Dof 10 (ry) * (-off2)
+  Tr[7][11] = -off2;
+  Tr[8][10] = off2; // Sign flip due to coordinate system
+
+  // K_rigid = Tr^T * K * Tr
+  // Manuel çarpım yerine MathJS kullanımı daha güvenli olurdu ama
+  // bağımlılık eklememek için basit matris çarpımı yapalım.
+  
+  const mult = (A: number[][], B: number[][]) => {
+      const C = Array(12).fill(0).map(() => Array(12).fill(0));
+      for(let i=0; i<12; i++) {
+          for(let j=0; j<12; j++) {
+              let sum = 0;
+              for(let k=0; k<12; k++) sum += A[i][k] * B[k][j];
+              C[i][j] = sum;
+          }
+      }
+      return C;
+  };
+
+  const transpose = (A: number[][]) => {
+      const C = Array(12).fill(0).map(() => Array(12).fill(0));
+      for(let i=0; i<12; i++) {
+          for(let j=0; j<12; j++) C[i][j] = A[j][i];
+      }
+      return C;
+  };
+
+  const TrT = transpose(Tr);
+  const K_temp = mult(k, Tr);
+  const K_final = mult(TrT, K_temp);
+
+  return K_final;
 };
 
 // 12x12 Dönüşüm Matrisi (T)
@@ -165,6 +249,40 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
       });
   }
 
+  // Düğümleri Oluştur ve Kolon Boyutlarını Ata
+  // Bu, Rigid Offset hesabı için gereklidir.
+  const columnDimensionsAtNode = new Map<number, { bx: number, by: number }>();
+
+  // Önce elemanları tarayıp hangi düğümde hangi kolon var bulalım
+  definedElements.forEach(el => {
+      if (el.storyIndex >= dimensions.storyCount) return;
+      if (el.type === 'column' || el.type === 'shear_wall') {
+          // Kolonun alt ucu bir düğüm noktasıdır
+          const nIndex = el.storyIndex * nPerFl + el.y1 * nx + el.x1;
+          
+          let bx = sections.colWidth / 100;
+          let by = sections.colDepth / 100;
+
+          if (el.type === 'shear_wall') {
+              const len = (el.properties?.width || sections.wallLength) / 100;
+              const thk = (el.properties?.depth || sections.wallThickness) / 100;
+              if ((el.properties?.direction || 'x') === 'x') { bx = len; by = thk; } 
+              else { bx = thk; by = len; }
+          } else {
+              // Kolon rotasyonu
+              const w = (el.properties?.width || sections.colWidth) / 100; 
+              const d = (el.properties?.depth || sections.colDepth) / 100;
+              if ((el.properties?.direction || 'x') === 'y') { bx = d; by = w; }
+              else { bx = w; by = d; }
+          }
+          columnDimensionsAtNode.set(nIndex, { bx, by });
+          
+          // Kolonun üst ucu da bir düğümdür
+          const nIndexTop = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
+          columnDimensionsAtNode.set(nIndexTop, { bx, by });
+      }
+  });
+
   for (let i = 0; i <= dimensions.storyCount; i++) {
      let z = 0;
      for (let k = 0; k < i; k++) z += dimensions.storyHeights[k] || 3;
@@ -172,8 +290,9 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
 
      for (let r = 0; r < ny; r++) {
        for (let c = 0; c < nx; c++) {
+           const id = i * nPerFl + r * nx + c;
            nodes.push({
-               id: i * nPerFl + r * nx + c,
+               id,
                x: xC[c], y: yC[r], z, 
                isFixed,
                floorIndex: i,
@@ -181,7 +300,8 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
                    z: isFixed ? -1 : globalEqCount++,
                    rx: isFixed ? -1 : globalEqCount++,
                    ry: isFixed ? -1 : globalEqCount++
-               }
+               },
+               columnSize: columnDimensionsAtNode.get(id)
            });
        }
      }
@@ -191,7 +311,7 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
   const BASEMENT_RIGIDITY_FACTOR = 10.0;
 
   definedElements.forEach(el => {
-      // GÜVENLİK KONTROLÜ: Eğer elemanın kat indeksi, mevcut kat sayısından büyükse veya eşitse (0-indexli), bu elemanı modele dahil etme.
+      // GÜVENLİK KONTROLÜ
       if (el.storyIndex >= dimensions.storyCount) return;
 
       const isBasement = el.storyIndex < dimensions.basementCount;
@@ -206,12 +326,19 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
              const dir = el.properties?.direction || 'x';
              if (dir === 'x') { w = len; d = thk; } else { w = thk; d = len; }
          } else {
-             w = (el.properties?.width || sections.colWidth) / 100; 
-             d = (el.properties?.depth || sections.colDepth) / 100;
+             const widthVal = (el.properties?.width || sections.colWidth) / 100; 
+             const depthVal = (el.properties?.depth || sections.colDepth) / 100;
+             const dir = el.properties?.direction || 'x';
+             if (dir === 'y') { w = depthVal; d = widthVal; } else { w = widthVal; d = depthVal; }
          }
 
          const n1 = el.storyIndex * nPerFl + el.y1 * nx + el.x1;
          const n2 = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
+         
+         // Kolonlarda düşeyde kiriş derinliği kadar rijit bölge olur
+         // Ancak burada basitleştirme adına kolonları tam boy alıyoruz (veya kiriş derinliğinin yarısı kadar offset verilebilir)
+         // Genelde kolonlarda rigid zone üst ve altta kiriş derinliği/2 kadardır.
+         // Bu uygulamada kolonlar için offset = 0 kabul ediyoruz (Güvenli taraf).
          
          elements.push({
             id: `${el.id}_S${el.storyIndex}`,
@@ -222,13 +349,33 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
             Iy: (w * d**3)/12 * 0.7, 
             Iz: (d * w**3)/12 * 0.7,
             J: el.type === 'shear_wall' ? 1.0 : 0.001,
-            floorIndex: el.storyIndex
+            floorIndex: el.storyIndex,
+            rigidOffsets: { off1: 0, off2: 0 }
          });
       } else if (el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
          const w = (el.properties?.width || sections.beamWidth) / 100;
          const d = (el.properties?.depth || sections.beamDepth) / 100;
          const n1 = (el.storyIndex + 1) * nPerFl + el.y1 * nx + el.x1;
          const n2 = (el.storyIndex + 1) * nPerFl + el.y2 * nx + el.x2;
+
+         // Kirişler için Rijit Uç Hesabı
+         // Node 1'deki kolon boyutu
+         const col1 = nodes[n1].columnSize;
+         const col2 = nodes[n2].columnSize;
+         
+         let off1 = 0;
+         let off2 = 0;
+
+         // Kiriş X yönünde mi Y yönünde mi?
+         const isX = Math.abs(el.y1 - el.y2) < 0.01;
+         
+         if (isX) {
+             if (col1) off1 = col1.bx / 2;
+             if (col2) off2 = col2.bx / 2;
+         } else {
+             if (col1) off1 = col1.by / 2;
+             if (col2) off2 = col2.by / 2;
+         }
 
          elements.push({
             id: `${el.id}_S${el.storyIndex}`,
@@ -239,7 +386,8 @@ export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X
             Iy: (d * w**3)/12 * 0.35, 
             Iz: (w * d**3)/12 * 0.35,
             J: 0.001,
-            floorIndex: el.storyIndex
+            floorIndex: el.storyIndex,
+            rigidOffsets: { off1, off2 }
          });
       }
   });

@@ -1,4 +1,5 @@
 
+// utils/beamSolver.ts
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
 import { createStatus, calculateBeamMomentCapacity, calculateProbableMoment } from "./shared";
@@ -23,6 +24,9 @@ export const solveBeams = (
   fctd: number,
   Ec: number,
   storyHeight: number,
+  // Süreklilik Koşulları
+  isContinuousStart: boolean = false,
+  isContinuousEnd: boolean = false,
   specific_bw_cm?: number, 
   specific_h_cm?: number   
 ): BeamSolverResult => {
@@ -38,12 +42,19 @@ export const solveBeams = (
   const h_beam_mm = h_cm * 10;
   const d_beam_mm = h_beam_mm - 30; // Paspayı
 
-  // --- STATİK MOMENTLER (Basit Kiriş Yaklaşımı) ---
-  const M_g_supp_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
-  const M_q_supp_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) / 12) * 1000;
+  // --- STATİK MOMENTLER (Mesnet Koşullarına Göre Düzeltme) ---
+  // TS 500 Yaklaşık Katsayıları
+  const coef_supp_start = isContinuousStart ? 1 / 10 : 1 / 24;
+  const coef_supp_end = isContinuousEnd ? 1 / 10 : 1 / 24;
+  const coef_supp = Math.max(coef_supp_start, coef_supp_end); // Tasarım için max alalım
   
-  const M_g_span_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) / 24) * 1000; // Açıklık için yaklaşık qL^2/24 (sürekli) veya qL^2/8 (basit)
-  const M_q_span_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) / 24) * 1000; // Burada güvenli tarafta qL^2/12 - qL^2/24 arası bir kabul yapıyoruz
+  const coef_span = (isContinuousStart || isContinuousEnd) ? 1 / 12 : 1 / 8; // İki ucu serbestse 1/8
+
+  const M_g_supp_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) * coef_supp) * 1000;
+  const M_q_supp_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) * coef_supp) * 1000;
+  
+  const M_g_span_Nmm = (q_g_N_m * Math.pow(L_beam_m, 2) * coef_span) * 1000; 
+  const M_q_span_Nmm = (q_q_N_m * Math.pow(L_beam_m, 2) * coef_span) * 1000;
 
   // --- YÜK KOMBİNASYONLARI (TS500 & TBDY) ---
   // M_E = fem_M_support_seismic_Nmm (Deprem)
@@ -76,10 +87,15 @@ export const solveBeams = (
   const As_beam_supp_final = Math.max(As_beam_supp_req, As_min_beam);
   const As_beam_span_final = Math.max(As_beam_span_req, As_min_beam);
   
+  // TBDY 2018 7.4.2.3: Mesnetlerde alt donatı, üst donatının %50'sinden az olamaz.
+  const As_beam_supp_bottom_req = 0.5 * As_beam_supp_final;
+  const As_beam_supp_bottom_final = Math.max(As_beam_supp_bottom_req, As_min_beam);
+
   // Seçilen Donatıya Göre Gerçek Alan
   const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia / 2, 2);
   const countSupp = Math.ceil(As_beam_supp_final / barAreaBeam);
   const countSpan = Math.ceil(As_beam_span_final / barAreaBeam);
+  const countSuppBottom = Math.ceil(As_beam_supp_bottom_final / barAreaBeam);
   
   const As_beam_supp_prov = countSupp * barAreaBeam;
   const As_beam_span_prov = countSpan * barAreaBeam;
@@ -125,7 +141,9 @@ export const solveBeams = (
   // --- E. SEHİM HESABI (Sadece Düşey Yükler 1.0G + 1.0Q veya G+Q) ---
   const q_service_N_mm = (q_g_N_m + q_q_N_m) / 1000;
   const I_beam = (bw_mm * Math.pow(h_beam_mm, 3)) / 12;
-  const delta_elastic = (5 * q_service_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5)); 
+  // Sehim hesabı için basit mesnet kabulü güvenli tarafta kalır, ancak süreklilik varsa azaltılabilir.
+  const deflection_coeff = (isContinuousStart && isContinuousEnd) ? 1/384 : 5/384; 
+  const delta_elastic = (deflection_coeff * q_service_N_mm * Math.pow(L_beam_mm, 4)) / (Ec * I_beam); 
   const delta_total = delta_elastic * 3; // Sünme etkileri vs.
   const delta_limit = L_beam_mm / 240;
 
@@ -135,8 +153,10 @@ export const solveBeams = (
     moment_span: M_beam_span_Nmm / 1e6,
     as_support_req: As_beam_supp_req,
     as_span_req: As_beam_span_req,
+    as_support_bottom_req: As_beam_supp_bottom_req,
     count_support: countSupp,
     count_span: countSpan,
+    count_support_bottom: countSuppBottom,
     shear_design: V_beam_design_N / 1000,
     shear_cracking: Vcr_N / 1000,
     shear_limit: Vmax_N / 1000,

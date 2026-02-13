@@ -1,4 +1,5 @@
 
+// utils/columnSolver.ts
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYK, STEEL_FYD } from "../constants";
 import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement, calculateProbableMoment } from "./shared";
@@ -49,7 +50,9 @@ export const solveColumns = (
   // Eksenel Yük (Basınç Pozitif)
   const Nd_1 = 1.4 * Nd_g_N + 1.6 * Nd_q_N;
   const Nd_2 = 1.0 * Nd_g_N + 1.2 * Nd_q_N + 1.0 * Nd_e_N;
-  const Nd_3 = 0.9 * Nd_g_N - 1.0 * Nd_e_N; // Çekme kontrolü için min yük
+  
+  // Min Eksenel Yük (Çekme Kontrolü) - 0.9G - 1.0E
+  const Nd_min_combo_N = 0.9 * Nd_g_N - 1.0 * Nd_e_N; // Negatif çıkarsa çekme
   
   // Tasarım için en kritik basınç yükü (Maksimum)
   const Nd_design_N = Math.max(Nd_1, Nd_2);
@@ -148,9 +151,15 @@ export const solveColumns = (
   const joint_coeff = isJointConfined ? 1.7 : 1.0;
   const Vmax_joint_N = joint_coeff * Math.sqrt(fck) * bj_mm * hc_mm;
 
+  // ÇEKME KONTROLÜ
+  // Çekme kapasitesi: As_total * fyd (Beton çekme taşımaz)
+  const N_tensile_capacity_N = As_col_total * STEEL_FYD;
+  const isTensionSafe = Nd_min_combo_N >= 0 || Math.abs(Nd_min_combo_N) < N_tensile_capacity_N;
+
   const columnsResult = {
     axial_load_design: Nd_design_N / 1000,
     axial_capacity_max: colCapacity.N_max_N / 1000,
+    axial_load_min_combo: Nd_min_combo_N / 1000,
     moment_design: Md_design_Nmm / 1e6,
     moment_magnified: Md_col_magnified_Nmm / 1e6,
     slenderness: { lambda, lambda_lim: 34, beta, isSlender, i_rad },
@@ -176,6 +185,13 @@ export const solveColumns = (
           'Ezilme Riski', 
           `%${(colCapacity.capacity_ratio * 100).toFixed(0)}`,
           'Kolon boyutlarını (B/H) büyütün veya beton dayanım sınıfını (Cxx) artırın.'
+      ),
+      tension_check: createStatus(
+          isTensionSafe,
+          'Çekme Yok / Güvenli',
+          'Aşırı Çekme Kuvveti',
+          `Nd,min=${(Nd_min_combo_N/1000).toFixed(1)} kN`,
+          'Kolonda çekme kuvveti donatı kapasitesini aşıyor. Kolon boyutunu veya donatı miktarını artırın.'
       ),
       moment_capacity: createStatus(
           Md_col_magnified_Nmm <= Mr_col_Nmm, 
