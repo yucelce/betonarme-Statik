@@ -20,8 +20,11 @@ interface Props {
   results?: CalculationResult | null;
   displayMode?: 'physical' | 'analysis';
   diagramType?: 'M3' | 'V2';
-  model?: StructuralModel; // YENİ: Memoize edilmiş model
+  model?: StructuralModel;
 }
+
+// Yerleşim Tipleri
+type AlignmentType = 'center' | 'tl' | 'tr' | 'br' | 'bl';
 
 const Visualizer: React.FC<Props> = ({ 
   state, 
@@ -48,6 +51,11 @@ const Visualizer: React.FC<Props> = ({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   
+  // Placement States (Editor Interaction)
+  // 'tl': Top-Left (Elemanın sol üst köşesi imleçte) -> Eleman sağ alta uzanır.
+  const [previewAlign, setPreviewAlign] = useState<AlignmentType>('center');
+  const [previewDir, setPreviewDir] = useState<'x' | 'y'>('x');
+
   // Pan States
   const [isPanning, setIsPanning] = useState(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
@@ -61,6 +69,31 @@ const Visualizer: React.FC<Props> = ({
   const [hoverSegment, setHoverSegment] = useState<{x1: number, y1: number, x2: number, y2: number} | null>(null);
   const [hoverCell, setHoverCell] = useState<{x: number, y: number, segment?: 'tl' | 'br' | 'tr' | 'bl'} | null>(null);
   const [dragStartNode, setDragStartNode] = useState<{x: number, y: number} | null>(null);
+
+  // KEYBOARD HANDLER (Space: Align, R: Rotate)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (!interactive || viewMode !== 'plan') return;
+
+        if (e.code === 'Space') {
+            e.preventDefault(); // Sayfa kaydırmayı engelle
+            setPreviewAlign(prev => {
+                // Döngü: Merkez -> Sol-Üst -> Sağ-Üst -> Sağ-Alt -> Sol-Alt
+                if (prev === 'center') return 'tl'; // Top-Left (Eleman sağa aşağı)
+                if (prev === 'tl') return 'tr';     // Top-Right (Eleman sola aşağı)
+                if (prev === 'tr') return 'br';     // Bottom-Right (Eleman sola yukarı)
+                if (prev === 'br') return 'bl';     // Bottom-Left (Eleman sağa yukarı)
+                return 'center';
+            });
+        }
+        if (e.code === 'KeyR') {
+            setPreviewDir(prev => prev === 'x' ? 'y' : 'x');
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [interactive, viewMode]);
 
   // Calculate Z Levels for 3D and Elevation
   const zLevels = useMemo(() => {
@@ -112,7 +145,7 @@ const Visualizer: React.FC<Props> = ({
 
   // --- KOORDİNAT SİSTEMİ ---
   const canvasSize = 600;
-  const padding = 80; // Padding artırıldı (Aks etiketleri için)
+  const padding = 80; 
   
   const xSpacings = [0, ...grid.xAxis.map(a => a.spacing)];
   const ySpacings = [0, ...grid.yAxis.map(a => a.spacing)];
@@ -150,6 +183,40 @@ const Visualizer: React.FC<Props> = ({
     x: startX + toPx(xCoords[ix]),
     y: startY + toPx(yCoords[iy])
   });
+
+  // --- YARDIMCI: OFFSET HESAPLAMA (Yerleşim için) ---
+  const calculateOffset = (wPx: number, hPx: number, align: AlignmentType | string) => {
+      // Varsayılan: Merkez
+      let ox = -wPx / 2;
+      let oy = -hPx / 2;
+
+      if (align === 'tl' || align === 'start') { // Sol Üst (Eleman sağa, aşağı gider)
+          ox = 0;
+          oy = 0;
+      } else if (align === 'tr') { // Sağ Üst (Eleman sola, aşağı gider)
+          ox = -wPx;
+          oy = 0;
+      } else if (align === 'br' || align === 'end') { // Sağ Alt (Eleman sola, yukarı gider)
+          ox = -wPx;
+          oy = -hPx;
+      } else if (align === 'bl') { // Sol Alt (Eleman sağa, yukarı gider)
+          ox = 0;
+          oy = -hPx;
+      }
+      // 'center' için varsayılan değerler zaten set edildi.
+      return { ox, oy };
+  };
+
+  const getAlignmentLabel = (a: AlignmentType) => {
+      switch(a) {
+          case 'center': return 'Merkez';
+          case 'tl': return 'Sol-Üst';
+          case 'tr': return 'Sağ-Üst';
+          case 'br': return 'Sağ-Alt';
+          case 'bl': return 'Sol-Alt';
+          default: return a;
+      }
+  };
 
   // --- 3D PROJEKSİYON ---
   const project3D = (x: number, y: number, z: number) => {
@@ -322,26 +389,27 @@ const Visualizer: React.FC<Props> = ({
 
          if((activeTool === 'column' || activeTool === 'shear_wall') && hoverNode && onElementAdd) {
              const type = activeTool;
-             const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}`;
+             const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}-S${activeStory}`;
+             
              onElementAdd({ 
                  id, 
                  type, 
                  x1: hoverNode.x, 
                  y1: hoverNode.y, 
                  storyIndex: activeStory,
-                 properties: type === 'shear_wall' ? {
-                     width: state.sections.wallLength,
-                     depth: state.sections.wallThickness,
-                     direction: 'x',
-                     alignment: 'center'
-                 } : undefined
+                 properties: {
+                     width: type === 'shear_wall' ? state.sections.wallLength : state.sections.colWidth,
+                     depth: type === 'shear_wall' ? state.sections.wallThickness : state.sections.colDepth,
+                     direction: previewDir, // Hem kolon hem perde için yön
+                     alignment: previewAlign // Space ile seçilen hizalama
+                 }
              });
          }
          else if(activeTool === 'beam' && hoverNode) {
              if(!dragStartNode) setDragStartNode(hoverNode);
              else {
                  if(dragStartNode.x !== hoverNode.x || dragStartNode.y !== hoverNode.y) {
-                     const id = `B-${dragStartNode.x}${dragStartNode.y}-${hoverNode.x}${hoverNode.y}`;
+                     const id = `B-${dragStartNode.x}${dragStartNode.y}-${hoverNode.x}${hoverNode.y}-S${activeStory}`;
                      onElementAdd?.({ id, type: 'beam', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
                  }
                  setDragStartNode(null);
@@ -350,7 +418,7 @@ const Visualizer: React.FC<Props> = ({
          else if(activeTool === 'slab' && hoverCell && onElementAdd) {
              const { x, y, segment } = hoverCell;
              const suffix = segment ? `-${segment}` : '';
-             const id = `S-${x}${y}${suffix}`;
+             const id = `S-${x}${y}${suffix}-S${activeStory}`;
              
              const exists = definedElements.some(e => e.id === id && e.storyIndex === activeStory);
              if (!exists) {
@@ -561,23 +629,32 @@ const Visualizer: React.FC<Props> = ({
                  if (dir === 'x') {
                      w = toPx(len); 
                      h = toPx(thk);
-                     if (align === 'start') offsetX = 0;
-                     else if (align === 'end') offsetX = -w;
-                     else offsetX = -w / 2;
-                     offsetY = -h / 2;
                  } else {
                      w = toPx(thk);
                      h = toPx(len);
-                     if (align === 'start') offsetY = 0;
-                     else if (align === 'end') offsetY = -h;
-                     else offsetY = -h / 2;
-                     offsetX = -w / 2;
                  }
+                 const offsets = calculateOffset(w, h, align as any);
+                 offsetX = offsets.ox;
+                 offsetY = offsets.oy;
+
              } else {
-                 w = toPx(0.4); 
-                 h = toPx(0.4);
-                 offsetX = -w / 2;
-                 offsetY = -h / 2;
+                 // Kolonlar için de alignment ve rotation desteği
+                 const b_raw = (el.properties?.width || state.sections.colWidth) / 100; 
+                 const h_raw = (el.properties?.depth || state.sections.colDepth) / 100;
+                 const dir = el.properties?.direction || 'x';
+                 const align = el.properties?.alignment || 'center';
+
+                 if (dir === 'y') {
+                     w = toPx(h_raw);
+                     h = toPx(b_raw);
+                 } else {
+                     w = toPx(b_raw);
+                     h = toPx(h_raw);
+                 }
+
+                 const offsets = calculateOffset(w, h, align as any);
+                 offsetX = offsets.ox;
+                 offsetY = offsets.oy;
              }
 
              return (
@@ -595,22 +672,49 @@ const Visualizer: React.FC<Props> = ({
              );
         })}
 
-        {/* INTERACTIVE PREVIEWS */}
+        {/* INTERACTIVE PREVIEWS (GHOST) */}
         {hoverNode && (activeTool === 'column' || activeTool === 'shear_wall') && (
-            <g pointerEvents="none">
-                <rect 
-                    x={getPlanPx(hoverNode.x, hoverNode.y).x - toPx(0.2)} 
-                    y={getPlanPx(hoverNode.x, hoverNode.y).y - toPx(0.2)} 
-                    width={toPx(0.4)} 
-                    height={toPx(0.4)} 
-                    fill="none" 
-                    stroke="#2563eb" 
-                    strokeWidth="2" 
-                    strokeDasharray="4 2" 
-                    opacity="0.7" 
-                />
-                <circle cx={getPlanPx(hoverNode.x, hoverNode.y).x} cy={getPlanPx(hoverNode.x, hoverNode.y).y} r={4} fill="#2563eb" />
-            </g>
+            (() => {
+                let w = 0, h = 0;
+                if (activeTool === 'shear_wall') {
+                    const len = (state.sections.wallLength) / 100;
+                    const thk = (state.sections.wallThickness) / 100;
+                    if (previewDir === 'x') { w = toPx(len); h = toPx(thk); } 
+                    else { w = toPx(thk); h = toPx(len); }
+                } else {
+                    // Kolonlar için de rotation
+                    const b_raw = state.sections.colWidth / 100;
+                    const h_raw = state.sections.colDepth / 100;
+                    if (previewDir === 'x') { w = toPx(b_raw); h = toPx(h_raw); }
+                    else { w = toPx(h_raw); h = toPx(b_raw); }
+                }
+                const { ox, oy } = calculateOffset(w, h, previewAlign);
+                const px = getPlanPx(hoverNode.x, hoverNode.y).x;
+                const py = getPlanPx(hoverNode.x, hoverNode.y).y;
+
+                return (
+                    <g pointerEvents="none">
+                        <rect 
+                            x={px + ox} 
+                            y={py + oy} 
+                            width={w} 
+                            height={h} 
+                            fill="none" 
+                            stroke="#2563eb" 
+                            strokeWidth="2" 
+                            strokeDasharray="4 2" 
+                            opacity="0.7" 
+                        />
+                        <circle cx={px} cy={py} r={3} fill="#2563eb" />
+                        {/* Alignment Marker - İmleç Konumunu Gösterir */}
+                        <circle cx={px} cy={py} r={2} fill="white" stroke="#2563eb" />
+                        
+                        <text x={px + ox} y={py + oy - 5} fontSize={9} fill="#2563eb" fontWeight="bold">
+                            Space: Yerleşim ({getAlignmentLabel(previewAlign)}) | R: Yön ({previewDir.toUpperCase()})
+                        </text>
+                    </g>
+                );
+            })()
         )}
         
         {/* Beam Drag Line */}
@@ -735,6 +839,18 @@ const Visualizer: React.FC<Props> = ({
                         const t = (el.properties?.depth || state.sections.wallThickness) / 100;
                         if (isXAxis) width = (dir === 'y') ? w : t;
                         else width = (dir === 'x') ? w : t;
+                    } else if (el.type === 'column') {
+                        const dir = el.properties?.direction || 'x';
+                        const b_raw = (el.properties?.width || state.sections.colWidth) / 100; 
+                        const h_raw = (el.properties?.depth || state.sections.colDepth) / 100;
+                        
+                        // Kesit görünümünde, bakış yönüne dik olan boyut genişliktir.
+                        // X aksı kesiti (Y yönünde bakıyoruz): Kolonun Y boyutu görünürse...
+                        // Basitleştirilmiş: X Aksında, X boyutu dikkate alınır (kesildiği yer) değil, projeksiyon genişliği.
+                        // Eğer X aksındaysak, Y boyunca uzanan genişliği görürüz.
+                        // Eğer Y aksındaysak, X boyunca uzanan genişliği görürüz.
+                        if (isXAxis) width = (dir === 'y') ? b_raw : h_raw; // Y yönünde dönmüşse B, değilse H
+                        else width = (dir === 'x') ? b_raw : h_raw;
                     }
 
                     const pxWidth = toPx(width);

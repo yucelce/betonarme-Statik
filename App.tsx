@@ -258,7 +258,8 @@ const App: React.FC = () => {
               points.forEach((pt: any) => {
                   const endX = pt.x1; 
                   const endY = pt.y1;
-                  const segId = `B-${startX}${startY}-${endX}${endY}`;
+                  // Kiriş bölerken de ID'ye story suffix ekle
+                  const segId = `B-${startX}${startY}-${endX}${endY}-S${storyIndex}`;
                   
                   newBeams.push({
                       ...el, 
@@ -323,14 +324,23 @@ const App: React.FC = () => {
       if (copyTargets.length === 0) return;
 
       const sourceElements = state.definedElements.filter(e => e.storyIndex === activeStory);
+      // Hedef katlardaki eski elemanları temizle
       let newDefinedElements = state.definedElements.filter(e => !copyTargets.includes(e.storyIndex));
 
       const copiedElements: UserElement[] = [];
+      const stats = { beams: 0, columns: 0, slabs: 0 };
+
       copyTargets.forEach(targetIndex => {
           sourceElements.forEach(el => {
-              let newId = el.id.replace(`-S${activeStory}`, `-S${targetIndex}`);
-              if (newId === el.id) {
-                  newId = `${el.type}-${el.x1}-${el.y1}-${Math.random().toString(36).substr(2,4)}-S${targetIndex}`;
+              // ID Üretimi: Mevcut ID'nin sonundaki -S{activeStory} kısmını -S{targetIndex} ile değiştir
+              const suffix = `-S${activeStory}`;
+              let newId = el.id;
+              
+              if (newId.endsWith(suffix)) {
+                  newId = newId.slice(0, -suffix.length) + `-S${targetIndex}`;
+              } else {
+                  // Eğer manuel eklenmiş eski tip bir ID ise (suffix yoksa), yeni suffix ekle
+                  newId = `${newId}-S${targetIndex}`;
               }
               
               copiedElements.push({
@@ -338,6 +348,10 @@ const App: React.FC = () => {
                   id: newId,
                   storyIndex: targetIndex
               });
+
+              if (el.type === 'beam') stats.beams++;
+              else if (el.type === 'slab') stats.slabs++;
+              else stats.columns++;
           });
       });
 
@@ -345,7 +359,9 @@ const App: React.FC = () => {
       setShowCopyModal(false);
       setCopyTargets([]);
       setIsDirty(true);
-      alert(`${sourceElements.length} eleman ${copyTargets.length} kata kopyalandı.`);
+      
+      const totalCopied = stats.beams + stats.columns + stats.slabs;
+      alert(`${totalCopied} eleman kopyalandı:\n- ${stats.columns} Kolon/Perde\n- ${stats.beams} Kiriş\n- ${stats.slabs} Döşeme`);
   };
 
   const toggleCopyTarget = (index: number) => {

@@ -52,8 +52,18 @@ export const generateModel = (state: AppState): StructuralModel => {
           
           if (dir === 'x') { b = len; h = thk; } else { b = thk; h = len; }
       } else {
-          b = el.properties?.width || sections.colWidth;
-          h = el.properties?.depth || sections.colDepth;
+          // Kolon için R tuşu ile yön değişimi (direction === 'y' ise b ve h swap)
+          const widthVal = el.properties?.width || sections.colWidth;
+          const depthVal = el.properties?.depth || sections.colDepth;
+          const dir = el.properties?.direction || 'x';
+
+          if (dir === 'y') {
+              b = depthVal;
+              h = widthVal;
+          } else {
+              b = widthVal;
+              h = depthVal;
+          }
       }
 
       columns.push({
