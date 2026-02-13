@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { AppState, EditorTool, UserElement, ViewMode, CalculationResult } from '../types';
+import { AppState, EditorTool, UserElement, ViewMode, CalculationResult, StructuralModel } from '../types';
 import { generateModel } from '../utils/modelGenerator';
 import { Scan, MousePointer2, Box, Activity } from 'lucide-react';
 
@@ -19,7 +19,8 @@ interface Props {
   interactive?: boolean; 
   results?: CalculationResult | null;
   displayMode?: 'physical' | 'analysis';
-  diagramType?: 'M3' | 'V2'; // YENİ: Diyagram Tipi
+  diagramType?: 'M3' | 'V2';
+  model?: StructuralModel; // YENİ: Memoize edilmiş model
 }
 
 const Visualizer: React.FC<Props> = ({ 
@@ -37,7 +38,8 @@ const Visualizer: React.FC<Props> = ({
   interactive = true,
   results,
   displayMode = 'physical',
-  diagramType = 'M3'
+  diagramType = 'M3',
+  model
 }) => {
   const { dimensions, definedElements, grid } = state;
   const svgRef = useRef<SVGSVGElement>(null);

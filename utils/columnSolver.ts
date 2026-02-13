@@ -1,7 +1,7 @@
 
 import { AppState, CalculationResult } from "../types";
-import { STEEL_FYK } from "../constants";
-import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement } from "./shared";
+import { STEEL_FYK, STEEL_FYD } from "../constants";
+import { createStatus, calculateColumnCapacityForAxialLoad, checkColumnConfinement, calculateProbableMoment } from "./shared";
 
 interface ColumnSolverResult {
   columnsResult: CalculationResult['columns'];
@@ -13,10 +13,13 @@ export const solveColumns = (
   state: AppState,
   Nd_design_N: number, 
   Vt_design_N: number,
-  sum_Mr_beams_Nmm: number,
-  As_beam_supp_final: number,
-  As_beam_span_final: number,
-  isJointConfined: boolean,
+  // Güçlü Kolon ve Joint için Gerekli Kiriş Bilgileri
+  connectedBeamsData: { 
+      b_mm: number, 
+      h_mm: number, 
+      As_prov_mm2: number 
+  }[],
+  isJointConfined: boolean, // Geometrik kontrolden gelen değer
   fck: number,
   fcd: number,
   fctd: number,
@@ -27,7 +30,6 @@ export const solveColumns = (
 ): ColumnSolverResult => {
   const { sections, rebars } = state;
 
-  // Özel boyut varsa kullan, yoksa globali al
   const b_cm = specific_b_cm || sections.colWidth;
   const h_cm = specific_h_cm || sections.colDepth;
 
@@ -36,7 +38,7 @@ export const solveColumns = (
   const Ac_col_mm2 = bc_mm * hc_mm;
   const h_beam_mm = sections.beamDepth * 10; 
 
-  // Moment (Basit Yaklaşım)
+  // Moment (Basit Yaklaşım - Depremden gelen)
   const M_elastic_Nmm = (Vt_design_N * (storyHeight * 1000)) / 2;
   const Md_design_Nmm = M_elastic_Nmm;
 
@@ -48,23 +50,31 @@ export const solveColumns = (
   const As_col_total = countCol * barAreaCol;
   const rho_col = As_col_total / Ac_col_mm2;
 
-  // Kapasite Hesabı (P-M Etkileşimi)
+  // Kapasite Hesabı (P-M Etkileşimi) -> Mr (Taşıma Gücü Momenti)
   const colCapacity = calculateColumnCapacityForAxialLoad(
     bc_mm, hc_mm, As_col_total, fcd, fck, Nd_design_N
   );
   const Mr_col_Nmm = colCapacity.Mr_Nmm;
 
   // --- GÜÇLÜ KOLON KONTROLÜ (TBDY 7.3) ---
-  const sum_M_col = 2 * Mr_col_Nmm; // Kolon alt + üst
-  const sum_M_beam_hardening = sum_Mr_beams_Nmm * 1.4; // Pekleşmeli Kiriş Momenti
-  
-  const safe_beam_moment = sum_M_beam_hardening === 0 ? 1 : sum_M_beam_hardening;
-  const strongColRatio = sum_M_col / safe_beam_moment;
+  // Kolonların Pekleşmeli Moment Kapasiteleri Toplamı (Mra + Mrü >= 1.2 * (Mri + Mrj))
+  // TBDY 7.3.2.1: Kolonlar için Md (tasarım momenti) yerine 1.4*Mr_col alınabilir (yaklaşık).
+  const sum_M_col_ultimate = 2 * (1.4 * Mr_col_Nmm); 
+
+  // Kirişlerin Pekleşmeli Moment Kapasiteleri (Mpr) Toplamı
+  let sum_Mpr_beams = 0;
+  connectedBeamsData.forEach(beam => {
+      // Mpr = 1.25 * fyk * As * (d - a/2)
+      sum_Mpr_beams += calculateProbableMoment(beam.b_mm, beam.h_mm, beam.As_prov_mm2, fck);
+  });
+
+  const safe_beam_moment = sum_Mpr_beams === 0 ? 1 : sum_Mpr_beams;
+  const strongColRatio = sum_M_col_ultimate / safe_beam_moment;
 
   // Kesme
-  const M_capacity_hardening = Mr_col_Nmm * 1.4;
   const ln_col_mm = (storyHeight * 1000) - h_beam_mm;
-  const Ve_col_N = (2 * M_capacity_hardening) / ln_col_mm;
+  // Ve = (Mra + Mrü) / ln
+  const Ve_col_N = sum_M_col_ultimate / ln_col_mm;
 
   const d_col_shear = hc_mm - 30; 
   const Vcr_col = 0.65 * fctd * bc_mm * d_col_shear;
@@ -78,7 +88,7 @@ export const solveColumns = (
   const s_used_col = confResult.s_conf; 
   const Asw_col = confResult.Ash_prov;
   const d_col = hc_mm - 30;
-  const Vw_col_N = (Asw_col * 420 * d_col) / s_used_col;
+  const Vw_col_N = (Asw_col * STEEL_FYD * d_col) / s_used_col; // fyd = 420/1.15
 
   const Vr_max_col = 0.22 * fcd * Ac_col_mm2;
   const Vr_col_N = Math.min(Vc_col_N + Vw_col_N, Vr_max_col);
@@ -98,12 +108,22 @@ export const solveColumns = (
   }
   const Md_col_magnified_Nmm = Md_design_Nmm * beta;
 
-  // --- JOINT (BİRLEŞİM) KESME GÜVENLİĞİ ---
-  const F_tensile_total = 1.25 * STEEL_FYK * (As_beam_supp_final + As_beam_span_final);
+  // --- JOINT (BİRLEŞİM) KESME GÜVENLİĞİ (TBDY 7.5) ---
+  // Ve = 1.25 * fyk * As_beam_top - V_col
+  // Buradaki V_col (Kolon kesmesi) basitleştirme için ihmal veya min alınabilir, güvenli tarafta As * 1.25fyk çekme kuvveti alınır.
+  let F_tensile_total = 0;
+  connectedBeamsData.forEach(b => {
+      F_tensile_total += 1.25 * STEEL_FYK * b.As_prov_mm2;
+  });
+  
+  // Basitleştirilmiş: Joint Kesmesi yaklaşık olarak kiriş donatısı akma kuvveti eksi kolon kesmesidir.
+  // Burada kolon kesme kuvvetini (Vt_design_N) düşüyoruz.
   const Ve_joint_N = Math.max(0, F_tensile_total - Vt_design_N); 
-  const bw_mm = sections.beamWidth * 10; 
-  const bj_mm = Math.min(bc_mm, bw_mm); 
+  
+  const bj_mm = Math.min(bc_mm, sections.beamWidth * 10); 
 
+  // Kuşatılmış Birleşim: 1.7 * sqrt(fck) * bj * h
+  // Kuşatılmamış: 1.0 * sqrt(fck) * bj * h
   const joint_coeff = isJointConfined ? 1.7 : 1.0;
   const Vmax_joint_N = joint_coeff * Math.sqrt(fck) * bj_mm * hc_mm;
 

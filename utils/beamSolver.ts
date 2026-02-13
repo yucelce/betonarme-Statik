@@ -1,13 +1,13 @@
 
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
-import { createStatus, calculateBeamMomentCapacity } from "./shared";
+import { createStatus, calculateBeamMomentCapacity, calculateProbableMoment } from "./shared";
 
 interface BeamSolverResult {
   beamsResult: CalculationResult['beams'];
   Mr_beam_Nmm: number;
-  As_beam_supp_final: number;
-  As_beam_span_final: number;
+  As_beam_supp_prov: number; // Provided (Mevcut) Donatı Alanı
+  As_beam_span_prov: number;
 }
 
 export const solveBeams = (
@@ -67,16 +67,20 @@ export const solveBeams = (
   const As_beam_supp_final = Math.max(As_beam_supp_req, As_min_beam);
   const As_beam_span_final = Math.max(As_beam_span_req, As_min_beam);
   
-  const rho_beam_supp = As_beam_supp_final / (bw_mm * d_beam_mm);
-  const rho_beam_span = As_beam_span_final / (bw_mm * d_beam_mm);
-  const rho_beam_min = As_min_beam / (bw_mm * d_beam_mm);
-  const rho_beam_max = 0.02;
-
+  // Seçilen Donatıya Göre Gerçek Alan
   const barAreaBeam = Math.PI * Math.pow(rebars.beamMainDia / 2, 2);
   const countSupp = Math.ceil(As_beam_supp_final / barAreaBeam);
   const countSpan = Math.ceil(As_beam_span_final / barAreaBeam);
+  
+  const As_beam_supp_prov = countSupp * barAreaBeam;
+  const As_beam_span_prov = countSpan * barAreaBeam;
 
-  const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, countSupp * barAreaBeam, fcd);
+  const rho_beam_supp = As_beam_supp_prov / (bw_mm * d_beam_mm);
+  const rho_beam_span = As_beam_span_prov / (bw_mm * d_beam_mm);
+  const rho_beam_min = As_min_beam / (bw_mm * d_beam_mm);
+  const rho_beam_max = 0.02;
+
+  const Mr_beam_Nmm = calculateBeamMomentCapacity(bw_mm, h_beam_mm, As_beam_supp_prov, fcd);
 
   // --- D. KESME HESABI ---
   const V_beam_design_N = (q_beam_design_N_m * L_beam_m / 2); 
@@ -161,12 +165,12 @@ export const solveBeams = (
       max_reinf: createStatus(
           rho_beam_supp <= rho_beam_max, 
           'Max Donatı OK', 
-          'Max Donatı Sınırı Aşıldı (ρ>0.02)',
+          'Max %4 Donatı Sınırı Aşıldı',
           undefined,
-          'Kesit boyutları (B/H) yetersiz, kiriş kesitini büyütün. Donatı oranı %2 yi geçmemelidir.'
+          'Kesit yetersiz kaldığı için aşırı donatı gerekiyor. Kiriş kesitini büyütün.'
       )
     }
   };
 
-  return { beamsResult, Mr_beam_Nmm, As_beam_supp_final, As_beam_span_final };
+  return { beamsResult, Mr_beam_Nmm, As_beam_supp_prov, As_beam_span_prov };
 };

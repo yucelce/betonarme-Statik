@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2 } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -53,6 +53,7 @@ type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [results, setResults] = useState<CalculationResult | null>(null);
+  const [isDirty, setIsDirty] = useState(false); // Yeni Dirty State
   
   // ÇOKLU SEÇİM İÇİN STATE
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -77,6 +78,9 @@ const App: React.FC = () => {
   // ANALİZ SONUÇ GÖRÜNÜM MODU
   const [displayMode, setDisplayMode] = useState<'physical' | 'analysis'>('physical');
   const [diagramType, setDiagramType] = useState<'M3' | 'V2'>('M3');
+
+  // Memoize Model Generation
+  const generatedModel = useMemo(() => generateModel(state), [state.grid, state.dimensions, state.definedElements]);
 
   // Başlangıçta örnek yapı
   useEffect(() => {
@@ -109,8 +113,8 @@ const App: React.FC = () => {
       }
       return newState;
     });
-    setResults(null);
-    setDisplayMode('physical'); // State değişince analizi sıfırla ve fiziksel moda dön
+    setIsDirty(true); // Veri değiştiğinde dirty olarak işaretle
+    setDisplayMode('physical'); 
   };
 
   const toggleSection = (section: AccordionSection) => {
@@ -149,7 +153,7 @@ const App: React.FC = () => {
           },
           definedElements: validElements
       }));
-      setResults(null);
+      setIsDirty(true);
       
       if (activeStory >= count) {
           setActiveStory(Math.max(0, count - 1));
@@ -269,18 +273,18 @@ const App: React.FC = () => {
               });
 
               setState(prev => ({ ...prev, definedElements: [...prev.definedElements, ...newBeams] }));
-              setResults(null);
+              setIsDirty(true);
               return; 
           }
       }
       setState(prev => ({ ...prev, definedElements: [...prev.definedElements, el] }));
-      setResults(null);
+      setIsDirty(true);
   };
 
   const handleElementRemove = (id: string) => {
       setState(prev => ({ ...prev, definedElements: prev.definedElements.filter(e => e.id !== id) }));
       setSelectedElementIds(prev => prev.filter(selId => selId !== id));
-      setResults(null);
+      setIsDirty(true);
   };
   
   // TOPLU GÜNCELLEME İÇİN DEĞİŞTİRİLDİ
@@ -297,7 +301,7 @@ const App: React.FC = () => {
              return el;
          })
      }));
-     setResults(null);
+     setIsDirty(true);
   };
 
   const resetElementProperty = () => {
@@ -306,7 +310,7 @@ const App: React.FC = () => {
         ...prev,
         definedElements: prev.definedElements.map(el => selectedElementIds.includes(el.id) ? { ...el, properties: undefined } : el)
     }));
-    setResults(null);
+    setIsDirty(true);
   };
 
   // --- ÇOKLU SEÇİM LOGIC ---
@@ -340,7 +344,7 @@ const App: React.FC = () => {
       setState(prev => ({ ...prev, definedElements: [...newDefinedElements, ...copiedElements] }));
       setShowCopyModal(false);
       setCopyTargets([]);
-      setResults(null);
+      setIsDirty(true);
       alert(`${sourceElements.length} eleman ${copyTargets.length} kata kopyalandı.`);
   };
 
@@ -354,6 +358,7 @@ const App: React.FC = () => {
     try {
       const res = calculateStructure(state);
       setResults(res);
+      setIsDirty(false); // Analiz güncel
       setActiveTab('report');
       setDisplayMode('analysis'); // Analiz bitince otomatik analiz moduna geç
     } catch (e) {
@@ -458,7 +463,13 @@ const App: React.FC = () => {
                   <Copy className="w-3 h-3" /> Kat Kopyala
                </button>
              )}
-             <button onClick={handleCalculate} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2"><Play className="w-3 h-3 fill-current" /> ANALİZ</button>
+             <button 
+                onClick={handleCalculate} 
+                className={`px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-all shadow-md ${isDirty ? 'bg-orange-500 hover:bg-orange-600 text-white animate-pulse' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+             >
+                {isDirty ? <RefreshCw className="w-3 h-3 animate-spin"/> : <Play className="w-3 h-3 fill-current" />} 
+                {isDirty ? 'ANALİZİ GÜNCELLE' : 'ANALİZ'}
+             </button>
           </div>
         </div>
       </header>
@@ -720,7 +731,8 @@ const App: React.FC = () => {
                     interactive={true}
                     results={results} 
                     displayMode={displayMode} 
-                    diagramType={diagramType} // YENİ PROP
+                    diagramType={diagramType}
+                    model={generatedModel} // Memoize edilmiş model gönderiliyor
                 />
            </div>
 
@@ -773,7 +785,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode} diagramType={diagramType}/>
+                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode} diagramType={diagramType} model={generatedModel}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">KESİT</div>
                      </div>
@@ -785,7 +797,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
+                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode} model={generatedModel}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">PLAN</div>
                      </div>
@@ -797,7 +809,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
+                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode} model={generatedModel}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">3D</div>
                      </div>

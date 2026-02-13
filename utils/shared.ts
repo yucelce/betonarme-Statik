@@ -35,6 +35,7 @@ export const getSteelStress = (strain: number): number => {
 
 /**
  * KİRİŞ EĞİLME KAPASİTESİ (Basit Eğilme - Dikdörtgen Kesit)
+ * Mr = As * fyd * (d - a/2)
  */
 export const calculateBeamMomentCapacity = (
   b_mm: number,
@@ -52,6 +53,32 @@ export const calculateBeamMomentCapacity = (
   // Moment kolu (z = d - a/2)
   const Mr = As_mm2 * STEEL_FYD * (d - a / 2);
   return Mr; // Nmm
+};
+
+/**
+ * PEKLEŞMELİ MOMENT KAPASİTESİ (Mpr) - TBDY 2018
+ * fyk yerine 1.25 * fyk kullanılır.
+ * Malzeme katsayısı (gamma_mc) = 1.0 alınır (fcd değil fck kullanılır).
+ */
+export const calculateProbableMoment = (
+  b_mm: number,
+  h_mm: number,
+  As_mm2: number,
+  fck: number
+): number => {
+  const paspayi = 30;
+  const d = h_mm - paspayi;
+  
+  // TBDY'ye göre pekleşmeli hesapta beton dayanımı karakteristik değer (fck) üzerinden alınır
+  // Çelik gerilmesi 1.25 * fyk olarak alınır.
+  const f_steel_pr = 1.25 * STEEL_FYK; 
+  
+  // a = (As * 1.25 * fyk) / (0.85 * fck * b)
+  let a = (As_mm2 * f_steel_pr) / (0.85 * fck * b_mm);
+  if (a > d) a = d;
+
+  const Mpr = As_mm2 * f_steel_pr * (d - a / 2);
+  return Mpr; // Nmm
 };
 
 /**
@@ -247,48 +274,35 @@ export const generateInteractionDiagramData = (
   const As_s1 = As_total_mm2 / 2; // Çekme/Basınç tarafı donatısı
   const As_s2 = As_total_mm2 / 2;
 
-  // Adımlar: Tarafsız eksen derinliğini (c) sonsuzdan (çekme) maksimum basınca kadar değiştir.
-  // 1. Saf Çekme (N_tensile)
+  // 1. Saf Çekme
   const N_tensile = -As_total_mm2 * (420 / 1.15); // fyd
   points.push({ M: 0, N: N_tensile / 1000, label: 'Saf Çekme' });
 
   // 2. Dengeli Durum ve Ara Noktalar
   const steps = 30;
-  // c değerini h'ın katları olarak değiştir (0.1h -> 3h)
   for (let i = 1; i <= steps; i++) {
     const c = (h_mm * 1.5) * (i / steps);
-    
-    // Beton Basınç Bloğu
     let k1 = 0.85; 
     if (fck > 25) k1 = Math.max(0.70, 0.85 - 0.006 * (fck - 25));
     
     let a = k1 * c;
-    if (a > h_mm) a = h_mm; // Kesitin tamamı basınçta
+    if (a > h_mm) a = h_mm; 
 
-    // Donatı Birim Şekil Değiştirmeleri (Benzerlikten)
     const eps_cu = 0.003;
-    const eps_s1 = eps_cu * (c - d) / c;      // Alt donatı
-    const eps_s2 = eps_cu * (c - d_prime) / c; // Üst donatı
+    const eps_s1 = eps_cu * (c - d) / c;      
+    const eps_s2 = eps_cu * (c - d_prime) / c; 
 
-    // Gerilmeler
     const sigma_s1 = getSteelStress(eps_s1);
     const sigma_s2 = getSteelStress(eps_s2);
 
-    // Kuvvetler
-    const Fc = 0.85 * fcd * b_mm * a; // Beton basınç kuvveti
-    const Fs1 = As_s1 * sigma_s1;     // Alt donatı kuvveti
-    const Fs2 = As_s2 * sigma_s2;     // Üst donatı kuvveti
+    const Fc = 0.85 * fcd * b_mm * a; 
+    const Fs1 = As_s1 * sigma_s1;     
+    const Fs2 = As_s2 * sigma_s2;     
 
-    // İç Kuvvetler Dengesi
-    const N_res = Fc + Fs1 + Fs2; // N (Basınç +, Çekme -)
-
-    // Moment Dengesi (Plastik merkeze - h/2'ye göre)
+    const N_res = Fc + Fs1 + Fs2; 
     const h_half = h_mm / 2;
-    // Fc'nin momenti
     const M_conc = Fc * (h_half - a / 2);
-    // Fs2 (Üst) momenti
     const M_s2 = Fs2 * (h_half - d_prime);
-    // Fs1 (Alt) momenti
     const M_s1 = Fs1 * (h_half - d);
     
     const M_res = M_conc + M_s2 + M_s1;
@@ -300,10 +314,8 @@ export const generateInteractionDiagramData = (
   }
 
   // 3. Saf Basınç (N_max)
-  const N_max = 0.85 * fcd * (b_mm * h_mm) + As_total_mm2 * (420 / 1.15); // Basitleştirilmiş
-  // Yönetmelik sınırı (Nmax = 0.40 fck Ac genelde tasarım sınırıdır ama diyagram teorik çizilir)
+  const N_max = 0.85 * fcd * (b_mm * h_mm) + As_total_mm2 * (420 / 1.15); 
   points.push({ M: 0, N: N_max / 1000, label: 'Saf Basınç' });
 
-  // Grafiği düzgünleştirmek için N'ye göre sırala
   return points.sort((a, b) => a.N - b.N);
 };
