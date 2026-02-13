@@ -1,9 +1,10 @@
 
 // utils/modelGenerator.ts
 import { AppState, StructuralModel, NodeEntity, ColumnEntity, BeamEntity, SlabEntity } from "../types";
+import { resolveElementProperties } from "./shared";
 
 export const generateModel = (state: AppState): StructuralModel => {
-  const { grid, sections, definedElements, dimensions } = state;
+  const { grid, definedElements, dimensions } = state;
   
   const nodes: NodeEntity[] = [];
   const columns: ColumnEntity[] = [];
@@ -38,24 +39,27 @@ export const generateModel = (state: AppState): StructuralModel => {
 
     const uniqueId = `${el.id}_S${el.storyIndex}`;
     const isBasement = el.storyIndex < dimensions.basementCount;
+    
+    // Özellikleri Çözümle
+    const props = resolveElementProperties(state, el);
 
     // --- KOLONLAR VE PERDELER ---
     if (el.type === 'column' || el.type === 'shear_wall') {
       const nodeId = `N-${el.x1}-${el.y1}`;
-      let b = sections.colWidth;
-      let h = sections.colDepth;
+      let b = 0;
+      let h = 0;
 
       if (el.type === 'shear_wall') {
-          const len = el.properties?.width || sections.wallLength;
-          const thk = el.properties?.depth || sections.wallThickness;
-          const dir = el.properties?.direction || 'x';
+          const len = props.width!;
+          const thk = props.depth!;
+          const dir = props.direction;
           
           if (dir === 'x') { b = len; h = thk; } else { b = thk; h = len; }
       } else {
           // Kolon için R tuşu ile yön değişimi (direction === 'y' ise b ve h swap)
-          const widthVal = el.properties?.width || sections.colWidth;
-          const depthVal = el.properties?.depth || sections.colDepth;
-          const dir = el.properties?.direction || 'x';
+          const widthVal = props.width!;
+          const depthVal = props.depth!;
+          const dir = props.direction;
 
           if (dir === 'y') {
               b = depthVal;
@@ -108,8 +112,8 @@ export const generateModel = (state: AppState): StructuralModel => {
         length: length,
         axisId: axisId,
         direction: direction,
-        bw: el.properties?.width || sections.beamWidth,
-        h: el.properties?.depth || sections.beamDepth,
+        bw: props.width!,
+        h: props.depth!,
         isBasement
       });
     }
@@ -148,7 +152,7 @@ export const generateModel = (state: AppState): StructuralModel => {
         nodes: slabNodes,
         lx: lx,
         ly: ly,
-        thickness: el.properties?.thickness || sections.slabThickness,
+        thickness: props.thickness!,
         area: area
       });
     }

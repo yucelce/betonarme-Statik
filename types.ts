@@ -56,6 +56,23 @@ export interface RebarSettings {
   colMainDia: number; colStirrupDia: number; foundationDia: number;
 }
 
+// --- STANDART TİP TANIMLARI ---
+export interface StandardElementProperties {
+  width?: number;
+  depth?: number;
+  thickness?: number;
+  wallLoad?: number; // Kiriş yükü
+  liveLoad?: number; // Döşeme yükü
+}
+
+export interface StandardType {
+  id: string;
+  name: string; // Örn: "K30x60", "D15"
+  type: 'column' | 'beam' | 'slab' | 'shear_wall';
+  properties: StandardElementProperties;
+  color?: string; // Opsiyonel: Tipe özel renk
+}
+
 // --- KULLANICI TANIMLI CAD ELEMANLARI ---
 export interface UserElement {
   id: string;
@@ -66,6 +83,9 @@ export interface UserElement {
   y1: number;
   x2?: number; // Kiriş/Döşeme için bitiş
   y2?: number; // Kiriş/Döşeme için bitiş
+  
+  typeId?: string; // Standart Tip Referansı (Varsa)
+
   properties?: {
     width?: number; // cm (Perde için uzun kenar olabilir)
     depth?: number; // cm (Perde için kalınlık olabilir)
@@ -74,7 +94,7 @@ export interface UserElement {
     liveLoad?: number; // Döşeme hareketli yükü (kg/m2)
     // Perde Özellikleri
     direction?: 'x' | 'y'; // Perde yerleşim yönü
-    alignment?: 'start' | 'center' | 'end'; // Düğüm noktasına göre konumu
+    alignment?: 'start' | 'center' | 'end' | 'tl' | 'tr' | 'bl' | 'br'; // Düğüm noktasına göre konumu
     // Döşeme Özellikleri
     segment?: 'tl' | 'br' | 'tr' | 'bl'; // Üçgen döşeme için parça tanımı (Top-Left, Bottom-Right vb.)
   }
@@ -180,6 +200,7 @@ export interface AppState {
   seismic: SeismicParams;
   materials: MaterialParams;
   rebars: RebarSettings;
+  standardTypes: StandardType[]; // YENİ: Kayıtlı tipler listesi
   definedElements: UserElement[]; // CAD Verisi
 }
 
@@ -226,8 +247,27 @@ export interface ColumnDesignResult {
     };
 }
 
+export interface DetailedSlabResult {
+  id: string;
+  thickness: number; // Mevcut kalınlık (cm)
+  minThickness: number; // Hesaplanan min kalınlık (cm)
+  axis_long: number; // Net uzun açıklık (m)
+  axis_short: number; // Net kısa açıklık (m)
+  ratio_m: number; // Uzun/Kısa oranı
+  load_design_pd: number; // Pd (kN/m2)
+  moment_design: number; // Max Moment (kNm/m)
+  as_req: number; // Gereken Donatı (mm2/m)
+  as_min: number; // Min Donatı
+  reinforcement_type: 'Tek Kat' | 'Çift Kat';
+  checks: {
+    thickness: CheckStatus;
+    doubleLayer: CheckStatus; // 15cm üzeri çift hasır kontrolü
+  };
+}
+
 export interface CalculationResult {
   slab: {
+    // Özet bilgi (Kritik döşeme verileri buraya taşınır)
     pd: number; alpha: number; d: number; m_x: number;
     as_req: number; as_min: number; spacing: number;
     min_thickness_calculated: number; min_thickness_limit: number; rho: number;
@@ -237,8 +277,8 @@ export interface CalculationResult {
   columns: ColumnDesignResult; // Kritik Kolon (Özet için)
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
-    period_rayleigh_x?: number; // YENİ: Hesaplanan Rayleigh Periyodu X
-    period_rayleigh_y?: number; // YENİ: Hesaplanan Rayleigh Periyodu Y
+    period_rayleigh_x?: number; 
+    period_rayleigh_y?: number; 
     building_weight: number; 
     base_shear_x: number; 
     base_shear_y: number;
@@ -263,9 +303,10 @@ export interface CalculationResult {
     shear_force: number; shear_limit: number; isSafe: boolean; bj: number;
   };
   memberResults: Map<string, DetailedBeamResult>; 
-  elementResults: Map<string, ElementAnalysisStatus>; // Tüm elemanların tek tek durumları
+  elementResults: Map<string, ElementAnalysisStatus>; 
   
   // Rapor Tabloları İçin Tüm Sonuçlar
   detailedBeams: Map<string, BeamDesignResult>;
   detailedColumns: Map<string, ColumnDesignResult>;
+  detailedSlabs: Map<string, DetailedSlabResult>; // YENİ: Detaylı Döşeme Sonuçları
 }

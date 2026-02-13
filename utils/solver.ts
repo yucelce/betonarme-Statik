@@ -9,7 +9,7 @@ import { solveColumns } from "./columnSolver";
 import { solveFoundation } from "./foundationSolver";
 import { generateModel } from "./modelGenerator";
 import { solveFEM } from './femSolver';
-import { createStatus, GRAVITY } from "./shared";
+import { createStatus, GRAVITY, resolveElementProperties } from "./shared";
 
 // Kiriş Yüklerini Döşemelerden Hesaplayan Yardımcı Fonksiyon (Trapez/Üçgen)
 const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<string, { q_g: number, q_q: number }> => {
@@ -21,7 +21,13 @@ const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<str
         if (!slabNodes.every(n => n)) return;
 
         const userSlab = appState.definedElements.find(e => `${e.id}_S${e.storyIndex}` === slab.id);
-        const liveLoadKg = userSlab?.properties?.liveLoad ?? appState.loads.liveLoadKg;
+        
+        let liveLoadKg = appState.loads.liveLoadKg;
+        if (userSlab) {
+            const props = resolveElementProperties(appState, userSlab);
+            liveLoadKg = props.liveLoad!;
+        }
+
         const g_slab = (slab.thickness / 100) * 25000;
         const g_coating = appState.loads.deadLoadCoatingsKg * GRAVITY;
         const q_live = liveLoadKg * GRAVITY;
@@ -103,18 +109,32 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   const detailedColumns = new Map<string, ColumnDesignResult>();
 
   // 1. DÖŞEME HESABI
-  const { slabResult, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
+  // `solveSlab` artık detaylı map döndürüyor
+  const { slabResult, detailedSlabs, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
 
-  state.definedElements.filter(e => e.type === 'slab').forEach(slab => {
+  // Her döşeme için sonuçları işle
+  detailedSlabs.forEach((res, slabId) => {
       const slabRecommendations = [];
-      if (slabResult.thicknessStatus.recommendation) slabRecommendations.push(slabResult.thicknessStatus.recommendation);
+      const messages = [];
+      
+      if (!res.checks.thickness.isSafe) {
+          messages.push('Yetersiz Kalınlık');
+          slabRecommendations.push(`Min kalınlık ${res.minThickness.toFixed(1)} cm olmalı.`);
+      }
+      if (res.reinforcement_type === 'Çift Kat') {
+          messages.push('Çift Kat Donatı');
+          slabRecommendations.push(res.checks.doubleLayer.message);
+      }
 
-      elementResults.set(slab.id, {
-          id: slab.id,
+      // `slabId` zaten unique (örn: S-00-S0)
+      // Ancak görselleştirme `definedElements` içindeki ID'yi kullanır (örn: S-00-S0)
+      // solveSlab içindeki ID ile eşleşmeli.
+      elementResults.set(slabId, {
+          id: slabId,
           type: 'slab',
-          isSafe: slabResult.thicknessStatus.isSafe,
-          ratio: 0, 
-          messages: [slabResult.thicknessStatus.message],
+          isSafe: res.checks.thickness.isSafe,
+          ratio: res.minThickness / res.thickness, 
+          messages: messages,
           recommendations: slabRecommendations
       });
   });
@@ -262,10 +282,17 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
      const userBeam = state.definedElements.find(e => e.id === originalId || e.id === beam.id.replace(`_S${storyIndex}`, ''));
      
+     // Resolve Properties
+     let wallLoad = 3.5;
+     if (userBeam) {
+         const props = resolveElementProperties(state, userBeam);
+         wallLoad = props.wallLoad!;
+     }
+
      const bw_m = beam.bw / 100;
      const h_m = beam.h / 100;
      const g_beam_self_N_m = bw_m * h_m * 25000;
-     const g_wall_N_m = (userBeam?.properties?.wallLoad ?? 3.5) * 1000; 
+     const g_wall_N_m = wallLoad * 1000; 
      
      // Ayrık Yükler
      const loads = beamSlabLoads.get(beam.id) || { q_g: 0, q_q: 0 };
@@ -566,6 +593,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     memberResults: memberResults,
     elementResults: elementResults,
     detailedBeams: detailedBeams,
-    detailedColumns: detailedColumns
+    detailedColumns: detailedColumns,
+    detailedSlabs: detailedSlabs
   };
 };

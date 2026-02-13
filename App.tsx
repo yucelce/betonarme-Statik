@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
+import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement, StandardType } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw, Loader2, Tag } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
 import { generateModel } from './utils/modelGenerator';
+import { resolveElementProperties } from './utils/shared';
 
 const calculateTotalLength = (axes: AxisData[]) => axes.reduce((sum, axis) => sum + axis.spacing, 0);
 
@@ -45,10 +46,15 @@ const INITIAL_STATE: AppState = {
     slabDia: 8, beamMainDia: 14, beamStirrupDia: 8,
     colMainDia: 16, colStirrupDia: 8, foundationDia: 14
   },
+  standardTypes: [
+      { id: 'T1', name: 'K30x60', type: 'beam', properties: { width: 30, depth: 60, wallLoad: 5.0 } },
+      { id: 'T2', name: 'S40x40', type: 'column', properties: { width: 40, depth: 40 } },
+      { id: 'T3', name: 'Döşeme 15cm', type: 'slab', properties: { thickness: 15, liveLoad: 200 } }
+  ],
   definedElements: [] 
 };
 
-type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 'foundation' | null;
+type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 'foundation' | 'types' | null;
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
@@ -72,6 +78,10 @@ const App: React.FC = () => {
   const [newAxisSpacingX, setNewAxisSpacingX] = useState(4);
   const [newAxisSpacingY, setNewAxisSpacingY] = useState(4);
 
+  // TYPE EKLEME STATE'LERİ
+  const [newTypeName, setNewTypeName] = useState('');
+  const [newTypeKind, setNewTypeKind] = useState<'column' | 'beam' | 'slab' | 'shear_wall'>('column');
+
   // VIEW STATE
   const [mainViewMode, setMainViewMode] = useState<ViewMode>('plan');
   const [activeStory, setActiveStory] = useState(0); // 0 = En alt kat (Bodrum veya Zemin)
@@ -82,7 +92,7 @@ const App: React.FC = () => {
   const [diagramType, setDiagramType] = useState<'M3' | 'V2'>('M3');
 
   // Memoize Model Generation
-  const generatedModel = useMemo(() => generateModel(state), [state.grid, state.dimensions, state.definedElements]);
+  const generatedModel = useMemo(() => generateModel(state), [state.grid, state.dimensions, state.definedElements, state.standardTypes]);
 
   // Başlangıçta örnek yapı
   useEffect(() => {
@@ -172,6 +182,46 @@ const App: React.FC = () => {
   const updateBasementCount = (count: number) => {
       if(count < 0 || count >= state.dimensions.storyCount) return;
       updateState('dimensions', { basementCount: count });
+  };
+
+  // --- TYPE MANAGEMENT ---
+  const addStandardType = () => {
+      if (!newTypeName.trim()) return;
+      const newId = `T-${Date.now()}`;
+      const newType: StandardType = {
+          id: newId,
+          name: newTypeName,
+          type: newTypeKind,
+          properties: {
+              width: newTypeKind === 'column' ? state.sections.colWidth : (newTypeKind === 'shear_wall' ? state.sections.wallLength : (newTypeKind === 'beam' ? state.sections.beamWidth : undefined)),
+              depth: newTypeKind === 'column' ? state.sections.colDepth : (newTypeKind === 'shear_wall' ? state.sections.wallThickness : (newTypeKind === 'beam' ? state.sections.beamDepth : undefined)),
+              thickness: newTypeKind === 'slab' ? state.sections.slabThickness : undefined,
+              wallLoad: newTypeKind === 'beam' ? 3.5 : undefined,
+              liveLoad: newTypeKind === 'slab' ? state.loads.liveLoadKg : undefined
+          }
+      };
+      
+      setState(prev => ({ ...prev, standardTypes: [...prev.standardTypes, newType] }));
+      setNewTypeName('');
+      setIsDirty(true);
+  };
+
+  const removeStandardType = (id: string) => {
+      setState(prev => ({
+          ...prev,
+          standardTypes: prev.standardTypes.filter(t => t.id !== id),
+          // Bu tipe bağlı elemanların tipini sıfırla
+          definedElements: prev.definedElements.map(el => el.typeId === id ? { ...el, typeId: undefined } : el)
+      }));
+      setIsDirty(true);
+  };
+
+  const updateStandardType = (id: string, props: Partial<StandardType['properties']>) => {
+      setState(prev => ({
+          ...prev,
+          standardTypes: prev.standardTypes.map(t => t.id === id ? { ...t, properties: { ...t.properties, ...props } } : t)
+      }));
+      setIsDirty(true);
   };
 
   // --- TOOL DEĞİŞİMİ VE FİLTRELEME ---
@@ -298,15 +348,29 @@ const App: React.FC = () => {
   };
   
   // TOPLU GÜNCELLEME İÇİN DEĞİŞTİRİLDİ
-  const handleElementPropertyUpdate = (props: Partial<NonNullable<UserElement['properties']>>) => {
+  const handleElementPropertyUpdate = (updates: Partial<UserElement['properties']> & { typeId?: string }) => {
      if (selectedElementIds.length === 0) return;
      
+     const { typeId, ...props } = updates;
+
      setState(prev => ({
          ...prev,
          definedElements: prev.definedElements.map(el => {
              // Seçili olan TÜM elemanları güncelle
              if (selectedElementIds.includes(el.id)) {
-                 return { ...el, properties: { ...el.properties, ...props } };
+                 const newEl = { ...el };
+                 
+                 // Tip güncelleniyorsa ata
+                 if (typeId !== undefined) {
+                     newEl.typeId = typeId || undefined; // Boş string ise undefined yap
+                 }
+
+                 // Özellikler güncelleniyorsa ata (Manuel override)
+                 if (Object.keys(props).length > 0) {
+                     newEl.properties = { ...newEl.properties, ...props };
+                 }
+                 
+                 return newEl;
              }
              return el;
          })
@@ -318,7 +382,7 @@ const App: React.FC = () => {
     if (selectedElementIds.length === 0) return;
     setState(prev => ({
         ...prev,
-        definedElements: prev.definedElements.map(el => selectedElementIds.includes(el.id) ? { ...el, properties: undefined } : el)
+        definedElements: prev.definedElements.map(el => selectedElementIds.includes(el.id) ? { ...el, properties: undefined, typeId: undefined } : el)
     }));
     setIsDirty(true);
   };
@@ -577,7 +641,6 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* ... (Diğer input alanları aynı kalacak) ... */}
               {/* SECTION: STORIES */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('stories')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
@@ -635,10 +698,71 @@ const App: React.FC = () => {
                  )}
               </div>
 
-              {/* SECTION: SECTIONS */}
+              {/* SECTION: STANDARD TYPES (YENİ) */}
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                 <button onClick={() => toggleSection('types')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
+                    <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Tag className="w-4 h-4 text-pink-500"/> Kesit Tipleri</span>
+                    {openSection === 'types' ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
+                 </button>
+                 {openSection === 'types' && (
+                     <div className="p-3 bg-white space-y-3 text-xs animate-in slide-in-from-top-2 fade-in duration-200">
+                         
+                         {/* Tip Listesi */}
+                         <div className="space-y-2">
+                             {state.standardTypes.map(t => (
+                                 <div key={t.id} className="border rounded p-2 bg-slate-50 group">
+                                     <div className="flex justify-between items-center mb-1">
+                                         <div className="font-bold text-slate-700 flex items-center gap-1">
+                                             {t.type === 'column' && <Box className="w-3 h-3 text-slate-400"/>}
+                                             {t.type === 'beam' && <Grip className="w-3 h-3 text-slate-400"/>}
+                                             {t.type === 'slab' && <Square className="w-3 h-3 text-slate-400"/>}
+                                             {t.name}
+                                         </div>
+                                         <button onClick={() => removeStandardType(t.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><X className="w-3 h-3"/></button>
+                                     </div>
+                                     <div className="grid grid-cols-2 gap-2">
+                                         {t.type !== 'slab' && (
+                                             <>
+                                                <div><label className="text-[9px] text-slate-400">Genişlik</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.width || ''} onChange={(e) => updateStandardType(t.id, {width: Number(e.target.value)})} /></div>
+                                                <div><label className="text-[9px] text-slate-400">{t.type === 'shear_wall' ? 'Kalınlık' : 'Derinlik'}</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.depth || ''} onChange={(e) => updateStandardType(t.id, {depth: Number(e.target.value)})} /></div>
+                                             </>
+                                         )}
+                                         {t.type === 'slab' && (
+                                             <>
+                                                <div><label className="text-[9px] text-slate-400">Kalınlık</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.thickness || ''} onChange={(e) => updateStandardType(t.id, {thickness: Number(e.target.value)})} /></div>
+                                                <div><label className="text-[9px] text-slate-400">Yük (kg)</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.liveLoad || ''} onChange={(e) => updateStandardType(t.id, {liveLoad: Number(e.target.value)})} /></div>
+                                             </>
+                                         )}
+                                         {t.type === 'beam' && (
+                                             <div className="col-span-2"><label className="text-[9px] text-slate-400">Duvar Yükü (kN/m)</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.wallLoad || ''} onChange={(e) => updateStandardType(t.id, {wallLoad: Number(e.target.value)})} /></div>
+                                         )}
+                                     </div>
+                                 </div>
+                             ))}
+                         </div>
+
+                         {/* Yeni Tip Ekleme */}
+                         <div className="border-t pt-2 mt-2">
+                             <label className="block text-slate-500 mb-1 font-bold">Yeni Tip Ekle</label>
+                             <div className="flex gap-1 mb-1">
+                                 <input className="w-full border rounded p-1" placeholder="Adı (Örn: K1)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)}/>
+                                 <select className="border rounded p-1 bg-white" value={newTypeKind} onChange={(e) => setNewTypeKind(e.target.value as any)}>
+                                     <option value="column">Kolon</option>
+                                     <option value="beam">Kiriş</option>
+                                     <option value="slab">Döşeme</option>
+                                     <option value="shear_wall">Perde</option>
+                                 </select>
+                             </div>
+                             <button onClick={addStandardType} className="w-full bg-blue-600 text-white p-1 rounded flex items-center justify-center gap-1 hover:bg-blue-700 disabled:opacity-50" disabled={!newTypeName}><Plus className="w-3 h-3"/> Ekle</button>
+                         </div>
+                     </div>
+                 )}
+              </div>
+
+              {/* SECTION: SECTIONS (VARSAYILANLAR) */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('sections')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
-                    <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/> Genel Kesitler</span>
+                    <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/> Varsayılanlar</span>
                     {openSection === 'sections' ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
                  </button>
                  {openSection === 'sections' && (
@@ -868,10 +992,9 @@ const App: React.FC = () => {
              </div>
            )}
 
-           {/* ELEMAN ÖZELLİK PANELİ ... */}
-           {/* (Bu kısım aynı kalacak, sadece önceki değişiklikle uyumlu olması için burada bırakılıyor) */}
+           {/* ELEMAN ÖZELLİK PANELİ */}
            {selectionSummary && activeTab === 'inputs' && (
-                <div className="absolute bottom-4 left-4 w-60 bg-white rounded-lg shadow-xl border border-slate-200 p-4 animate-in fade-in slide-in-from-left-4 z-20">
+                <div className="absolute bottom-4 left-4 w-64 bg-white rounded-lg shadow-xl border border-slate-200 p-4 animate-in fade-in slide-in-from-left-4 z-20">
                     <div className="flex justify-between items-center mb-2 border-b pb-2">
                             <h4 className="font-bold text-xs text-slate-700 flex items-center gap-2">
                                 <MousePointerClick className="w-3 h-3"/>
@@ -879,7 +1002,6 @@ const App: React.FC = () => {
                             </h4>
                             <button onClick={() => setSelectedElementIds([])}><X className="w-3 h-3 text-slate-400"/></button>
                     </div>
-                    {/* ... (Panel içeriği aynı) ... */}
                     {(() => {
                         if (selectionSummary.type === 'mixed') {
                             return (
@@ -901,30 +1023,55 @@ const App: React.FC = () => {
                         const sampleEl = selectionSummary.elements[0];
                         const isWall = sampleEl.type === 'shear_wall';
                         const elType = sampleEl.type;
-
-                        const w = sampleEl.properties?.width ?? (elType === 'beam' ? state.sections.beamWidth : (isWall ? state.sections.wallLength : state.sections.colWidth));
-                        const d = sampleEl.properties?.depth ?? (elType === 'beam' ? state.sections.beamDepth : (isWall ? state.sections.wallThickness : state.sections.colDepth));
-                        const t = sampleEl.properties?.thickness ?? state.sections.slabThickness;
-                        const wallL = sampleEl.properties?.wallLoad ?? 3.5;
-                        const liveL = sampleEl.properties?.liveLoad ?? state.loads.liveLoadKg;
                         
-                        const direction = sampleEl.properties?.direction || 'x';
-                        const alignment = sampleEl.properties?.alignment || 'center';
+                        // Önce tipten veya manuelden resolve edilmiş verileri al
+                        const resolvedProps = resolveElementProperties(state, sampleEl);
+
+                        // Kullanıcı arayüzünde "Manuel" değer olup olmadığını anlamak için direkt el.properties'e bakıyoruz
+                        const manualProps = sampleEl.properties || {};
+                        const currentTypeId = sampleEl.typeId || "";
+
+                        // Mevcut tipe uygun standart tipleri filtrele
+                        const availableTypes = state.standardTypes.filter(t => t.type === elType);
+
+                        const w = manualProps.width ?? resolvedProps.width;
+                        const d = manualProps.depth ?? resolvedProps.depth;
+                        const t = manualProps.thickness ?? resolvedProps.thickness;
+                        const wallL = manualProps.wallLoad ?? resolvedProps.wallLoad;
+                        const liveL = manualProps.liveLoad ?? resolvedProps.liveLoad;
+                        
+                        const direction = resolvedProps.direction;
+                        const alignment = resolvedProps.alignment;
 
                         return (
                             <div className="space-y-3">
                                 {selectionSummary.count === 1 && <div className="text-[10px] font-mono bg-slate-50 p-1 text-center rounded text-slate-500 border border-slate-100">{sampleEl.id}</div>}
                                 
+                                {/* TİP SEÇİMİ */}
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1"><Tag className="w-3 h-3"/> KESİT TİPİ</label>
+                                    <select 
+                                        className="w-full border rounded p-1 text-xs font-semibold text-slate-700 bg-white"
+                                        value={currentTypeId}
+                                        onChange={(e) => handleElementPropertyUpdate({ typeId: e.target.value })}
+                                    >
+                                        <option value="">Manuel / Varsayılan</option>
+                                        {availableTypes.map(typ => (
+                                            <option key={typ.id} value={typ.id}>{typ.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 {/* KİRİŞ VE KOLON/PERDE BOYUTLARI */}
                                 {(elType === 'column' || elType === 'beam' || isWall) && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">{isWall ? 'UZUNLUK (cm)' : 'GENİŞLİK (cm)'}</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : w} onBlur={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} />
+                                            <input type="number" className={`w-full border rounded p-1 text-sm font-semibold ${manualProps.width !== undefined ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-slate-700'}`} placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} value={w} onChange={(e) => handleElementPropertyUpdate({ width: Number(e.target.value) })} />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">{isWall ? 'KALINLIK (cm)' : 'YÜKSEKLİK (cm)'}</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : d} onBlur={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} />
+                                            <input type="number" className={`w-full border rounded p-1 text-sm font-semibold ${manualProps.depth !== undefined ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-slate-700'}`} placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} value={d} onChange={(e) => handleElementPropertyUpdate({ depth: Number(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
@@ -959,7 +1106,7 @@ const App: React.FC = () => {
                                 {elType === 'beam' && (
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400">DUVAR YÜKÜ (kN/m)</label>
-                                        <input type="number" step="0.1" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : wallL} onBlur={(e) => handleElementPropertyUpdate({ wallLoad: Number(e.target.value) })} />
+                                        <input type="number" step="0.1" className={`w-full border rounded p-1 text-sm font-semibold ${manualProps.wallLoad !== undefined ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-slate-700'}`} placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} value={wallL} onChange={(e) => handleElementPropertyUpdate({ wallLoad: Number(e.target.value) })} />
                                     </div>
                                 )}
 
@@ -968,17 +1115,17 @@ const App: React.FC = () => {
                                     <div className="space-y-2">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">KALINLIK (cm)</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : t} onBlur={(e) => handleElementPropertyUpdate({ thickness: Number(e.target.value) })} />
+                                            <input type="number" className={`w-full border rounded p-1 text-sm font-semibold ${manualProps.thickness !== undefined ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-slate-700'}`} placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} value={t} onChange={(e) => handleElementPropertyUpdate({ thickness: Number(e.target.value) })} />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400">HAREKETLİ YÜK (kg/m²)</label>
-                                            <input type="number" className="w-full border rounded p-1 text-sm font-semibold text-slate-700" placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} defaultValue={selectionSummary.count > 1 ? undefined : liveL} onBlur={(e) => handleElementPropertyUpdate({ liveLoad: Number(e.target.value) })} />
+                                            <input type="number" className={`w-full border rounded p-1 text-sm font-semibold ${manualProps.liveLoad !== undefined ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-slate-700'}`} placeholder={selectionSummary.count > 1 ? "(Çoklu)" : ""} value={liveL} onChange={(e) => handleElementPropertyUpdate({ liveLoad: Number(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
 
                                 <div className="pt-2 border-t flex gap-2">
-                                    <button onClick={resetElementProperty} className="flex-1 text-xs text-slate-500 border rounded py-1 hover:bg-slate-50">Varsayılana Dön</button>
+                                    <button onClick={resetElementProperty} className="flex-1 text-xs text-slate-500 border rounded py-1 hover:bg-slate-50" title="Tüm manuel ayarları ve tip seçimini sıfırlar">Sıfırla</button>
                                     {selectionSummary.count > 1 && (
                                         <button onClick={() => {
                                             state.definedElements.forEach(el => {

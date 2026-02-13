@@ -3,6 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { AppState, EditorTool, UserElement, ViewMode, CalculationResult, StructuralModel } from '../types';
 import { generateModel } from '../utils/modelGenerator';
 import { Scan, MousePointer2, Box, Activity } from 'lucide-react';
+import { resolveElementProperties } from '../utils/shared';
 
 interface Props {
   state: AppState;
@@ -391,6 +392,8 @@ const Visualizer: React.FC<Props> = ({
              const type = activeTool;
              const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}-S${activeStory}`;
              
+             // Varsayılan özellikler manuel atanır, ancak "Tip" seçimi yoksa varsayılanları alır
+             // Burada properties'i minimal tutuyoruz, eğer tip seçilmemişse varsayılanlar kullanılır
              onElementAdd({ 
                  id, 
                  type, 
@@ -398,10 +401,12 @@ const Visualizer: React.FC<Props> = ({
                  y1: hoverNode.y, 
                  storyIndex: activeStory,
                  properties: {
-                     width: type === 'shear_wall' ? state.sections.wallLength : state.sections.colWidth,
-                     depth: type === 'shear_wall' ? state.sections.wallThickness : state.sections.colDepth,
-                     direction: previewDir, // Hem kolon hem perde için yön
-                     alignment: previewAlign // Space ile seçilen hizalama
+                     // Genişlik ve derinliği manuel set etmek yerine varsayılanları kullanacağız veya 
+                     // App.tsx tarafında son seçilen tipten alabiliriz. 
+                     // Şimdilik varsayılanlar için undefined bırakıyoruz, görselleştirirken resolveElementProperties halledecek.
+                     // Sadece yönelim (direction) ve hizalama (alignment) önemli.
+                     direction: previewDir,
+                     alignment: previewAlign 
                  }
              });
          }
@@ -617,14 +622,17 @@ const Visualizer: React.FC<Props> = ({
              const isSel = selectedElementIds.includes(el.id);
              const fillColor = getElementColor(el, isSel);
              
+             // --- PROPS ÇÖZÜMLEME (TIP -> MANUAL) ---
+             const props = resolveElementProperties(state, el);
+
              let w = 0, h = 0;
              let offsetX = 0, offsetY = 0;
 
              if (el.type === 'shear_wall') {
-                 const len = (el.properties?.width || state.sections.wallLength) / 100; // m
-                 const thk = (el.properties?.depth || state.sections.wallThickness) / 100; // m
-                 const dir = el.properties?.direction || 'x';
-                 const align = el.properties?.alignment || 'center';
+                 const len = (props.width || state.sections.wallLength) / 100; // m
+                 const thk = (props.depth || state.sections.wallThickness) / 100; // m
+                 const dir = props.direction || 'x';
+                 const align = props.alignment || 'center';
 
                  if (dir === 'x') {
                      w = toPx(len); 
@@ -639,10 +647,10 @@ const Visualizer: React.FC<Props> = ({
 
              } else {
                  // Kolonlar için de alignment ve rotation desteği
-                 const b_raw = (el.properties?.width || state.sections.colWidth) / 100; 
-                 const h_raw = (el.properties?.depth || state.sections.colDepth) / 100;
-                 const dir = el.properties?.direction || 'x';
-                 const align = el.properties?.alignment || 'center';
+                 const b_raw = (props.width || state.sections.colWidth) / 100; 
+                 const h_raw = (props.depth || state.sections.colDepth) / 100;
+                 const dir = props.direction || 'x';
+                 const align = props.alignment || 'center';
 
                  if (dir === 'y') {
                      w = toPx(h_raw);
@@ -827,6 +835,9 @@ const Visualizer: React.FC<Props> = ({
                     y: startY + toPx(totalHeight - z)
                 });
 
+                // PROPS RESOLUTION
+                const props = resolveElementProperties(state, el);
+
                 if (el.type === 'column' || el.type === 'shear_wall') {
                     const hPos = isXAxis ? ey1 : ex1;
                     const pBot = mapPt(hPos, zBottom);
@@ -834,22 +845,17 @@ const Visualizer: React.FC<Props> = ({
                     
                     let width = 0.4;
                     if (el.type === 'shear_wall') {
-                        const dir = el.properties?.direction || 'x';
-                        const w = (el.properties?.width || state.sections.wallLength) / 100;
-                        const t = (el.properties?.depth || state.sections.wallThickness) / 100;
+                        const dir = props.direction || 'x';
+                        const w = (props.width || state.sections.wallLength) / 100;
+                        const t = (props.depth || state.sections.wallThickness) / 100;
                         if (isXAxis) width = (dir === 'y') ? w : t;
                         else width = (dir === 'x') ? w : t;
                     } else if (el.type === 'column') {
-                        const dir = el.properties?.direction || 'x';
-                        const b_raw = (el.properties?.width || state.sections.colWidth) / 100; 
-                        const h_raw = (el.properties?.depth || state.sections.colDepth) / 100;
+                        const dir = props.direction || 'x';
+                        const b_raw = (props.width || state.sections.colWidth) / 100; 
+                        const h_raw = (props.depth || state.sections.colDepth) / 100;
                         
-                        // Kesit görünümünde, bakış yönüne dik olan boyut genişliktir.
-                        // X aksı kesiti (Y yönünde bakıyoruz): Kolonun Y boyutu görünürse...
-                        // Basitleştirilmiş: X Aksında, X boyutu dikkate alınır (kesildiği yer) değil, projeksiyon genişliği.
-                        // Eğer X aksındaysak, Y boyunca uzanan genişliği görürüz.
-                        // Eğer Y aksındaysak, X boyunca uzanan genişliği görürüz.
-                        if (isXAxis) width = (dir === 'y') ? b_raw : h_raw; // Y yönünde dönmüşse B, değilse H
+                        if (isXAxis) width = (dir === 'y') ? b_raw : h_raw; 
                         else width = (dir === 'x') ? b_raw : h_raw;
                     }
 
@@ -871,8 +877,7 @@ const Visualizer: React.FC<Props> = ({
                     const p1 = mapPt(h1, zTop);
                     const p2 = mapPt(h2, zTop);
                     const beamWidth = Math.abs(p2.x - p1.x);
-                    const beamHeight = toPx(0.5); // Görsel kalınlık
-
+                    
                     // KİRİŞ DİYAGRAMLARI (Eğer Analiz Modundaysa)
                     let diagram = null;
                     if (displayMode === 'analysis' && results && results.memberResults) {

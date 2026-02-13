@@ -406,30 +406,32 @@ const Report: React.FC<Props> = ({ state, results }) => {
                       <tr>
                           <th className="p-3">Eleman</th>
                           <th className="p-3 text-right">Kalınlık (cm)</th>
-                          <th className="p-3 text-right">Hareketli Yük (kg/m²)</th>
-                          <th className="p-3 text-right">Min Kalınlık (cm)</th>
+                          <th className="p-3 text-right">Açıklıklar (Kısa x Uzun)</th>
+                          <th className="p-3 text-right">Yük Pd (kN/m²)</th>
                           <th className="p-3 text-right">Gereken Donatı (mm²/m)</th>
-                          <th className="p-3 text-right">Donatı Aralığı (cm)</th>
+                          <th className="p-3 text-right">Tip (Tek/Çift)</th>
                           <th className="p-3 text-center">Durum</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y">
                       {state.definedElements.filter(e => e.type === 'slab').map(el => {
-                          const t = el.properties?.thickness || state.sections.slabThickness;
-                          const q = el.properties?.liveLoad || state.loads.liveLoadKg;
-                          // Tüm döşemeler için aynı analizi kullanıyoruz (Basitleştirme)
-                          const res = results.slab; 
-                          const isSafe = t >= res.min_thickness_calculated && t >= res.min_thickness_limit;
+                          const res = results.detailedSlabs.get(el.id);
+                          if (!res) return null;
 
                           return (
                               <tr key={el.id} className="hover:bg-slate-50 transition-colors">
                                   <td className="p-3 font-mono font-bold text-slate-800">{el.id}</td>
-                                  <td className="p-3 text-right font-bold">{t}</td>
-                                  <td className="p-3 text-right">{q}</td>
-                                  <td className="p-3 text-right text-slate-500">{Math.max(res.min_thickness_calculated, res.min_thickness_limit).toFixed(1)}</td>
+                                  <td className="p-3 text-right font-bold">
+                                      {res.thickness} 
+                                      <span className="text-xs text-slate-400 font-normal ml-1">(Min {res.minThickness.toFixed(1)})</span>
+                                  </td>
+                                  <td className="p-3 text-right text-slate-600 font-mono text-[11px]">
+                                      {res.axis_short.toFixed(2)}m x {res.axis_long.toFixed(2)}m
+                                  </td>
+                                  <td className="p-3 text-right">{res.load_design_pd.toFixed(2)}</td>
                                   <td className="p-3 text-right">{res.as_req.toFixed(0)}</td>
-                                  <td className="p-3 text-right font-mono text-blue-600">Ø{state.rebars.slabDia}/{res.spacing/10}</td>
-                                  <td className="p-3 text-center"><StatusBadge isSafe={isSafe} text={isSafe ? 'OK' : 'KALINLIK'} /></td>
+                                  <td className="p-3 text-right text-blue-600 font-medium text-[11px]">{res.reinforcement_type}</td>
+                                  <td className="p-3 text-center"><StatusBadge isSafe={res.checks.thickness.isSafe} text={res.checks.thickness.isSafe ? 'OK' : 'KALINLIK'} /></td>
                               </tr>
                           );
                       })}

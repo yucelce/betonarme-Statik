@@ -1,6 +1,6 @@
 
 // utils/shared.ts
-import { CheckStatus } from "../types";
+import { CheckStatus, AppState, UserElement, StandardElementProperties } from "../types";
 import { STEEL_FYD, STEEL_ES, STEEL_FYK } from "../constants";
 
 // ============================================================================
@@ -22,6 +22,50 @@ export const createStatus = (
   reason: isSafe ? undefined : reason,
   recommendation: isSafe ? undefined : recommendation
 });
+
+/**
+ * ELEMAN ÖZELLİKLERİNİ ÇÖZÜMLEME (Resolve)
+ * Öncelik Sırası:
+ * 1. Manuel Özellikler (el.properties)
+ * 2. Standart Tip Özellikleri (el.typeId -> state.standardTypes)
+ * 3. Global Varsayılanlar (state.sections)
+ */
+export const resolveElementProperties = (state: AppState, el: UserElement): StandardElementProperties & { direction: 'x'|'y', alignment: string } => {
+    const { sections, standardTypes } = state;
+    
+    // 1. Standart Tip Bulma
+    const typeDef = el.typeId ? standardTypes.find(t => t.id === el.typeId) : undefined;
+    
+    // 2. Varsayılan Değerler
+    let defaults: StandardElementProperties = {};
+    if (el.type === 'beam') {
+        defaults = { width: sections.beamWidth, depth: sections.beamDepth, wallLoad: 3.5 };
+    } else if (el.type === 'column') {
+        defaults = { width: sections.colWidth, depth: sections.colDepth };
+    } else if (el.type === 'shear_wall') {
+        defaults = { width: sections.wallLength, depth: sections.wallThickness };
+    } else if (el.type === 'slab') {
+        defaults = { thickness: sections.slabThickness, liveLoad: state.loads.liveLoadKg };
+    }
+
+    // 3. Birleştirme (Defaults < Type < Manual)
+    // Not: Manual properties null/undefined alanları içerebilir, bu yüzden spread operatörü kullanırken dikkatli olmalı.
+    // Ancak UserElement.properties içindeki değerler varsa defined'dır.
+    
+    const typeProps = typeDef?.properties || {};
+    const manualProps = el.properties || {};
+
+    return {
+        width: manualProps.width ?? typeProps.width ?? defaults.width,
+        depth: manualProps.depth ?? typeProps.depth ?? defaults.depth,
+        thickness: manualProps.thickness ?? typeProps.thickness ?? defaults.thickness,
+        wallLoad: manualProps.wallLoad ?? typeProps.wallLoad ?? defaults.wallLoad,
+        liveLoad: manualProps.liveLoad ?? typeProps.liveLoad ?? defaults.liveLoad,
+        // Yön ve Yerleşim genelde tipe bağlı değil, yerleşime bağlıdır ama yine de properties içinde taşınır.
+        direction: (manualProps.direction) || 'x',
+        alignment: (manualProps.alignment) || 'center'
+    };
+};
 
 /**
  * ÇELİK GERİLME FONKSİYONU (Elasto-Plastik Davranış)
