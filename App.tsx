@@ -54,7 +54,7 @@ const INITIAL_STATE: AppState = {
   definedElements: [] 
 };
 
-type AccordionSection = 'grid' | 'stories' | 'sections' | 'loads' | 'seismic' | 'foundation' | 'types' | null;
+type AccordionSection = 'grid' | 'stories' | 'loads' | 'seismic' | 'foundation' | 'types' | null;
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
@@ -755,22 +755,6 @@ const App: React.FC = () => {
                              </div>
                              <button onClick={addStandardType} className="w-full bg-blue-600 text-white p-1 rounded flex items-center justify-center gap-1 hover:bg-blue-700 disabled:opacity-50" disabled={!newTypeName}><Plus className="w-3 h-3"/> Ekle</button>
                          </div>
-                     </div>
-                 )}
-              </div>
-
-              {/* SECTION: SECTIONS (VARSAYILANLAR) */}
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                 <button onClick={() => toggleSection('sections')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
-                    <span className="font-bold text-slate-700 text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/> Varsayılanlar</span>
-                    {openSection === 'sections' ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
-                 </button>
-                 {openSection === 'sections' && (
-                     <div className="p-3 bg-white grid grid-cols-2 gap-2 text-xs animate-in slide-in-from-top-2 fade-in duration-200">
-                        <div><label className="block text-slate-400 mb-0.5">Kiriş B/H</label><div className="flex gap-1"><input value={state.sections.beamWidth} onChange={(e)=>updateState('sections', {beamWidth:Number(e.target.value)})} className="w-full border rounded p-1" /><input value={state.sections.beamDepth} onChange={(e)=>updateState('sections', {beamDepth:Number(e.target.value)})} className="w-full border rounded p-1" /></div></div>
-                        <div><label className="block text-slate-400 mb-0.5">Kolon B/H</label><div className="flex gap-1"><input value={state.sections.colWidth} onChange={(e)=>updateState('sections', {colWidth:Number(e.target.value)})} className="w-full border rounded p-1" /><input value={state.sections.colDepth} onChange={(e)=>updateState('sections', {colDepth:Number(e.target.value)})} className="w-full border rounded p-1" /></div></div>
-                        <div><label className="block text-slate-400 mb-0.5">Döşeme Kal. (cm)</label><input type="number" value={state.sections.slabThickness} onChange={(e)=>updateState('sections', {slabThickness:Number(e.target.value)})} className="w-full border rounded p-1" /></div>
-                        <div><label className="block text-slate-400 mb-0.5">Perde B/L</label><div className="flex gap-1"><input value={state.sections.wallThickness} onChange={(e)=>updateState('sections', {wallThickness:Number(e.target.value)})} className="w-full border rounded p-1" title="Kalınlık"/><input value={state.sections.wallLength} onChange={(e)=>updateState('sections', {wallLength:Number(e.target.value)})} className="w-full border rounded p-1" title="Uzunluk"/></div></div>
                      </div>
                  )}
               </div>
