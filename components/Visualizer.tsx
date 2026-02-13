@@ -18,7 +18,8 @@ interface Props {
   selectedElementIds?: string[];
   interactive?: boolean; 
   results?: CalculationResult | null;
-  displayMode?: 'physical' | 'analysis'; // YENİ: Görünüm Modu
+  displayMode?: 'physical' | 'analysis';
+  diagramType?: 'M3' | 'V2'; // YENİ: Diyagram Tipi
 }
 
 const Visualizer: React.FC<Props> = ({ 
@@ -35,7 +36,8 @@ const Visualizer: React.FC<Props> = ({
   selectedElementIds = [],
   interactive = true,
   results,
-  displayMode = 'physical'
+  displayMode = 'physical',
+  diagramType = 'M3'
 }) => {
   const { dimensions, definedElements, grid } = state;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -760,22 +762,35 @@ const Visualizer: React.FC<Props> = ({
                         const beamRes = results.memberResults.get(uniqueId);
                         
                         if (beamRes && beamWidth > 20) {
-                            // Moment Diagram (Mavi Dolgu, Ölçekli)
+                            
+                            const maxValM = Math.max(Math.abs(beamRes.maxM), Math.abs(beamRes.minM), 1);
+                            const maxValV = beamRes.maxV > 0 ? beamRes.maxV : 1;
+                            
                             // Grafik yüksekliği max 25px olsun
-                            const maxVal = Math.max(Math.abs(beamRes.maxM), Math.abs(beamRes.minM), 1);
-                            const scaleY = 25 / maxVal;
+                            const scaleM = 25 / maxValM;
+                            const scaleV = 25 / maxValV;
                             
                             const pathD = beamRes.diagramData.map((pt, i) => {
                                 const px = p1.x + (pt.x / (beamRes.diagramData[beamRes.diagramData.length-1].x)) * beamWidth;
-                                const py = p1.y + pt.M * scaleY; // Moment pozitifi aşağı çizer (Normalde ters ama burada +y aşağı olduğu için düz)
+                                
+                                let py = p1.y;
+                                if (diagramType === 'M3') {
+                                    py = p1.y + pt.M * scaleM; 
+                                } else {
+                                    py = p1.y - pt.V * scaleV; // Kesme için yukarı/aşağı (V pozitif yukarı)
+                                }
+                                
                                 return `${i===0?'M':'L'} ${px} ${py}`;
                             }).join(' ');
+
+                            const fillColor = diagramType === 'M3' ? "rgba(59, 130, 246, 0.6)" : "rgba(249, 115, 22, 0.6)";
+                            const strokeColor = diagramType === 'M3' ? "blue" : "orange";
 
                             diagram = (
                                 <path 
                                     d={`${pathD} L ${p2.x} ${p2.y} L ${p1.x} ${p1.y} Z`} 
-                                    fill="rgba(59, 130, 246, 0.6)" // Mavi yarı saydam
-                                    stroke="blue" 
+                                    fill={fillColor}
+                                    stroke={strokeColor} 
                                     strokeWidth={1} 
                                     pointerEvents="none"
                                 />

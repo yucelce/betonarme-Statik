@@ -126,7 +126,7 @@ const getTransformationMatrix = (n1: Node3D, n2: Node3D): number[][] => {
 
 // --- ANA ÇÖZÜCÜ ---
 
-export const solveFEM = (state: AppState, seismicForces: number[]): FemResult => {
+export const solveFEM = (state: AppState, seismicForces: number[], direction: 'X' | 'Y' = 'X'): FemResult => {
   const { materials, dimensions, sections, grid, definedElements } = state;
   const props = getConcreteProperties(materials.concreteClass);
   const E_base = props.Ec * 1000; 
@@ -328,7 +328,7 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
 
   elements.forEach(el => addElementStiffness(el));
 
-  // 4. YÜK VEKTÖRÜNÜ OLUŞTUR
+  // 4. YÜK VEKTÖRÜNÜ OLUŞTUR (YÖNE GÖRE)
   const F = Array(globalEqCount).fill(0);
   
   seismicForces.forEach((force, idx) => {
@@ -336,10 +336,20 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       const floor = floors.find(f => f.floorIndex === floorIdx);
       if (floor) {
           const F_kN = force / 1000;
-          F[floor.dofIndices.x] += F_kN; 
-          const ex = 0.05 * dimensions.ly; 
-          const M_torsion = F_kN * ex;
-          F[floor.dofIndices.rz] += M_torsion; 
+          
+          if (direction === 'X') {
+              F[floor.dofIndices.x] += F_kN; 
+              // %5 Ek Dışmerkezlik (X yönü yüklemesinde Y yönü kaçıklığı)
+              const ey = 0.05 * dimensions.ly; 
+              const M_torsion = F_kN * ey; // Fx * ey
+              F[floor.dofIndices.rz] += M_torsion; 
+          } else {
+              F[floor.dofIndices.y] += F_kN; 
+              // %5 Ek Dışmerkezlik (Y yönü yüklemesinde X yönü kaçıklığı)
+              const ex = 0.05 * dimensions.lx; 
+              const M_torsion = F_kN * ex; // Fy * ex
+              F[floor.dofIndices.rz] += M_torsion; 
+          }
       }
   });
 
@@ -424,39 +434,54 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       
       const dispX = floor ? displacements[floor.dofIndices.x] : 0;
       const lowerDispX = lowerFloor ? displacements[lowerFloor.dofIndices.x] : 0;
-
-      const delta = Math.abs(dispX - lowerDispX);
-      const h_mm = (dimensions.storyHeights[i-1] || 3) * 1000;
-      const driftRatio = (delta * 1000) / h_mm;
       
-      let maxD = delta;
-      let minD = delta;
+      const dispY = floor ? displacements[floor.dofIndices.y] : 0;
+      const lowerDispY = lowerFloor ? displacements[lowerFloor.dofIndices.y] : 0;
+
+      const deltaX = Math.abs(dispX - lowerDispX);
+      const deltaY = Math.abs(dispY - lowerDispY);
+      
+      const h_mm = (dimensions.storyHeights[i-1] || 3) * 1000;
+      const driftRatioX = (deltaX * 1000) / h_mm;
+      const driftRatioY = (deltaY * 1000) / h_mm;
+      
+      // Burulma Hesabı (Sadece analiz yönünde anlamlıdır ama burada ortalama alabiliriz veya yönü kontrol edebiliriz)
+      // Bu solver tek yön için çalışıyor, o yüzden sadece o yönün drift ve burulması önemli.
+      // Basitleştirmek için o anki yöne göre max drift ve eta hesaplayacağız.
+      
+      let maxD = (direction === 'X' ? deltaX : deltaY);
+      let avgD = maxD; // Torsiyon yoksa
 
       if (floor) {
           const rotCurrent = displacements[floor.dofIndices.rz];
           const rotLower = lowerFloor ? displacements[lowerFloor.dofIndices.rz] : 0;
           const rotation = rotCurrent - rotLower;
 
-          const Lx = xC[xC.length-1];
-          const Ly = yC[yC.length-1];
-          const torsionDisp = (Ly/2) * Math.abs(rotation);
-          maxD = delta + torsionDisp;
-          minD = Math.max(0, delta - torsionDisp);
+          // Bina boyutuna göre en uzak köşe deplasmanı
+          const DimPerp = direction === 'X' ? dimensions.ly : dimensions.lx; // X yüklemesinde Y kolu (veya tam tersi) - Basit dikdörtgen
+          const torsionDisp = (DimPerp/2) * Math.abs(rotation);
+          
+          const deltaCore = (direction === 'X' ? deltaX : deltaY);
+          maxD = deltaCore + torsionDisp;
+          const minD = Math.max(0, deltaCore - torsionDisp);
+          avgD = (maxD + minD) / 2;
       }
       
-      const avgD = (maxD + minD) / 2;
       const eta_bi = avgD > 0.000001 ? maxD / avgD : 1.0;
       const driftLimit = 0.008;
 
+      // Hangi yönde analiz yapıyorsak sonuçları oraya yazalım, diğerleri 0 kalsın
       storyAnalysis.push({
           storyIndex: i,
           height: floor ? floor.z : 0,
-          forceApplied: (seismicForces[i-1] || 0) / 1000,
-          dispAvg: avgD * 1000,
-          dispMax: maxD * 1000,
-          drift: maxD * 1000,
-          driftRatio: driftRatio,
-          eta_bi: eta_bi,
+          forceAppliedX: direction === 'X' ? (seismicForces[i-1] || 0) / 1000 : 0,
+          forceAppliedY: direction === 'Y' ? (seismicForces[i-1] || 0) / 1000 : 0,
+          dispAvgX: direction === 'X' ? avgD * 1000 : 0,
+          dispAvgY: direction === 'Y' ? avgD * 1000 : 0,
+          driftX: direction === 'X' ? maxD * 1000 : 0,
+          driftY: direction === 'Y' ? maxD * 1000 : 0,
+          eta_bi_x: direction === 'X' ? eta_bi : 0,
+          eta_bi_y: direction === 'Y' ? eta_bi : 0,
           torsionCheck: createStatus(
               eta_bi <= 1.2, 
               'A1 Yok', 
@@ -465,10 +490,10 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
               'Bina çevresine perde ekleyerek veya rijitlik merkezini kütle merkezine yaklaştırarak burulmayı azaltın.'
           ),
           driftCheck: createStatus(
-              driftRatio <= driftLimit, 
+              (direction === 'X' ? driftRatioX : driftRatioY) <= driftLimit, 
               'OK', 
               'Sınır Aşıldı', 
-              `R=${driftRatio.toFixed(4)}`,
+              `R=${(direction === 'X' ? driftRatioX : driftRatioY).toFixed(4)}`,
               'Yatay rijitliği artırmak için perde ekleyin veya kolon boyutlarını büyütün.'
           ),
           isBasement

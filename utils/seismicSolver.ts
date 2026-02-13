@@ -5,9 +5,11 @@ import { createStatus } from "./shared";
 
 interface SeismicSolverResult {
   seismicResult: CalculationResult['seismic'];
-  Vt_design_N: number;
+  Vt_design_X: number;
+  Vt_design_Y: number;
   W_total_N: number;
-  fi_story_N: number[];
+  fi_story_X: number[];
+  fi_story_Y: number[];
 }
 
 export const solveSeismic = (
@@ -60,9 +62,11 @@ export const solveSeismic = (
   const Sds = seismic.ss * Fs;
   const Sd1 = seismic.s1 * F1;
   
-  // T1 Periyodu
+  // T1 Periyodu (Basit yaklaşım, hem X hem Y için benzer kabul edilir eğer rijitlikler aşırı farklı değilse)
+  // TBDY 4.7.3 Yaklaşık Periyot
   const Hn = currentHeightAboveGround;
-  const T1 = 0.1 * Math.pow(Hn, 0.75); 
+  const Ct = 0.1; // Betonarme çerçeve için yaklaşık
+  const T1 = Ct * Math.pow(Hn, 0.75); 
 
   const Sae_coeff = ((T: number): number => {
     const Ta = 0.2 * (Sd1 / Sds);
@@ -75,10 +79,12 @@ export const solveSeismic = (
   const Ra = seismic.Rx || 8;
   const I_bldg = seismic.I || 1.0;
   
-  // Taban kesme kuvveti
+  // Taban kesme kuvveti (X ve Y yönü için aynı kabul, rijitlik farkı FEM'de çıkacak)
   const Vt_calc_N = (W_total_N * Sae_coeff * I_bldg) / Ra;
   const Vt_min_N = 0.04 * W_total_N * I_bldg * Sds;
-  const Vt_design_N = Math.max(Vt_calc_N, Vt_min_N);
+  
+  const Vt_design_X = Math.max(Vt_calc_N, Vt_min_N);
+  const Vt_design_Y = Math.max(Vt_calc_N, Vt_min_N);
 
   // Kat Kuvvetleri Dağılımı
   let sum_Wi_Hi = 0;
@@ -86,10 +92,13 @@ export const solveSeismic = (
       sum_Wi_Hi += weightsPerStory[i] * heightsPerStory[i];
   }
 
-  const fi_story_N: number[] = [];
+  const fi_story_X: number[] = [];
+  const fi_story_Y: number[] = [];
+  
   for (let i = 0; i < storyCount; i++) {
-    const Fi = sum_Wi_Hi > 0 ? ((weightsPerStory[i] * heightsPerStory[i]) / sum_Wi_Hi) * Vt_design_N : 0;
-    fi_story_N.push(Fi);
+    const ratio = sum_Wi_Hi > 0 ? ((weightsPerStory[i] * heightsPerStory[i]) / sum_Wi_Hi) : 0;
+    fi_story_X.push(ratio * Vt_design_X);
+    fi_story_Y.push(ratio * Vt_design_Y);
   }
 
   const isHeightSafe = Hn <= 40;
@@ -100,7 +109,8 @@ export const solveSeismic = (
     period_t1: T1,
     spectrum_sae: Sae_coeff,
     building_weight: W_total_N / 1000,
-    base_shear: Vt_design_N / 1000,
+    base_shear_x: Vt_design_X / 1000,
+    base_shear_y: Vt_design_Y / 1000,
     R_coefficient: seismic.Rx,
     I_coefficient: seismic.I,
     method_check: {
@@ -123,5 +133,5 @@ export const solveSeismic = (
     }
   };
 
-  return { seismicResult, Vt_design_N, W_total_N, fi_story_N };
+  return { seismicResult, Vt_design_X, Vt_design_Y, W_total_N, fi_story_X, fi_story_Y };
 };

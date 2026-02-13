@@ -139,12 +139,14 @@ export interface CheckStatus {
 export interface StoryAnalysisResult {
   storyIndex: number;
   height: number;
-  forceApplied: number; // kN
-  dispAvg: number; // mm
-  dispMax: number; // mm
-  drift: number; // Göreli öteleme (mm)
-  driftRatio: number; // drift / h
-  eta_bi: number; // Burulma Düzensizliği Katsayısı
+  forceAppliedX: number; // kN (X Yönü)
+  forceAppliedY: number; // kN (Y Yönü)
+  dispAvgX: number;
+  dispAvgY: number;
+  driftX: number;
+  driftY: number;
+  eta_bi_x: number; // Burulma Düzensizliği X
+  eta_bi_y: number; // Burulma Düzensizliği Y
   torsionCheck: CheckStatus;
   driftCheck: CheckStatus;
   isBasement: boolean;
@@ -225,7 +227,9 @@ export interface CalculationResult {
   };
   seismic: {
     param_sds: number; param_sd1: number; period_t1: number; spectrum_sae: number;
-    building_weight: number; base_shear: number; 
+    building_weight: number; 
+    base_shear_x: number; 
+    base_shear_y: number;
     method_check: { isApplicable: boolean; reason: string; checks: { height: CheckStatus; torsion: CheckStatus } };
     story_drift: {
         check: CheckStatus;

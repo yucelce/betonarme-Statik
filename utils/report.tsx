@@ -143,8 +143,8 @@ const Report: React.FC<Props> = ({ state, results }) => {
                     <span className="font-mono font-bold">{results.seismic.building_weight.toFixed(1)} kN</span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                    <span className="text-sm font-medium">Taban Kesme Kuvveti (Vt)</span>
-                    <span className="font-mono font-bold">{results.seismic.base_shear.toFixed(1)} kN</span>
+                    <span className="text-sm font-medium">Taban Kesme Kuvveti (Vt,x)</span>
+                    <span className="font-mono font-bold">{results.seismic.base_shear_x.toFixed(1)} kN</span>
                 </div>
                 
                 {/* Düzensizlik Tablosu */}
@@ -236,18 +236,27 @@ const Report: React.FC<Props> = ({ state, results }) => {
                     </tr>
                 </thead>
                 <tbody className="divide-y">
-                    {results.seismic.irregularities.A1.details.slice().reverse().map(s => (
-                        <tr key={s.storyIndex} className="hover:bg-slate-50">
-                            <td className="p-3 font-bold">{s.storyIndex}. Kat</td>
-                            <td className="p-3">{s.forceApplied.toFixed(1)} kN</td>
-                            <td className="p-3">{s.dispMax.toFixed(2)} mm</td>
-                            <td className={`p-3 font-bold ${s.eta_bi > 1.2 ? 'text-red-600' : 'text-slate-600'}`}>{s.eta_bi.toFixed(2)}</td>
-                            <td className="p-3">{s.driftRatio.toFixed(5)}</td>
-                            <td className="p-3 flex justify-center">
-                                <StatusBadge isSafe={s.driftCheck.isSafe && s.torsionCheck.isSafe} />
-                            </td>
-                        </tr>
-                    ))}
+                    {results.seismic.irregularities.A1.details.slice().reverse().map(s => {
+                        const h = state.dimensions.storyHeights[s.storyIndex - 1] || 3;
+                        const force = Math.max(s.forceAppliedX, s.forceAppliedY);
+                        const disp = Math.max(s.dispAvgX, s.dispAvgY);
+                        const eta = Math.max(s.eta_bi_x, s.eta_bi_y);
+                        const drift = Math.max(s.driftX, s.driftY);
+                        const driftRatio = drift / (h * 1000);
+
+                        return (
+                            <tr key={s.storyIndex} className="hover:bg-slate-50">
+                                <td className="p-3 font-bold">{s.storyIndex}. Kat</td>
+                                <td className="p-3">{force.toFixed(1)} kN</td>
+                                <td className="p-3">{disp.toFixed(2)} mm</td>
+                                <td className={`p-3 font-bold ${eta > 1.2 ? 'text-red-600' : 'text-slate-600'}`}>{eta.toFixed(2)}</td>
+                                <td className="p-3">{driftRatio.toFixed(5)}</td>
+                                <td className="p-3 flex justify-center">
+                                    <StatusBadge isSafe={s.driftCheck.isSafe && s.torsionCheck.isSafe} />
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
           </div>

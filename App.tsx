@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2 } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -76,6 +76,7 @@ const App: React.FC = () => {
   
   // ANALİZ SONUÇ GÖRÜNÜM MODU
   const [displayMode, setDisplayMode] = useState<'physical' | 'analysis'>('physical');
+  const [diagramType, setDiagramType] = useState<'M3' | 'V2'>('M3');
 
   // Başlangıçta örnek yapı
   useEffect(() => {
@@ -718,7 +719,8 @@ const App: React.FC = () => {
 
                     interactive={true}
                     results={results} 
-                    displayMode={displayMode} // YENİ PROP
+                    displayMode={displayMode} 
+                    diagramType={diagramType} // YENİ PROP
                 />
            </div>
 
@@ -728,19 +730,39 @@ const App: React.FC = () => {
                  
                  {/* GÖRÜNÜM MODU SEÇİCİ (Eğer sonuç varsa) */}
                  {results && (
-                     <div className="bg-white p-1 rounded-lg shadow-md border border-slate-200 flex gap-1 mb-2">
-                         <button 
-                            onClick={() => setDisplayMode('physical')}
-                            className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'physical' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
-                         >
-                             <Box className="w-3 h-3"/> Fiziksel
-                         </button>
-                         <button 
-                            onClick={() => setDisplayMode('analysis')}
-                            className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'analysis' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
-                         >
-                             <ActivityIcon className="w-3 h-3"/> Sonuçlar
-                         </button>
+                     <div className="flex flex-col gap-2">
+                         <div className="bg-white p-1 rounded-lg shadow-md border border-slate-200 flex gap-1">
+                             <button 
+                                onClick={() => setDisplayMode('physical')}
+                                className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'physical' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                             >
+                                 <Box className="w-3 h-3"/> Fiziksel
+                             </button>
+                             <button 
+                                onClick={() => setDisplayMode('analysis')}
+                                className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'analysis' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                             >
+                                 <ActivityIcon className="w-3 h-3"/> Sonuçlar
+                             </button>
+                         </div>
+                         
+                         {/* DİYAGRAM TİPİ SEÇİCİ (Sadece Analiz Modunda ve Kesit Görünümünde) */}
+                         {displayMode === 'analysis' && mainViewMode === 'elevation' && (
+                             <div className="bg-white p-1 rounded-lg shadow-md border border-slate-200 flex gap-1 animate-in fade-in slide-in-from-right-2">
+                                <button 
+                                    onClick={() => setDiagramType('M3')}
+                                    className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${diagramType === 'M3' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                                >
+                                    <ActivityIcon className="w-3 h-3"/> M3
+                                </button>
+                                <button 
+                                    onClick={() => setDiagramType('V2')}
+                                    className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${diagramType === 'V2' ? 'bg-orange-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                                >
+                                    <BarChart2 className="w-3 h-3"/> V2
+                                </button>
+                             </div>
+                         )}
                      </div>
                  )}
 
@@ -751,7 +773,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
+                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode} diagramType={diagramType}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">KESİT</div>
                      </div>
