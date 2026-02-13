@@ -301,23 +301,18 @@ const Visualizer: React.FC<Props> = ({
      }
 
      if(viewMode !== 'plan') {
-         // In 3D and Elevation, left drag acts as Pan usually, or we can use Middle for pan
-         // Let's allow Left Click Pan if not clicking an element, or Middle Click Pan
-         if (activeTool === 'select' && e.button === 0) {
-             // For 3D/Elev, start panning if we didn't hit an element (element clicks stopPropagation)
-             // But actually, element clicks are onMouseUp usually for selection.
-             // Let's stick to Middle Button for Pan to be consistent with CAD software
-         }
          return;
      }
 
      // LEFT MOUSE BUTTON
      if (e.button === 0) {
-         // Eğer bir nokta veya eleman üzerinde değilsek ve tool 'select' veya çizim tool'u ise ve boşluğa tıkladıysak BOX SELECTION başlasın.
-         // Ancak, çizim toolları (beam, column) hoverNode varsa çizim başlatmalı.
-         // O yüzden: Hover yoksa -> Box Selection (veya Pan)
+         
+         // Eğer bir elemana tıklandıysa Box Select başlatma!
+         // Elemanlar 'data-is-element="true"' özelliğine sahip olacak.
+         const target = e.target as Element;
+         const isElement = target.getAttribute('data-is-element') === 'true';
 
-         if (!hoverNode && !hoverSegment && !hoverCell) {
+         if (!hoverNode && !hoverSegment && !hoverCell && !isElement) {
              if (svgRef.current) {
                  const CTM = svgRef.current.getScreenCTM();
                  if (CTM) {
@@ -447,7 +442,11 @@ const Visualizer: React.FC<Props> = ({
               if (foundIds.length > 0) {
                   onMultiElementSelect(foundIds);
               } else if (isClick || foundIds.length === 0) {
-                  onMultiElementSelect([]); // Boş seçim veya boş alana tıklama = Temizle
+                  // Sadece tıklama boşluğa yapıldıysa seçimi temizle.
+                  // Eğer bir elemana tıklandıysa (data-is-element) bu blok çalışmayacak çünkü isBoxSelecting false olacak.
+                  // Ancak isBoxSelecting true başladığı için buraya düşeriz.
+                  // MouseDown'da elemana tıklayınca isBoxSelecting'i false yaptığımız için bu blok eleman tıklamalarında çalışmayacak.
+                  onMultiElementSelect([]); 
               }
           }
 
@@ -535,10 +534,10 @@ const Visualizer: React.FC<Props> = ({
                     case 'tr': points = `${sx},${sy} ${ex},${sy} ${ex},${ey}`; break; 
                     case 'bl': points = `${sx},${sy} ${sx},${ey} ${ex},${ey}`; break; 
                 }
-                return <polygon key={el.id} points={points} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} />;
+                return <polygon key={el.id} points={points} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} data-is-element="true" />;
             }
 
-            return <rect key={el.id} x={sx} y={sy} width={w} height={h} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} />;
+            return <rect key={el.id} x={sx} y={sy} width={w} height={h} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} data-is-element="true" />;
         })}
 
         {/* GRID */}
@@ -554,7 +553,7 @@ const Visualizer: React.FC<Props> = ({
              const isSel = selectedElementIds.includes(el.id);
              const strokeColor = getStrokeColor(el, isSel);
 
-             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>handleElementClick(e, el.id)} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
+             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>handleElementClick(e, el.id)} className={activeTool==='delete'?'hover:stroke-red-500':''} data-is-element="true" />;
         })}
 
         {/* COLUMNS & SHEAR WALLS */}
@@ -604,7 +603,8 @@ const Visualizer: React.FC<Props> = ({
                     height={h} 
                     fill={fillColor} 
                     onClick={(e)=>handleElementClick(e, el.id)} 
-                    className={activeTool==='delete'?'hover:fill-red-500':''} 
+                    className={activeTool==='delete'?'hover:fill-red-500':''}
+                    data-is-element="true"
                 />
              );
         })}

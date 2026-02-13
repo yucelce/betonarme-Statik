@@ -181,8 +181,45 @@ const App: React.FC = () => {
 
   // --- ELEMAN YÖNETİMİ ---
   const handleElementAdd = (el: UserElement) => {
+      // 1. ÇAKIŞMA KONTROLÜ (Overlap Check)
+      const isDuplicate = state.definedElements.some(existing => {
+          if (existing.storyIndex !== el.storyIndex) return false;
+          if (existing.type !== el.type) return false;
+
+          // Noktasal Elemanlar (Kolon, Perde)
+          if (el.type === 'column' || el.type === 'shear_wall') {
+              return existing.x1 === el.x1 && existing.y1 === el.y1;
+          }
+
+          // Çizgisel Elemanlar (Kiriş) - Yön bağımsız kontrol
+          if (el.type === 'beam') {
+              const sameDir = existing.x1 === el.x1 && existing.y1 === el.y1 && existing.x2 === el.x2 && existing.y2 === el.y2;
+              const reverseDir = existing.x1 === el.x2 && existing.y1 === el.y2 && existing.x2 === el.x1 && existing.y2 === el.y1;
+              return sameDir || reverseDir;
+          }
+
+          // Alan Elemanlar (Döşeme)
+          if (el.type === 'slab') {
+              // Üçgen ise segment kontrolü de yapılmalı
+              if (el.properties?.segment && existing.properties?.segment) {
+                  return existing.x1 === el.x1 && existing.y1 === el.y1 && 
+                         existing.x2 === el.x2 && existing.y2 === el.y2 && 
+                         existing.properties.segment === el.properties.segment;
+              }
+              return existing.x1 === el.x1 && existing.y1 === el.y1 && existing.x2 === el.x2 && existing.y2 === el.y2;
+          }
+
+          return false;
+      });
+
+      if (isDuplicate) {
+          console.warn("Bu noktada zaten aynı tipte bir eleman mevcut.");
+          return; // Ekleme yapma
+      }
+
       const isDiagonal = el.type === 'beam' && el.x1 !== el.x2 && el.y1 !== el.y2;
 
+      // KİRİŞ BÖLME MANTIĞI (Mevcut Logic)
       if (!isDiagonal && el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
           const { x1, y1, x2, y2, storyIndex } = el;
           const existingVerticals = state.definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall') && e.storyIndex === storyIndex);
@@ -213,6 +250,11 @@ const App: React.FC = () => {
                   const endX = pt.x1; 
                   const endY = pt.y1;
                   const segId = `B-${startX}${startY}-${endX}${endY}`;
+                  
+                  // Bölünmüş kirişler için de çakışma kontrolü yapılmalı mı? 
+                  // Genellikle ana kiriş yoksa parçalar da yoktur, ama emin olmak için eklenebilir.
+                  // Şimdilik basitçe ekliyoruz.
+                  
                   newBeams.push({
                       ...el, 
                       id: segId,
