@@ -1,3 +1,4 @@
+
 import { AppState, CalculationResult } from "../types";
 import { STEEL_FYD } from "../constants";
 import { createStatus } from "./shared";
@@ -61,8 +62,20 @@ export const solveFoundation = (
     as_provided_spacing: spacingFound,
     min_thickness_check: dimensions.foundationHeight >= 30,
     checks: {
-      bearing: createStatus(sigma_zemin_kPa <= 200, 'Zemin Emniyetli', 'Zemin Yetersiz'),
-      punching: createStatus(tau_pd <= fctd, 'Zımbalama OK', 'Zımbalama Riski', `τ=${tau_pd.toFixed(2)} MPa`),
+      bearing: createStatus(
+          sigma_zemin_kPa <= 200, 
+          'Zemin Emniyetli', 
+          'Zemin Yetersiz',
+          undefined,
+          'Temel ampatmanlarını (taşma payını) artırarak temel alanını büyütün.'
+      ),
+      punching: createStatus(
+          tau_pd <= fctd, 
+          'Zımbalama OK', 
+          'Zımbalama Riski', 
+          `τ=${tau_pd.toFixed(2)} MPa`,
+          'Temel (radye) kalınlığını artırın veya kolon boyutlarını büyütün.'
+      ),
       bending: createStatus(true, 'Eğilme Donatısı OK')
     }
   };

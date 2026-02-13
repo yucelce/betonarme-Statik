@@ -22,8 +22,8 @@ export const solveColumns = (
   fctd: number,
   Ec: number,
   storyHeight: number,
-  specific_b_cm?: number, // EKLENDİ
-  specific_h_cm?: number  // EKLENDİ
+  specific_b_cm?: number, 
+  specific_h_cm?: number  
 ): ColumnSolverResult => {
   const { sections, rebars } = state;
 
@@ -34,7 +34,7 @@ export const solveColumns = (
   const bc_mm = b_cm * 10;
   const hc_mm = h_cm * 10;
   const Ac_col_mm2 = bc_mm * hc_mm;
-  const h_beam_mm = sections.beamDepth * 10; // Kiriş yüksekliği olarak varsayılanı kullanabiliriz veya bağlantılı kirişi bulmak gerekir.
+  const h_beam_mm = sections.beamDepth * 10; 
 
   // Moment (Basit Yaklaşım)
   const M_elastic_Nmm = (Vt_design_N * (storyHeight * 1000)) / 2;
@@ -129,15 +129,69 @@ export const solveColumns = (
     rho_provided: rho_col,
     count_main: countCol,
     checks: {
-      axial_limit: createStatus(Nd_design_N <= colCapacity.N_max_N, 'Eksenel Yük OK', 'Ezilme Riski', `%${(colCapacity.capacity_ratio * 100).toFixed(0)}`),
-      moment_capacity: createStatus(Md_col_magnified_Nmm <= Mr_col_Nmm, 'Moment Kapasitesi OK', 'Yetersiz', `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)}`),
-      shear_capacity: createStatus(Ve_col_N <= Vr_col_N, 'Kesme Güvenli', 'Kesme Yetersiz', 'Ve > Vr'),
-      strongColumn: createStatus(strongColRatio >= 1.2, 'Güçlü Kolon OK', 'Zayıf Kolon', `Oran: ${strongColRatio.toFixed(2)}`),
-      minDimensions: createStatus(b_cm >= 25 && h_cm >= 25, 'Boyut OK', 'Min. 25cm olmalı'),
-      minRebar: createStatus(rho_col >= 0.01, 'Min Donatı OK', 'Min %1 Donatı'),
-      maxRebar: createStatus(rho_col <= 0.04, 'Max Donatı OK', 'Max %4 Donatı'),
-      confinement: createStatus(confResult.isSafe, confResult.message, 'Yetersiz Sargı'),
-      slendernessCheck: createStatus(lambda <= 100, isSlender ? 'Narin Kolon' : 'Narin Değil', 'Çok Narin')
+      axial_limit: createStatus(
+          Nd_design_N <= colCapacity.N_max_N, 
+          'Eksenel Yük OK', 
+          'Ezilme Riski', 
+          `%${(colCapacity.capacity_ratio * 100).toFixed(0)}`,
+          'Kolon boyutlarını (B/H) büyütün veya beton dayanım sınıfını (Cxx) artırın.'
+      ),
+      moment_capacity: createStatus(
+          Md_col_magnified_Nmm <= Mr_col_Nmm, 
+          'Moment Kapasitesi OK', 
+          'Yetersiz', 
+          `M_cap: ${(Mr_col_Nmm / 1e6).toFixed(1)}`,
+          'Kolon boyutlarını artırın veya boyuna donatıyı artırın.'
+      ),
+      shear_capacity: createStatus(
+          Ve_col_N <= Vr_col_N, 
+          'Kesme Güvenli', 
+          'Kesme Yetersiz', 
+          'Ve > Vr',
+          'Kolon boyutlarını artırın veya etriye çapını/sıklığını artırın.'
+      ),
+      strongColumn: createStatus(
+          strongColRatio >= 1.2, 
+          'Güçlü Kolon OK', 
+          'Zayıf Kolon', 
+          `Oran: ${strongColRatio.toFixed(2)}`,
+          'Kolon boyutlarını kirişlere göre daha büyük seçin. Kolon moment kapasitesi artmalı.'
+      ),
+      minDimensions: createStatus(
+          b_cm >= 25 && h_cm >= 25, 
+          'Boyut OK', 
+          'Min. 25cm olmalı',
+          undefined,
+          'Kolon boyutlarını yönetmelik sınırlarına (min 25x25 veya 30cm çap) getirin.'
+      ),
+      minRebar: createStatus(
+          rho_col >= 0.01, 
+          'Min Donatı OK', 
+          'Min %1 Donatı',
+          undefined,
+          'Kolon donatı adedini veya çapını artırın.'
+      ),
+      maxRebar: createStatus(
+          rho_col <= 0.04, 
+          'Max Donatı OK', 
+          'Max %4 Donatı',
+          undefined,
+          'Kesit yetersiz kaldığı için aşırı donatı gerekiyor. Kolon boyutlarını büyütün.'
+      ),
+      confinement: createStatus(
+          confResult.isSafe, 
+          confResult.message, 
+          'Yetersiz Sargı',
+          undefined,
+          'Etriye aralığını sıklaştırın veya etriye çapını artırın.'
+      ),
+      slendernessCheck: createStatus(
+          lambda <= 100, 
+          isSlender ? 'Narin Kolon' : 'Narin Değil', 
+          'Çok Narin',
+          undefined,
+          'Kolon çok narin. Kesit boyutlarını artırın veya serbest boyu azaltın.'
+      )
     }
   };
 

@@ -1,5 +1,4 @@
 
-
 import { AppState, CalculationResult, CheckStatus, IrregularityResult } from "../types";
 import { getFs, getF1 } from "../constants";
 import { createStatus } from "./shared";
@@ -34,7 +33,7 @@ export const solveSeismic = (
 
   let W_total_N = 0;
   const weightsPerStory: number[] = [];
-  const heightsPerStory: number[] = []; // Bina tabanından (zemin) itibaren yükseklikler
+  const heightsPerStory: number[] = []; 
   
   let currentHeightAboveGround = 0;
 
@@ -93,11 +92,7 @@ export const solveSeismic = (
     fi_story_N.push(Fi);
   }
 
-  // --- YÖNTEM GEÇERLİLİK KONTROLÜ (TBDY 2018 4.3.2) ---
-  // 1. Yükseklik Kontrolü (Hn <= 40m ? DTS 1,2 için. Basitlik adına genel 40m limiti koyuyoruz)
   const isHeightSafe = Hn <= 40;
-  // 2. Burulma Düzensizliği Kontrolü (Solver sonunda update edilecek, burada başlangıç değeri)
-  // Eta_bi <= 2.0 ise Eşdeğer Deprem Yükü kullanılabilir. 
   
   const seismicResult = {
     param_sds: Sds,
@@ -109,7 +104,7 @@ export const solveSeismic = (
     R_coefficient: seismic.Rx,
     I_coefficient: seismic.I,
     method_check: {
-        isApplicable: true, // Solver sonunda güncellenecek
+        isApplicable: true, 
         reason: '',
         checks: {
             height: createStatus(isHeightSafe, `Hn = ${Hn.toFixed(1)}m ≤ 40m`, 'Bina Yüksekliği Sınırı Aşıldı', `Hn = ${Hn.toFixed(1)}m`),

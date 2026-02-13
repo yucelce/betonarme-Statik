@@ -1,5 +1,4 @@
 
-
 export type ViewMode = 'plan' | 'elevation' | '3d';
 export type EditorTool = 'select' | 'column' | 'beam' | 'slab' | 'shear_wall' | 'delete';
 
@@ -76,6 +75,8 @@ export interface UserElement {
     // Perde Özellikleri
     direction?: 'x' | 'y'; // Perde yerleşim yönü
     alignment?: 'start' | 'center' | 'end'; // Düğüm noktasına göre konumu
+    // Döşeme Özellikleri
+    segment?: 'tl' | 'br' | 'tr' | 'bl'; // Üçgen döşeme için parça tanımı (Top-Left, Bottom-Right vb.)
   }
 }
 
@@ -112,10 +113,11 @@ export interface BeamEntity {
 
 export interface SlabEntity {
   id: string;
-  nodes: string[];
-  lx: number;
+  nodes: string[]; // 3 veya 4 düğüm noktası
+  lx: number; // Eşdeğer uzunluklar (Üçgen için yaklaşık)
   ly: number;
   thickness: number;
+  area: number; // m2
 }
 
 export interface StructuralModel {
@@ -131,6 +133,7 @@ export interface CheckStatus {
   isSafe: boolean;
   message: string;
   reason?: string;
+  recommendation?: string; // Çözüm önerisi
 }
 
 export interface StoryAnalysisResult {
@@ -184,6 +187,7 @@ export interface ElementAnalysisStatus {
   isSafe: boolean;
   ratio: number; // Kullanım oranı (Demand/Capacity)
   messages: string[]; // Hata mesajları
+  recommendations: string[]; // Çözüm önerileri
 }
 
 export interface CalculationResult {

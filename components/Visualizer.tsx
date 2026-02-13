@@ -54,8 +54,19 @@ const Visualizer: React.FC<Props> = ({
 
   const [hoverNode, setHoverNode] = useState<{x: number, y: number} | null>(null);
   const [hoverSegment, setHoverSegment] = useState<{x1: number, y1: number, x2: number, y2: number} | null>(null);
-  const [hoverCell, setHoverCell] = useState<{x: number, y: number} | null>(null);
+  const [hoverCell, setHoverCell] = useState<{x: number, y: number, segment?: 'tl' | 'br' | 'tr' | 'bl'} | null>(null);
   const [dragStartNode, setDragStartNode] = useState<{x: number, y: number} | null>(null);
+
+  // Calculate Z Levels for 3D and Elevation
+  const zLevels = useMemo(() => {
+    const levels = [0];
+    let current = 0;
+    dimensions.storyHeights.forEach(h => {
+        current += h;
+        levels.push(current);
+    });
+    return levels;
+  }, [dimensions.storyHeights]);
 
   // --- RENK FONKSİYONLARI ---
   const getElementColor = (el: UserElement, isSelected: boolean) => {
@@ -97,15 +108,28 @@ const Visualizer: React.FC<Props> = ({
   const xCoords = xSpacings.map((_, i) => xSpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
   const yCoords = ySpacings.map((_, i) => ySpacings.slice(0, i + 1).reduce((a, b) => a + b, 0));
 
-  const maxDimX = dimensions.lx;
   const totalHeight = dimensions.storyHeights.reduce((a,b)=>a+b,0);
-  const maxDimY = viewMode === 'elevation' ? totalHeight : dimensions.ly;
   
-  const maxDim = Math.max(maxDimX, maxDimY) || 1;
+  // Dynamic Scale Calculation based on View Mode
+  let modelWidth = dimensions.lx;
+  let modelHeight = dimensions.ly;
+
+  if (viewMode === 'elevation') {
+     const isXAxis = activeAxisId.startsWith('X');
+     modelWidth = isXAxis ? dimensions.ly : dimensions.lx;
+     modelHeight = totalHeight;
+  }
+  
+  if (viewMode === '3d') {
+     modelWidth = Math.max(dimensions.lx, dimensions.ly) * 1.5;
+     modelHeight = Math.max(dimensions.lx, dimensions.ly) + totalHeight;
+  }
+
+  const maxDim = Math.max(modelWidth, modelHeight) || 1;
   const scale = (canvasSize - padding * 2) / maxDim;
 
-  const drawW = maxDimX * scale;
-  const drawH = maxDimY * scale;
+  const drawW = modelWidth * scale;
+  const drawH = modelHeight * scale;
   const startX = (canvasSize - drawW) / 2;
   const startY = (canvasSize - drawH) / 2;
 
@@ -120,6 +144,7 @@ const Visualizer: React.FC<Props> = ({
   const project3D = (x: number, y: number, z: number) => {
     const isoX = (x - y) * Math.cos(Math.PI / 6);
     const isoY = (x + y) * Math.sin(Math.PI / 6) - z;
+    // Centering for 3D is approximate
     return { 
         x: canvasSize/2 + isoX * scale * 0.7, 
         y: canvasSize/2 + canvasSize/4 + isoY * scale * 0.7 
@@ -137,7 +162,7 @@ const Visualizer: React.FC<Props> = ({
   const handleMouseMove = (e: React.MouseEvent) => {
     if(!interactive) return;
     
-    // PAN LOGIC
+    // PAN LOGIC (Middle Click)
     if (isPanning) {
       setOffset(p => ({ x: p.x + (e.clientX - lastMouseRef.current.x), y: p.y + (e.clientY - lastMouseRef.current.y) }));
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
@@ -228,8 +253,34 @@ const Visualizer: React.FC<Props> = ({
                 const py1 = startY + toPx(yCoords[i]);
                 const px2 = startX + toPx(xCoords[j+1]);
                 const py2 = startY + toPx(yCoords[i+1]);
+                
                 if (rawX > px1 && rawX < px2 && rawY > py1 && rawY < py2) {
-                    setHoverCell({ x: j, y: i });
+                    // Triangle Detection
+                    const diagonalBeam = definedElements.find(b => 
+                        b.type === 'beam' && 
+                        b.storyIndex === activeStory &&
+                        b.x1 !== b.x2 && b.y1 !== b.y2 &&
+                        ((b.x1 === j && b.x2 === j+1 && b.y1 === i && b.y2 === i+1) || 
+                         (b.x1 === j+1 && b.x2 === j && b.y1 === i+1 && b.y2 === i) ||
+                         (b.x1 === j && b.x2 === j+1 && b.y1 === i+1 && b.y2 === i) || 
+                         (b.x1 === j+1 && b.x2 === j && b.y1 === i && b.y2 === i+1))
+                    );
+
+                    let segment: 'tl' | 'br' | 'tr' | 'bl' | undefined = undefined;
+
+                    if (diagonalBeam) {
+                        const isTL_BR = (diagonalBeam.x1 === j && diagonalBeam.y1 === i) || (diagonalBeam.x2 === j && diagonalBeam.y2 === i);
+                        const nx = (rawX - px1) / (px2 - px1);
+                        const ny = (rawY - py1) / (py2 - py1);
+
+                        if (isTL_BR) {
+                            segment = (nx > ny) ? 'tr' : 'bl';
+                        } else {
+                            segment = (nx + ny < 1) ? 'tl' : 'br';
+                        }
+                    }
+
+                    setHoverCell({ x: j, y: i, segment });
                     return;
                 }
             }
@@ -250,8 +301,13 @@ const Visualizer: React.FC<Props> = ({
      }
 
      if(viewMode !== 'plan') {
-         setIsPanning(true);
-         lastMouseRef.current = { x: e.clientX, y: e.clientY };
+         // In 3D and Elevation, left drag acts as Pan usually, or we can use Middle for pan
+         // Let's allow Left Click Pan if not clicking an element, or Middle Click Pan
+         if (activeTool === 'select' && e.button === 0) {
+             // For 3D/Elev, start panning if we didn't hit an element (element clicks stopPropagation)
+             // But actually, element clicks are onMouseUp usually for selection.
+             // Let's stick to Middle Button for Pan to be consistent with CAD software
+         }
          return;
      }
 
@@ -303,14 +359,23 @@ const Visualizer: React.FC<Props> = ({
                  setDragStartNode(null);
              }
          }
-         else if(activeTool === 'slab' && hoverNode) {
-             if(!dragStartNode) setDragStartNode(hoverNode);
-             else {
-                 if(dragStartNode.x !== hoverNode.x && dragStartNode.y !== hoverNode.y) {
-                     const id = `S-${dragStartNode.x}${dragStartNode.y}`;
-                     onElementAdd?.({ id, type: 'slab', x1: dragStartNode.x, y1: dragStartNode.y, x2: hoverNode.x, y2: hoverNode.y, storyIndex: activeStory });
-                 }
-                 setDragStartNode(null);
+         else if(activeTool === 'slab' && hoverCell && onElementAdd) {
+             // Yeni Yöntem: Tek Tıkla Ekleme (Dikdörtgen veya Üçgen)
+             const { x, y, segment } = hoverCell;
+             const suffix = segment ? `-${segment}` : '';
+             const id = `S-${x}${y}${suffix}`;
+             
+             // Zaten var mı?
+             const exists = definedElements.some(e => e.id === id && e.storyIndex === activeStory);
+             if (!exists) {
+                 onElementAdd({ 
+                     id, 
+                     type: 'slab', 
+                     x1: x, y1: y, 
+                     x2: x+1, y2: y+1, 
+                     storyIndex: activeStory,
+                     properties: segment ? { segment } : undefined
+                 });
              }
          }
      }
@@ -392,21 +457,40 @@ const Visualizer: React.FC<Props> = ({
       }
   };
 
-  const handleDoubleClick = () => {
-      if(!interactive || !onElementAdd || viewMode !== 'plan') return;
-      if(activeTool === 'beam' && hoverSegment) {
-          const { x1, y1, x2, y2 } = hoverSegment;
-          const id = `B-${x1}${y1}-${x2}${y2}`;
-          onElementAdd({ id, type: 'beam', x1, y1, x2, y2, storyIndex: activeStory });
+  // Helper for multi-selection click
+  const handleElementClick = (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (activeTool === 'delete') {
+          onElementRemove?.(id);
+          return;
       }
-      if(activeTool === 'slab' && hoverCell) {
-          const { x, y } = hoverCell;
-          const id = `S-${x}${y}`;
-          onElementAdd({ id, type: 'slab', x1: x, y1: y, x2: x+1, y2: y+1, storyIndex: activeStory });
+      
+      if (!onMultiElementSelect) return;
+
+      // Multi Selection Logic: Ctrl/Cmd key toggles selection
+      if (activeTool === 'select') {
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+              // Toggle
+              if (selectedElementIds.includes(id)) {
+                  onMultiElementSelect(selectedElementIds.filter(sid => sid !== id));
+              } else {
+                  onMultiElementSelect([...selectedElementIds, id]);
+              }
+          } else {
+              // Replace if not already selected alone
+              if (selectedElementIds.length === 1 && selectedElementIds[0] === id) {
+                  // Already selected, do nothing
+              } else {
+                  onMultiElementSelect([id]);
+              }
+          }
       }
   };
 
-  // --- RENDER HELPERS ---
+  const handleDoubleClick = () => {
+      // Çift tıklama yerine tek tık kullanıyoruz artık slab için
+  };
+
   const renderPlan = () => (
     <>
         {/* Foundation Outline */}
@@ -430,53 +514,31 @@ const Visualizer: React.FC<Props> = ({
             const minY = Math.min(el.y1, el.y2!);
             const maxY = Math.max(el.y1, el.y2!);
 
-            const sx = xCoords[minX];
-            const sy = yCoords[minY];
-            const sw = Math.abs(xCoords[maxX] - xCoords[minX]);
-            const sh = Math.abs(yCoords[maxY] - yCoords[minY]);
+            const sx = startX + toPx(xCoords[minX]);
+            const sy = startY + toPx(yCoords[minY]);
+            const ex = startX + toPx(xCoords[maxX]);
+            const ey = startY + toPx(yCoords[maxY]);
+            const w = ex - sx;
+            const h = ey - sy;
             
             const isSel = selectedElementIds.includes(el.id); // ÇOKLU SEÇİM KONTROLÜ
             const fillColor = getElementColor(el, isSel);
             const opacity = (results && !isSel) ? 0.6 : 0.4;
             const hoverClass = activeTool === 'delete' ? 'hover:fill-red-400' : '';
 
-            // Çapraz Kiriş Kontrolü
-            const diagonalBeam = definedElements.find(b => 
-                b.type === 'beam' && 
-                b.storyIndex === activeStory &&
-                b.x1 !== b.x2 && b.y1 !== b.y2 &&
-                ((b.x1 === minX && b.x2 === maxX && b.y1 === minY && b.y2 === maxY) ||
-                 (b.x1 === maxX && b.x2 === minX && b.y1 === maxY && b.y2 === minY) ||
-                 (b.x1 === minX && b.x2 === maxX && b.y1 === maxY && b.y2 === minY) ||
-                 (b.x1 === maxX && b.x2 === minX && b.y1 === minY && b.y2 === maxY))
-            );
-
-            if (diagonalBeam) {
-                const px1 = startX + toPx(sx);
-                const py1 = startY + toPx(sy);
-                const px2 = startX + toPx(sx + sw);
-                const py2 = startY + toPx(sy + sh);
-                
-                const isTL_BR = (diagonalBeam.x1 === minX && diagonalBeam.y1 === minY) || (diagonalBeam.x2 === minX && diagonalBeam.y2 === minY);
-                
-                let points1 = "", points2 = "";
-                if (isTL_BR) {
-                    points1 = `${px1},${py1} ${px2},${py1} ${px2},${py2}`; 
-                    points2 = `${px1},${py1} ${px1},${py2} ${px2},${py2}`; 
-                } else {
-                    points1 = `${px1},${py1} ${px2},${py1} ${px1},${py2}`; 
-                    points2 = `${px2},${py1} ${px2},${py2} ${px1},${py2}`; 
+            // Üçgen döşeme desteği
+            if (el.properties?.segment) {
+                let points = "";
+                switch (el.properties.segment) {
+                    case 'tl': points = `${sx},${sy} ${ex},${sy} ${sx},${ey}`; break; 
+                    case 'br': points = `${ex},${sy} ${ex},${ey} ${sx},${ey}`; break; 
+                    case 'tr': points = `${sx},${sy} ${ex},${sy} ${ex},${ey}`; break; 
+                    case 'bl': points = `${sx},${sy} ${sx},${ey} ${ex},${ey}`; break; 
                 }
-                
-                return (
-                    <g key={el.id} onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} >
-                        <polygon points={points1} fill={fillColor} fillOpacity={opacity} stroke="none" />
-                        <polygon points={points2} fill={fillColor} fillOpacity={opacity} stroke="none" />
-                    </g>
-                );
+                return <polygon key={el.id} points={points} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} />;
             }
 
-            return <rect key={el.id} x={startX+toPx(sx)} y={startY+toPx(sy)} width={toPx(sw)} height={toPx(sh)} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={hoverClass} />;
+            return <rect key={el.id} x={sx} y={sy} width={w} height={h} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} />;
         })}
 
         {/* GRID */}
@@ -492,7 +554,7 @@ const Visualizer: React.FC<Props> = ({
              const isSel = selectedElementIds.includes(el.id);
              const strokeColor = getStrokeColor(el, isSel);
 
-             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
+             return <line key={el.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeColor} strokeWidth={toPx(0.25)} onClick={(e)=>handleElementClick(e, el.id)} className={activeTool==='delete'?'hover:stroke-red-500':''} />;
         })}
 
         {/* COLUMNS & SHEAR WALLS */}
@@ -514,22 +576,19 @@ const Visualizer: React.FC<Props> = ({
                  if (dir === 'x') {
                      w = toPx(len); 
                      h = toPx(thk);
-                     // Alignment Logic for X Direction
                      if (align === 'start') offsetX = 0;
                      else if (align === 'end') offsetX = -w;
-                     else offsetX = -w / 2; // center
+                     else offsetX = -w / 2;
                      offsetY = -h / 2;
                  } else {
                      w = toPx(thk);
                      h = toPx(len);
-                     // Alignment Logic for Y Direction
                      if (align === 'start') offsetY = 0;
                      else if (align === 'end') offsetY = -h;
-                     else offsetY = -h / 2; // center
+                     else offsetY = -h / 2;
                      offsetX = -w / 2;
                  }
              } else {
-                 // Standart Kolon
                  w = toPx(0.4); 
                  h = toPx(0.4);
                  offsetX = -w / 2;
@@ -544,7 +603,7 @@ const Visualizer: React.FC<Props> = ({
                     width={w} 
                     height={h} 
                     fill={fillColor} 
-                    onClick={(e)=>{e.stopPropagation(); onMultiElementSelect?.([el.id]); if(activeTool==='delete') onElementRemove?.(el.id);}} 
+                    onClick={(e)=>handleElementClick(e, el.id)} 
                     className={activeTool==='delete'?'hover:fill-red-500':''} 
                 />
              );
@@ -579,15 +638,28 @@ const Visualizer: React.FC<Props> = ({
             />
         )}
         
-        {/* Slab Drag Rect */}
-        {activeTool === 'slab' && dragStartNode && hoverNode && (
-             <rect 
-                x={getPlanPx(Math.min(dragStartNode.x, hoverNode.x), Math.min(dragStartNode.y, hoverNode.y)).x}
-                y={getPlanPx(Math.min(dragStartNode.x, hoverNode.x), Math.min(dragStartNode.y, hoverNode.y)).y}
-                width={Math.abs(getPlanPx(hoverNode.x, hoverNode.y).x - getPlanPx(dragStartNode.x, dragStartNode.y).x)}
-                height={Math.abs(getPlanPx(hoverNode.x, hoverNode.y).y - getPlanPx(dragStartNode.x, dragStartNode.y).y)}
-                fill="#fb923c" fillOpacity="0.3" stroke="#fb923c" strokeDasharray="4 2" pointerEvents="none"
-             />
+        {/* Slab Preview */}
+        {activeTool === 'slab' && hoverCell && (
+             (() => {
+                 const { x, y, segment } = hoverCell;
+                 const px1 = startX + toPx(xCoords[x]);
+                 const py1 = startY + toPx(yCoords[y]);
+                 const px2 = startX + toPx(xCoords[x+1]);
+                 const py2 = startY + toPx(yCoords[y+1]);
+                 
+                 let points = "";
+                 if (segment) {
+                     switch (segment) {
+                         case 'tl': points = `${px1},${py1} ${px2},${py1} ${px1},${py2}`; break;
+                         case 'br': points = `${px2},${py1} ${px2},${py2} ${px1},${py2}`; break;
+                         case 'tr': points = `${px1},${py1} ${px2},${py1} ${px2},${py2}`; break;
+                         case 'bl': points = `${px1},${py1} ${px1},${py2} ${px2},${py2}`; break;
+                     }
+                     return <polygon points={points} fill="#fb923c" fillOpacity="0.3" stroke="#fb923c" strokeDasharray="4 2" pointerEvents="none" />;
+                 } else {
+                     return <rect x={px1} y={py1} width={px2-px1} height={py2-py1} fill="#fb923c" fillOpacity="0.3" stroke="#fb923c" strokeDasharray="4 2" pointerEvents="none" />;
+                 }
+             })()
         )}
 
         {/* Snap Indicator */}
@@ -596,151 +668,230 @@ const Visualizer: React.FC<Props> = ({
   );
 
   const renderElevation = () => {
-      // (Eski kodlar aynı)
-      const isXAxis = activeAxisId.startsWith('X'); 
-      const axisIndex = parseInt(activeAxisId.substring(1)) - 1;
-      if(isNaN(axisIndex)) return <text x="50%" y="50%">Aks Seçilmedi</text>;
+    const isXAxis = activeAxisId.startsWith('X');
+    const axisIndex = parseInt(activeAxisId.substring(1)) - 1;
+    if (isNaN(axisIndex)) return null;
 
-      let cumH = 0;
-      const zLevels = [0, ...dimensions.storyHeights.map(h => { cumH += h; return cumH; })];
-      const maxZ = zLevels[zLevels.length-1];
+    const axisCoord = isXAxis ? xCoords[axisIndex] : yCoords[axisIndex];
+    if (axisCoord === undefined) return null;
 
-      const horzCoords = isXAxis ? yCoords : xCoords;
-      const H_DRAW = maxDimY * scale; 
-      
-      const getElevPx = (dist: number, z: number) => ({
-          x: startX + toPx(dist),
-          y: startY + H_DRAW - toPx(z)
-      });
-      
-      const foundationDepth = toPx(dimensions.foundationHeight / 100);
-      const cantileverPx = toPx(dimensions.foundationCantilever / 100);
-      const totalWidthPx = toPx(horzCoords[horzCoords.length-1]);
-      
-      const foundX1 = getElevPx(0, 0).x - cantileverPx;
-      const foundY1 = getElevPx(0, 0).y;
-      const foundW = totalWidthPx + 2*cantileverPx;
-      const foundH = foundationDepth;
-
-      return (
-          <>
-             <line x1={startX-20} y1={startY+H_DRAW} x2={startX+drawW+20} y2={startY+H_DRAW} stroke="#000" strokeWidth="2" />
-             <g>
-                <defs>
-                   <pattern id="foundationHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                        <line stroke="#94a3b8" strokeWidth="1" x1="0" y1="0" x2="0" y2="8" />
-                   </pattern>
-                </defs>
-                <rect x={foundX1} y={foundY1} width={foundW} height={foundH} fill="url(#foundationHatch)" stroke="#475569" strokeWidth="1"/>
-                <text x={foundX1 - 5} y={foundY1 + foundH/2} textAnchor="end" fontSize="10" className="fill-slate-500 font-bold">RADYE h={dimensions.foundationHeight}</text>
-             </g>
-
-             {zLevels.map((z, i) => (
-                 <g key={`zl-${i}`}>
-                     <line x1={startX-10} y1={getElevPx(0, z).y} x2={startX+drawW+10} y2={getElevPx(0, z).y} stroke="#cbd5e1" strokeDasharray="2 2" />
-                     <text x={startX-15} y={getElevPx(0, z).y} textAnchor="end" fontSize="10" dy="3">{z.toFixed(1)}m</text>
-                 </g>
-             ))}
-
-             {horzCoords.map((h, i) => (
-                 <line key={`gl-${i}`} x1={getElevPx(h, 0).x} y1={getElevPx(h, 0).y} x2={getElevPx(h, maxZ).x} y2={getElevPx(h, maxZ).y} stroke="#e2e8f0" />
-             ))}
-
-             {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
-                 const isOnAxis = isXAxis ? col.x1 === axisIndex : col.y1 === axisIndex;
-                 if(!isOnAxis) return null;
-                 const posH = isXAxis ? yCoords[col.y1] : xCoords[col.x1];
-                 const zBottom = zLevels[col.storyIndex];
-                 const zTop = zLevels[col.storyIndex + 1];
-                 const p1 = getElevPx(posH, zBottom);
-                 const p2 = getElevPx(posH, zTop);
-
-                 const fillColor = getElementColor(col, false);
-                 return <rect key={col.id} x={p1.x - 5} y={p2.y} width={10} height={p1.y - p2.y} fill={fillColor} stroke="black" strokeWidth="1" />;
-             })}
-
-             {definedElements.filter(e => e.type === 'beam').map(beam => {
-                 const zLevel = zLevels[beam.storyIndex + 1];
-                 let isParallel = false;
-                 if (isXAxis) { 
-                     if (beam.x1 === axisIndex && beam.x2 === axisIndex) isParallel = true;
-                 } else { 
-                     if (beam.y1 === axisIndex && beam.y2 === axisIndex) isParallel = true;
-                 }
-
-                 if (isParallel) {
-                     const h1 = isXAxis ? yCoords[beam.y1] : xCoords[beam.x1];
-                     const h2 = isXAxis ? yCoords[beam.y2!] : xCoords[beam.x2!];
-                     const p1 = getElevPx(Math.min(h1,h2), zLevel);
-                     const p2 = getElevPx(Math.max(h1,h2), zLevel);
-                     const strokeColor = getStrokeColor(beam, false);
-                     return <rect key={beam.id} x={p1.x} y={p1.y} width={p2.x - p1.x} height={10} fill={strokeColor} />;
-                 }
-                 return null;
-             })}
-          </>
-      );
-  };
-
-  const render3D = () => {
-    // (Eski kodlar aynı)
-    let cumH = 0;
-    const zLevels = [0, ...dimensions.storyHeights.map(h => { cumH += h; return cumH; })];
-    const cantM = dimensions.foundationCantilever / 100;
-    const foundH = dimensions.foundationHeight / 100;
-    const minX = xCoords[0] - cantM;
-    const maxX = xCoords[xCoords.length-1] + cantM;
-    const minY = yCoords[0] - cantM;
-    const maxY = yCoords[yCoords.length-1] + cantM;
-
-    const f1 = project3D(minX, minY, 0); const f2 = project3D(maxX, minY, 0);
-    const f3 = project3D(maxX, maxY, 0); const f4 = project3D(minX, maxY, 0);
-    const f1b = project3D(minX, minY, -foundH); const f2b = project3D(maxX, minY, -foundH);
-    const f3b = project3D(maxX, maxY, -foundH); const f4b = project3D(minX, maxY, -foundH);
+    const hCoords = isXAxis ? yCoords : xCoords;
+    const hTotal = isXAxis ? dimensions.ly : dimensions.lx;
 
     return (
         <g>
-            <g opacity={0.6}>
-                 <polygon points={`${f1b.x},${f1b.y} ${f2b.x},${f2b.y} ${f3b.x},${f3b.y} ${f4b.x},${f4b.y}`} fill="#94a3b8" stroke="#64748b" />
-                 <line x1={f1.x} y1={f1.y} x2={f1b.x} y2={f1b.y} stroke="#64748b"/>
-                 <line x1={f2.x} y1={f2.y} x2={f2b.x} y2={f2b.y} stroke="#64748b"/>
-                 <line x1={f3.x} y1={f3.y} x2={f3b.x} y2={f3b.y} stroke="#64748b"/>
-                 <line x1={f4.x} y1={f4.y} x2={f4b.x} y2={f4b.y} stroke="#64748b"/>
-                 <polygon points={`${f1.x},${f1.y} ${f2.x},${f2.y} ${f3.x},${f3.y} ${f4.x},${f4.y}`} fill="#cbd5e1" stroke="#64748b" />
-            </g>
-            {xCoords.map((x, i) => {
-                const p1 = project3D(x, yCoords[0], 0); const p2 = project3D(x, yCoords[yCoords.length-1], 0);
-                return <line key={`b-gx${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#e2e8f0" />;
-            })}
-             {yCoords.map((y, i) => {
-                const p1 = project3D(xCoords[0], y, 0); const p2 = project3D(xCoords[xCoords.length-1], y, 0);
-                return <line key={`b-gy${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#e2e8f0" />;
-            })}
-            {definedElements.filter(e => (e.type === 'column' || e.type === 'shear_wall')).map(col => {
-                 const x = xCoords[col.x1]; const y = yCoords[col.y1];
-                 const zBot = zLevels[col.storyIndex]; const zTop = zLevels[col.storyIndex+1];
-                 const p1 = project3D(x, y, zBot); const p2 = project3D(x, y, zTop);
-                 const strokeW = col.type === 'shear_wall' ? 8 : 4;
-                 const strokeColor = getElementColor(col, false);
-                 return <line key={col.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth={strokeW} strokeLinecap="round" />;
-            })}
-            {definedElements.filter(e => e.type === 'beam').map(beam => {
-                const z = zLevels[beam.storyIndex + 1];
-                const x1 = xCoords[beam.x1]; const y1 = yCoords[beam.y1];
-                const x2 = xCoords[beam.x2!]; const y2 = yCoords[beam.y2!];
-                const p1 = project3D(x1, y1, z); const p2 = project3D(x2, y2, z);
-                const strokeColor = getStrokeColor(beam, false);
-                return <line key={beam.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="2" />;
+            {/* Levels Grid */}
+            {zLevels.map((z, i) => (
+                <line key={`lvl-${i}`} 
+                    x1={startX - 20} y1={startY + toPx(totalHeight - z)} 
+                    x2={startX + toPx(hTotal) + 20} y2={startY + toPx(totalHeight - z)} 
+                    stroke="#e2e8f0" strokeDasharray="4 2" 
+                />
+            ))}
+            
+            {/* Vertical Grid Lines */}
+            {hCoords.map((c, i) => (
+                <line key={`vgrid-${i}`}
+                    x1={startX + toPx(c)} y1={startY - 20}
+                    x2={startX + toPx(c)} y2={startY + toPx(totalHeight) + 20}
+                    stroke="#e2e8f0" strokeDasharray="4 2"
+                />
+            ))}
+
+            {/* Elements */}
+            {definedElements.map(el => {
+                if (el.storyIndex >= dimensions.storyCount) return null;
+                
+                const ex1 = xCoords[el.x1];
+                const ey1 = yCoords[el.y1];
+                const ex2 = el.x2 !== undefined ? xCoords[el.x2] : ex1;
+                const ey2 = el.y2 !== undefined ? yCoords[el.y2] : ey1;
+
+                const isOnAxis = isXAxis 
+                    ? (Math.abs(ex1 - axisCoord) < 0.05 && Math.abs(ex2 - axisCoord) < 0.05)
+                    : (Math.abs(ey1 - axisCoord) < 0.05 && Math.abs(ey2 - axisCoord) < 0.05);
+
+                if (!isOnAxis) return null;
+
+                const zBottom = zLevels[el.storyIndex];
+                const zTop = zLevels[el.storyIndex + 1];
+
+                const isSel = selectedElementIds.includes(el.id);
+                const color = getElementColor(el, isSel);
+                const stroke = getStrokeColor(el, isSel);
+
+                const mapPt = (val: number, z: number) => ({
+                    x: startX + toPx(val),
+                    y: startY + toPx(totalHeight - z)
+                });
+
+                if (el.type === 'column' || el.type === 'shear_wall') {
+                    const hPos = isXAxis ? ey1 : ex1;
+                    const pBot = mapPt(hPos, zBottom);
+                    const pTop = mapPt(hPos, zTop);
+                    
+                    let width = 0.4;
+                    if (el.type === 'shear_wall') {
+                        const dir = el.properties?.direction || 'x';
+                        const w = (el.properties?.width || state.sections.wallLength) / 100;
+                        const t = (el.properties?.depth || state.sections.wallThickness) / 100;
+                        if (isXAxis) width = (dir === 'y') ? w : t;
+                        else width = (dir === 'x') ? w : t;
+                    }
+
+                    const pxWidth = toPx(width);
+                    return (
+                        <rect key={el.id}
+                            x={pTop.x - pxWidth/2} y={pTop.y}
+                            width={pxWidth} height={Math.abs(pBot.y - pTop.y)}
+                            fill={color} stroke={isSel ? stroke : 'none'}
+                            strokeWidth={isSel ? 2 : 0}
+                            onClick={(e) => handleElementClick(e, el.id)}
+                        />
+                    );
+
+                } else if (el.type === 'beam') {
+                    const h1 = isXAxis ? ey1 : ex1;
+                    const h2 = isXAxis ? ey2 : ex2;
+                    
+                    const p1 = mapPt(h1, zTop);
+                    const p2 = mapPt(h2, zTop);
+                    
+                    return (
+                        <line key={el.id}
+                            x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                            stroke={isSel ? '#2563eb' : '#94a3b8'}
+                            strokeWidth={isSel ? 4 : 3}
+                            onClick={(e) => handleElementClick(e, el.id)}
+                        />
+                    );
+                }
+                return null;
             })}
         </g>
-    )
+    );
+  };
+
+  const render3D = () => {
+    const renderables: any[] = [];
+
+    definedElements.forEach(el => {
+        if (el.storyIndex >= dimensions.storyCount) return;
+        
+        const zBot = zLevels[el.storyIndex];
+        const zTop = zLevels[el.storyIndex + 1];
+        
+        const elX1 = xCoords[el.x1];
+        const elY1 = yCoords[el.y1];
+        
+        let cx = elX1, cy = elY1, cz = (zBot + zTop)/2;
+
+        if (el.type === 'column' || el.type === 'shear_wall') {
+            const pBot = project3D(elX1, elY1, zBot);
+            const pTop = project3D(elX1, elY1, zTop);
+            
+            renderables.push({
+                id: el.id,
+                type: 'line',
+                points: [pBot, pTop],
+                depth: elX1 + elY1 + zBot, 
+                color: getElementColor(el, selectedElementIds.includes(el.id)),
+                strokeWidth: el.type === 'shear_wall' ? 6 : 4
+            });
+        } else if (el.type === 'beam') {
+             const elX2 = xCoords[el.x2!];
+             const elY2 = yCoords[el.y2!];
+             cx = (elX1 + elX2)/2;
+             cy = (elY1 + elY2)/2;
+             cz = zTop;
+
+             const p1 = project3D(elX1, elY1, zTop);
+             const p2 = project3D(elX2, elY2, zTop);
+
+             renderables.push({
+                 id: el.id,
+                 type: 'line',
+                 points: [p1, p2],
+                 depth: cx + cy + cz,
+                 color: getStrokeColor(el, selectedElementIds.includes(el.id)),
+                 strokeWidth: 2
+             });
+        } else if (el.type === 'slab') {
+             const elX2 = xCoords[el.x2!];
+             const elY2 = yCoords[el.y2!];
+             
+             const z = zTop;
+             const p1 = project3D(elX1, elY1, z);
+             const p2 = project3D(elX2, elY1, z);
+             const p3 = project3D(elX2, elY2, z);
+             const p4 = project3D(elX1, elY2, z);
+
+             let pts = [p1, p2, p3, p4];
+             cx = (elX1 + elX2)/2; 
+             cy = (elY1 + elY2)/2;
+
+             if (el.properties?.segment) {
+                  switch(el.properties.segment) {
+                      case 'tl': pts = [p1, p2, p4]; break;
+                      case 'br': pts = [p2, p3, p4]; break;
+                      case 'tr': pts = [p1, p2, p3]; break;
+                      case 'bl': pts = [p1, p4, p3]; break;
+                  }
+             }
+
+             renderables.push({
+                 id: el.id,
+                 type: 'poly',
+                 points: pts,
+                 depth: cx + cy + z,
+                 color: getElementColor(el, selectedElementIds.includes(el.id)),
+                 opacity: 0.5
+             });
+        }
+    });
+
+    zLevels.forEach((z, i) => {
+        const p1 = project3D(0, 0, z);
+        const p2 = project3D(dimensions.lx, 0, z);
+        const p3 = project3D(dimensions.lx, dimensions.ly, z);
+        const p4 = project3D(0, dimensions.ly, z);
+        
+        renderables.push({
+            id: `floor-${i}`,
+            type: 'poly-stroke',
+            points: [p1, p2, p3, p4],
+            depth: -1000 + z, 
+            color: '#e2e8f0',
+            strokeWidth: 1
+        });
+    });
+
+    renderables.sort((a, b) => a.depth - b.depth);
+
+    return (
+        <g>
+            {renderables.map((r, i) => {
+                const isSelected = selectedElementIds.includes(r.id);
+                if (r.type === 'line') {
+                    return <line key={r.id} x1={r.points[0].x} y1={r.points[0].y} x2={r.points[1].x} y2={r.points[1].y} stroke={r.color} strokeWidth={isSelected ? r.strokeWidth + 2 : r.strokeWidth} strokeLinecap="round" onClick={(e)=>handleElementClick(e, r.id)} />;
+                } else if (r.type === 'poly') {
+                    const pts = r.points.map((p: any) => `${p.x},${p.y}`).join(' ');
+                    return <polygon key={r.id} points={pts} fill={r.color} fillOpacity={r.opacity} stroke={isSelected ? "#2563eb" : "none"} strokeWidth={isSelected ? 1 : 0} onClick={(e)=>handleElementClick(e, r.id)} />;
+                } else if (r.type === 'poly-stroke') {
+                    const pts = r.points.map((p: any) => `${p.x},${p.y}`).join(' ');
+                    return <polygon key={r.id} points={pts} fill="none" stroke={r.color} strokeWidth={r.strokeWidth} strokeDasharray="4 2" />;
+                }
+                return null;
+            })}
+        </g>
+    );
   };
 
   return (
     <div className={`w-full h-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden relative select-none group shadow-inner ${!interactive ? 'pointer-events-none' : ''}`}>
-      {/* Title Badge */}
-      <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded border shadow-sm text-[10px] text-slate-500 font-bold uppercase pointer-events-none">
-         {viewMode === 'plan' ? `PLAN: ${activeStory < dimensions.basementCount ? `${activeStory - dimensions.basementCount}. BODRUM` : activeStory - dimensions.basementCount === 0 ? 'ZEMİN KAT' : `${activeStory - dimensions.basementCount}. KAT`}` : viewMode === 'elevation' ? `KESİT: AKS ${activeAxisId}` : '3D GÖRÜNÜM'}
+      <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded border shadow-sm text-[10px] text-slate-500 font-bold uppercase pointer-events-none flex gap-2 items-center">
+         <span>{viewMode === 'plan' ? `PLAN: ${activeStory < dimensions.basementCount ? `${activeStory - dimensions.basementCount}. BODRUM` : activeStory - dimensions.basementCount === 0 ? 'ZEMİN KAT' : `${activeStory - dimensions.basementCount}. KAT`}` : viewMode === 'elevation' ? `KESİT: AKS ${activeAxisId}` : '3D GÖRÜNÜM'}</span>
+         {selectedElementIds.length > 0 && <span className="bg-blue-100 text-blue-700 px-1 rounded">{selectedElementIds.length} Seçili</span>}
       </div>
 
       {interactive && (

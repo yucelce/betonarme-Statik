@@ -54,7 +54,7 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [results, setResults] = useState<CalculationResult | null>(null);
   
-  // ÇOKLU SEÇİM İÇİN STATE GÜNCELLENDİ
+  // ÇOKLU SEÇİM İÇİN STATE
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   
   const [activeTab, setActiveTab] = useState<'inputs' | 'report'>('inputs');
@@ -161,12 +161,21 @@ const App: React.FC = () => {
       setActiveTool(toolId);
       
       // İSTEK: Tool değişince seçimi o tiple filtrele
-      if (toolId !== 'select' && toolId !== 'delete' && selectedElementIds.length > 0) {
-          const filtered = selectedElementIds.filter(id => {
-              const el = state.definedElements.find(e => e.id === id);
-              return el?.type === toolId;
-          });
-          setSelectedElementIds(filtered);
+      if (toolId !== 'select' && toolId !== 'delete') {
+          // Eğer seçim varsa, o tipteki elemanları filtrele
+          if (selectedElementIds.length > 0) {
+              const filtered = selectedElementIds.filter(id => {
+                  const el = state.definedElements.find(e => e.id === id);
+                  return el?.type === toolId;
+              });
+              
+              if (filtered.length > 0) {
+                  setSelectedElementIds(filtered);
+              } else {
+                  // Seçimde bu tip yoksa seçimi temizle, çizim moduna geç
+                  setSelectedElementIds([]);
+              }
+          }
       }
   };
 
@@ -605,7 +614,7 @@ const App: React.FC = () => {
         <div className="flex-1 relative bg-slate-100 h-full overflow-hidden flex flex-col">
            
            {/* TOOLBAR */}
-           {activeTab === 'inputs' && mainViewMode === 'plan' && (
+           {activeTab === 'inputs' && (
                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-white p-1.5 rounded-lg shadow-md border border-slate-200">
                    {[
                        { id: 'select', icon: MousePointer2, label: 'Seç' },
@@ -631,7 +640,7 @@ const App: React.FC = () => {
            {activeTab === 'inputs' && (
                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-4">
                    {/* Story Nav */}
-                   {mainViewMode === 'plan' && (
+                   {(mainViewMode === 'plan' || mainViewMode === '3d') && (
                        <div className="bg-white p-1 rounded-full shadow-lg border border-slate-200 flex items-center gap-2 px-3">
                            <button onClick={() => cycleStory(-1)} className="p-1 hover:bg-slate-100 rounded-full"><ChevronDown className="w-5 h-5"/></button>
                            <div className="text-sm font-bold w-32 text-center whitespace-nowrap">{getStoryLabel(activeStory)}</div>

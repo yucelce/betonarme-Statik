@@ -420,10 +420,9 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
   for (let i = 1; i <= dimensions.storyCount; i++) {
       const isBasement = (i - 1) < dimensions.basementCount;
       const floor = floors.find(f => f.floorIndex === i);
-      const lowerFloor = floors.find(f => f.floorIndex === i - 1); // 1. Kat için undefined döner (Zemin sabittir)
+      const lowerFloor = floors.find(f => f.floorIndex === i - 1); 
       
       const dispX = floor ? displacements[floor.dofIndices.x] : 0;
-      // DÜZELTME: Eğer lowerFloor yoksa (zemin kat) deplasman 0'dır.
       const lowerDispX = lowerFloor ? displacements[lowerFloor.dofIndices.x] : 0;
 
       const delta = Math.abs(dispX - lowerDispX);
@@ -434,7 +433,6 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
       let minD = delta;
 
       if (floor) {
-          // DÜZELTME: Alt kat rotasyonu yoksa 0 al
           const rotCurrent = displacements[floor.dofIndices.rz];
           const rotLower = lowerFloor ? displacements[lowerFloor.dofIndices.rz] : 0;
           const rotation = rotCurrent - rotLower;
@@ -459,8 +457,20 @@ export const solveFEM = (state: AppState, seismicForces: number[]): FemResult =>
           drift: maxD * 1000,
           driftRatio: driftRatio,
           eta_bi: eta_bi,
-          torsionCheck: createStatus(eta_bi <= 1.2, 'A1 Yok', 'A1 Düzensizliği', `η=${eta_bi.toFixed(2)}`),
-          driftCheck: createStatus(driftRatio <= driftLimit, 'OK', 'Sınır Aşıldı', `R=${driftRatio.toFixed(4)}`),
+          torsionCheck: createStatus(
+              eta_bi <= 1.2, 
+              'A1 Yok', 
+              'A1 Düzensizliği', 
+              `η=${eta_bi.toFixed(2)}`,
+              'Bina çevresine perde ekleyerek veya rijitlik merkezini kütle merkezine yaklaştırarak burulmayı azaltın.'
+          ),
+          driftCheck: createStatus(
+              driftRatio <= driftLimit, 
+              'OK', 
+              'Sınır Aşıldı', 
+              `R=${driftRatio.toFixed(4)}`,
+              'Yatay rijitliği artırmak için perde ekleyin veya kolon boyutlarını büyütün.'
+          ),
           isBasement
       });
   }

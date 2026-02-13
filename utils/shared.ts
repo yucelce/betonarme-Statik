@@ -1,3 +1,4 @@
+
 // utils/shared.ts
 import { CheckStatus } from "../types";
 import { STEEL_FYD, STEEL_ES, STEEL_FYK } from "../constants";
@@ -9,10 +10,17 @@ export const GRAVITY = 9.81; // m/s2
 export const DENSITY_CONCRETE_N_MM3 = (25 * 1000) / 1e9; // ~0.000025 N/mm3
 
 // Durum mesajı oluşturucu
-export const createStatus = (isSafe: boolean, successMsg: string = 'Uygun', failMsg: string = 'Yetersiz', reason?: string): CheckStatus => ({
+export const createStatus = (
+  isSafe: boolean, 
+  successMsg: string = 'Uygun', 
+  failMsg: string = 'Yetersiz', 
+  reason?: string,
+  recommendation?: string
+): CheckStatus => ({
   isSafe,
   message: isSafe ? successMsg : failMsg,
-  reason: isSafe ? undefined : reason
+  reason: isSafe ? undefined : reason,
+  recommendation: isSafe ? undefined : recommendation
 });
 
 /**
@@ -215,8 +223,6 @@ export const checkColumnConfinement = (
   }
   return best_result;
 };
-
-// utils/shared.ts içine ekleyin
 
 export interface InteractionPoint {
   M: number; // kNm

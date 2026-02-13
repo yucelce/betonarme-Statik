@@ -19,16 +19,14 @@ export const solveBeams = (
   fctd: number,
   Ec: number,
   storyHeight: number,
-  specific_bw_cm?: number, // EKLENDİ: Elemana özel genişlik
-  specific_h_cm?: number   // EKLENDİ: Elemana özel derinlik
+  specific_bw_cm?: number, 
+  specific_h_cm?: number   
 ): BeamSolverResult => {
   const { sections, rebars, grid } = state; 
   
   const L_beam_m = spanLength_m; 
   const L_beam_mm = L_beam_m * 1000;
 
-  // Kiriş Boyutlarını Belirle (Özel boyut varsa onu kullan, yoksa globali al)
-  // BURASI KRİTİK DÜZELTME: Artık eleman özellikleri hesaplamaya giriyor.
   const bw_cm = specific_bw_cm || sections.beamWidth;
   const h_cm = specific_h_cm || sections.beamDepth;
 
@@ -41,7 +39,6 @@ export const solveBeams = (
   const numColsY = grid.yAxis.length + 1;
   const totalCols = numColsX * numColsY;
   
-  // Kesme kuvvetini kolon sayısına oranla (Yaklaşık Yöntem)
   const V_col_avg_N = Vt_total_N / Math.max(totalCols, 1); 
   
   const M_col_seismic_Nmm = (V_col_avg_N * (storyHeight * 1000)) / 2;
@@ -106,11 +103,10 @@ export const solveBeams = (
   const s_supp_final_beam = Math.max(s_supp_beam, 50);
 
   // --- E. SEHİM HESABI ---
-  // Inersia momenti artık doğru boyutlarla (bw_mm, h_beam_mm) hesaplanıyor.
   const I_beam = (bw_mm * Math.pow(h_beam_mm, 3)) / 12;
   const q_line_N_mm = q_beam_design_N_m / 1000;
-  const delta_elastic = (5 * q_line_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5)); // 0.5 faktörü çatlamış kesit için
-  const delta_total = delta_elastic * 3; // Sünme etkisi yaklaşık 3 kat
+  const delta_elastic = (5 * q_line_N_mm * Math.pow(L_beam_mm, 4)) / (384 * Ec * (I_beam * 0.5)); 
+  const delta_total = delta_elastic * 3; 
   const delta_limit = L_beam_mm / 240;
 
   const beamsResult = {
@@ -141,10 +137,34 @@ export const solveBeams = (
     deflection: delta_total,
     deflection_limit: delta_limit,
     checks: {
-      shear: createStatus(V_beam_design_N < Vmax_N, 'Kesme Güvenli', 'Kesme Kapasitesi Aşıldı', `Vd=${(V_beam_design_N/1000).toFixed(1)} > Vmax=${(Vmax_N/1000).toFixed(1)}`),
-      deflection: createStatus(delta_total < delta_limit, 'Sehim Uygun', 'Sehim Sınırı Aşıldı', `Δ=${delta_total.toFixed(1)} > ${delta_limit.toFixed(1)}mm`),
-      min_reinf: createStatus(rho_beam_supp >= rho_beam_min, 'Min Donatı OK', 'Min Donatı Sağlanmıyor'),
-      max_reinf: createStatus(rho_beam_supp <= rho_beam_max, 'Max Donatı OK', 'Max Donatı Sınırı Aşıldı (ρ>0.02)')
+      shear: createStatus(
+          V_beam_design_N < Vmax_N, 
+          'Kesme Güvenli', 
+          'Kesme Kapasitesi Aşıldı', 
+          `Vd=${(V_beam_design_N/1000).toFixed(1)} > Vmax=${(Vmax_N/1000).toFixed(1)}`,
+          'Kiriş boyutlarını büyütün (B veya H) veya beton sınıfını artırın.'
+      ),
+      deflection: createStatus(
+          delta_total < delta_limit, 
+          'Sehim Uygun', 
+          'Sehim Sınırı Aşıldı', 
+          `Δ=${delta_total.toFixed(1)} > ${delta_limit.toFixed(1)}mm`,
+          'Kiriş derinliğini (H) artırın. Atalet momenti derinliğin küpüyle (h³) artar, sehimi en etkili bu azaltır.'
+      ),
+      min_reinf: createStatus(
+          rho_beam_supp >= rho_beam_min, 
+          'Min Donatı OK', 
+          'Min Donatı Sağlanmıyor',
+          undefined,
+          'Donatı çapını veya adedini artırın.'
+      ),
+      max_reinf: createStatus(
+          rho_beam_supp <= rho_beam_max, 
+          'Max Donatı OK', 
+          'Max Donatı Sınırı Aşıldı (ρ>0.02)',
+          undefined,
+          'Kesit boyutları (B/H) yetersiz, kiriş kesitini büyütün. Donatı oranı %2 yi geçmemelidir.'
+      )
     }
   };
 

@@ -90,7 +90,8 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
       criticalThickness >= min_thick_calc && criticalThickness >= min_thick_limit,
       'Uygun',
       'Kalınlık Yetersiz',
-      `Gereken: ${Math.max(min_thick_calc, min_thick_limit).toFixed(1)} cm`
+      `Gereken: ${Math.max(min_thick_calc, min_thick_limit).toFixed(1)} cm`,
+      `Döşeme kalınlığını en az ${Math.max(min_thick_calc, min_thick_limit).toFixed(0)} cm olacak şekilde artırın.`
     ),
     status: createStatus(true)
   };

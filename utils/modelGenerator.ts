@@ -33,7 +33,7 @@ export const generateModel = (state: AppState): StructuralModel => {
 
   // 3. Kullanıcı Elemanlarını Modele Dönüştür
   definedElements.forEach(el => {
-    // GÜVENLİK KONTROLÜ: Eğer elemanın katı mevcut kat sayısından fazlaysa (örn: kat 2 silindi ama eleman duruyor), bunu modele ekleme.
+    // GÜVENLİK KONTROLÜ
     if (el.storyIndex >= dimensions.storyCount) return;
 
     const uniqueId = `${el.id}_S${el.storyIndex}`;
@@ -50,15 +50,8 @@ export const generateModel = (state: AppState): StructuralModel => {
           const thk = el.properties?.depth || sections.wallThickness;
           const dir = el.properties?.direction || 'x';
           
-          if (dir === 'x') {
-              b = len;
-              h = thk;
-          } else {
-              b = thk;
-              h = len;
-          }
+          if (dir === 'x') { b = len; h = thk; } else { b = thk; h = len; }
       } else {
-          // Normal Kolon
           b = el.properties?.width || sections.colWidth;
           h = el.properties?.depth || sections.colDepth;
       }
@@ -111,27 +104,42 @@ export const generateModel = (state: AppState): StructuralModel => {
       });
     }
 
-    // --- DÖŞEMELER ---
+    // --- DÖŞEMELER (Üçgen veya Dikdörtgen) ---
     else if (el.type === 'slab' && el.x2 !== undefined && el.y2 !== undefined) {
       const minX = Math.min(el.x1, el.x2);
       const maxX = Math.max(el.x1, el.x2);
       const minY = Math.min(el.y1, el.y2);
       const maxY = Math.max(el.y1, el.y2);
 
-      const n1 = `N-${minX}-${minY}`;
-      const n2 = `N-${maxX}-${minY}`;
-      const n3 = `N-${maxX}-${maxY}`;
-      const n4 = `N-${minX}-${maxY}`;
+      const n1 = `N-${minX}-${minY}`; // TL
+      const n2 = `N-${maxX}-${minY}`; // TR
+      const n3 = `N-${maxX}-${maxY}`; // BR
+      const n4 = `N-${minX}-${maxY}`; // BL
 
       const lx = Math.abs(xCoords[maxX] - xCoords[minX]);
       const ly = Math.abs(yCoords[maxY] - yCoords[minY]);
+      
+      let slabNodes = [n1, n2, n3, n4];
+      let area = lx * ly;
+
+      // Üçgen Döşeme İse (Segment varsa)
+      if (el.properties?.segment) {
+          area = (lx * ly) / 2;
+          switch(el.properties.segment) {
+              case 'tl': slabNodes = [n1, n2, n4]; break; // TL, TR, BL (Üst-Sol üçgen, BL-TR diyagonali için)
+              case 'br': slabNodes = [n2, n3, n4]; break; // TR, BR, BL
+              case 'tr': slabNodes = [n1, n2, n3]; break; // TL, TR, BR (TL-BR diyagonali için Üst-Sağ)
+              case 'bl': slabNodes = [n1, n3, n4]; break; // TL, BR, BL
+          }
+      }
 
       slabs.push({
         id: uniqueId,
-        nodes: [n1, n2, n3, n4],
+        nodes: slabNodes,
         lx: lx,
         ly: ly,
-        thickness: sections.slabThickness
+        thickness: el.properties?.thickness || sections.slabThickness,
+        area: area
       });
     }
   });

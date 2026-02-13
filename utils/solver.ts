@@ -1,6 +1,6 @@
 
 // utils/solver.ts
-import { AppState, CalculationResult, ElementAnalysisStatus } from "../types";
+import { AppState, CalculationResult, ElementAnalysisStatus, StructuralModel } from "../types";
 import { getConcreteProperties } from "../constants";
 import { solveSlab } from "./slabSolver";
 import { solveSeismic } from "./seismicSolver";
@@ -12,6 +12,66 @@ import { solveFEM } from './femSolver';
 import { DetailedBeamResult, DiagramPoint } from "../types";
 import { createStatus } from "./shared";
 
+// Kiriş Yüklerini Döşemelerden Hesaplayan Yardımcı Fonksiyon
+const calculateBeamLoads = (model: StructuralModel, appState: AppState): Map<string, number> => {
+    const beamLoads = new Map<string, number>(); // BeamID -> q (N/m) (Sadece döşeme katkısı)
+
+    // Tüm döşemeleri gez
+    model.slabs.forEach(slab => {
+        const slabNodes = slab.nodes.map(nid => model.nodes.find(n => n.id === nid)!);
+        if (!slabNodes.every(n => n)) return;
+
+        // Döşeme yükü (Pd) - N/m2
+        // Bu döşemeye özel tanımlı yük varsa onu kullan, yoksa globali al
+        const userSlab = appState.definedElements.find(e => `${e.id}_S${e.storyIndex}` === slab.id);
+        const liveLoadKg = userSlab?.properties?.liveLoad ?? appState.loads.liveLoadKg;
+        const g_slab = (slab.thickness / 100) * 25000; // N/m2
+        const g_coating = appState.loads.deadLoadCoatingsKg * 9.81;
+        const q_live = liveLoadKg * 9.81;
+        const pd = 1.4 * (g_slab + g_coating) + 1.6 * q_live; // N/m2
+
+        // Döşemenin Ağırlık Merkezini Bul (Centroid)
+        const cx = slabNodes.reduce((sum, n) => sum + n.x, 0) / slabNodes.length;
+        const cy = slabNodes.reduce((sum, n) => sum + n.y, 0) / slabNodes.length;
+
+        // Döşemenin her kenarı için bir kiriş arayalım
+        for (let i = 0; i < slabNodes.length; i++) {
+            const n1 = slabNodes[i];
+            const n2 = slabNodes[(i + 1) % slabNodes.length]; // Sonraki düğüm (kenar oluşturur)
+
+            // Bu iki düğüm arasında kiriş var mı?
+            const beam = model.beams.find(b => 
+                (b.startNodeId === n1.id && b.endNodeId === n2.id) || 
+                (b.startNodeId === n2.id && b.endNodeId === n1.id)
+            );
+
+            if (beam) {
+                // Tribütör Alan Hesabı (Üçgen Metodu)
+                // Kenar ve Merkez arasındaki üçgenin alanı
+                // Alan = 0.5 * |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)|
+                // Koordinatlar: n1, n2, centroid
+                const areaTributary = 0.5 * Math.abs(
+                    n1.x * (n2.y - cy) + 
+                    n2.x * (cy - n1.y) + 
+                    cx * (n1.y - n2.y)
+                );
+
+                // Bu alandaki toplam yük
+                const totalLoadOnBeamPart = areaTributary * pd; // N
+
+                // Kirişe yayılı yük olarak aktar (Ortalama yük)
+                // q = W / L
+                const q_add = totalLoadOnBeamPart / beam.length; 
+
+                const currentLoad = beamLoads.get(beam.id) || 0;
+                beamLoads.set(beam.id, currentLoad + q_add);
+            }
+        }
+    });
+
+    return beamLoads;
+};
+
 export const calculateStructure = (state: AppState): CalculationResult => {
   const { materials, sections } = state;
   const { fck, fcd, fctd, Ec } = getConcreteProperties(materials.concreteClass);
@@ -19,49 +79,57 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // 0. SONUÇ DEPOSUNU HAZIRLA
   const elementResults = new Map<string, ElementAnalysisStatus>();
 
-  // 1. DÖŞEME HESABI (Yük analizi için gerekli)
-  // q_eq_slab_N_m: Döşemeden gelen yük (Duvar ve Kiriş ağırlığı HARİÇ)
-  const { slabResult, q_eq_slab_N_m, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
+  // 1. DÖŞEME HESABI (Kalınlık kontrolü vb.)
+  const { slabResult, g_total_N_m2, q_live_N_m2 } = solveSlab(state);
 
-  // Döşeme sonucunu kaydet
   state.definedElements.filter(e => e.type === 'slab').forEach(slab => {
+      const slabRecommendations = [];
+      if (slabResult.thicknessStatus.recommendation) slabRecommendations.push(slabResult.thicknessStatus.recommendation);
+
       elementResults.set(slab.id, {
           id: slab.id,
           type: 'slab',
           isSafe: slabResult.thicknessStatus.isSafe,
           ratio: 0, 
-          messages: [slabResult.thicknessStatus.message]
+          messages: [slabResult.thicknessStatus.message],
+          recommendations: slabRecommendations
       });
   });
 
-  // Referans için varsayılan kiriş ve duvar ağırlıklarını alalım 
   const g_beam_self_approx = (sections.beamWidth/100) * (sections.beamDepth/100) * 25000;
-  const g_wall_approx = 3500; // 3.5 kN/m varsayılan
+  const g_wall_approx = 3500; 
 
   // 2. YAKLAŞIK DEPREM VE KUVVET DAĞILIMI
   const { seismicResult: tempSeismicRes, Vt_design_N, W_total_N, fi_story_N } = solveSeismic(state, g_total_N_m2, q_live_N_m2, g_beam_self_approx, g_wall_approx);
 
   // 3. MODEL VE FEM ANALİZİ
   const model = generateModel(state);
-  // FEM Analizini çalıştır (Kat kuvvetlerini parametre olarak geç)
   const femResults = solveFEM(state, fi_story_N);
   
-  // 4. SONUÇLARIN BİRLEŞTİRİLMESİ (Seismic sonucunu FEM verileriyle güncelle)
+  // 3.5 DÖŞEME YÜKLERİNİN KİRİŞLERE DAĞITILMASI
+  const beamSlabLoads = calculateBeamLoads(model, state);
+
+  // 4. SONUÇLARIN BİRLEŞTİRİLMESİ
   const maxDriftRatio = femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.driftRatio)) : 0;
   const maxEtaBi = femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.eta_bi)) : 1.0;
   const driftCheck = femResults.storyAnalysis.every(s => s.driftCheck.isSafe);
 
-  // Yöntem Geçerliliği Güncelleme
   const methodCheck = { ...tempSeismicRes.method_check };
-  methodCheck.checks.torsion = createStatus(maxEtaBi <= 2.0, `η = ${maxEtaBi.toFixed(2)} ≤ 2.0`, 'Burulma Düzensizliği Sınırı Aşıldı (Dinamik Analiz Gerekli)', `η = ${maxEtaBi.toFixed(2)}`);
+  methodCheck.checks.torsion = createStatus(
+      maxEtaBi <= 2.0, 
+      `η = ${maxEtaBi.toFixed(2)} ≤ 2.0`, 
+      'Burulma Düzensizliği Sınırı Aşıldı', 
+      `η = ${maxEtaBi.toFixed(2)}`,
+      'Perde yerleşimini değiştirerek rijitlik merkezini kütle merkezine yaklaştırın.'
+  );
   methodCheck.isApplicable = methodCheck.checks.height.isSafe && methodCheck.checks.torsion.isSafe;
-  methodCheck.reason = !methodCheck.isApplicable ? 'Eşdeğer Deprem Yükü Yöntemi uygulanamaz. TBDY 2018 Tablo 4.4 uyarınca Mod Birleştirme Yöntemi gereklidir.' : 'Eşdeğer Deprem Yükü Yöntemi Uygulanabilir.';
+  methodCheck.reason = !methodCheck.isApplicable ? 'Eşdeğer Deprem Yükü Yöntemi uygulanamaz.' : 'Eşdeğer Deprem Yükü Yöntemi Uygulanabilir.';
 
   const finalSeismicResult: CalculationResult['seismic'] = {
       ...tempSeismicRes,
       method_check: methodCheck,
       story_drift: {
-          check: createStatus(driftCheck, 'Öteleme Uygun', 'Öteleme Sınırı Aşıldı'),
+          check: createStatus(driftCheck, 'Öteleme Uygun', 'Öteleme Sınırı Aşıldı', undefined, 'Yatay taşıyıcı elemanları (Perde/Kolon) artırın.'),
           delta_max: femResults.storyAnalysis.length > 0 ? Math.max(...femResults.storyAnalysis.map(s => s.dispMax)) : 0,
           drift_ratio: maxDriftRatio,
           limit: 0.008
@@ -76,12 +144,12 @@ export const calculateStructure = (state: AppState): CalculationResult => {
           B1: { 
               eta_ci_min: 1.0, 
               isSafe: true, 
-              message: 'Zayıf Kat Yok (Varsayılan)' 
+              message: 'Zayıf Kat Yok' 
           }
       }
   };
 
-  // 5. KİRİŞ TASARIMI (FEM KUVVETLERİ İLE - TÜM KİRİŞLER İÇİN)
+  // 5. KİRİŞ TASARIMI
   let criticalBeamResult: CalculationResult['beams'] | null = null;
   const memberResults = new Map<string, DetailedBeamResult>();
 
@@ -91,12 +159,15 @@ export const calculateStructure = (state: AppState): CalculationResult => {
      const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
      const userBeam = state.definedElements.find(e => e.id === originalId || e.id === beam.id.replace(`_S${storyIndex}`, ''));
      
-     // SPESİFİK BOYUTLARI KULLAN
      const bw_m = beam.bw / 100;
      const h_m = beam.h / 100;
      const g_beam_self_N_m = bw_m * h_m * 25000;
      const g_wall_N_m = (userBeam?.properties?.wallLoad ?? 3.5) * 1000; 
-     const q_beam_design_N_m = q_eq_slab_N_m + 1.4 * g_beam_self_N_m + 1.4 * g_wall_N_m;
+     
+     // DÖŞEME YÜKÜNÜ MAP'TEN AL
+     const q_slab_N_m = beamSlabLoads.get(beam.id) || 0;
+     
+     const q_beam_design_N_m = q_slab_N_m + 1.4 * g_beam_self_N_m + 1.4 * g_wall_N_m;
 
      const femForces = femResults.memberForces.get(beam.id);
      
@@ -113,34 +184,46 @@ export const calculateStructure = (state: AppState): CalculationResult => {
 
      const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
      
-     // DÜZELTME: Kirişin özel boyutlarını (beam.bw, beam.h) fonksiyona iletiyoruz.
      const result = solveBeams(state, beam.length, q_beam_design_N_m, Vt_design_N, fcd, fctd, Ec, storyHeight, beam.bw, beam.h);
 
-     // Eleman Sonucunu Kaydet
      const isSafeBeam = result.beamsResult.checks.shear.isSafe && 
                         result.beamsResult.checks.deflection.isSafe &&
                         result.beamsResult.checks.min_reinf.isSafe &&
                         result.beamsResult.checks.max_reinf.isSafe;
      
      const beamFailMessages = [];
-     if(!result.beamsResult.checks.shear.isSafe) beamFailMessages.push(`Kesme (${result.beamsResult.checks.shear.reason})`);
-     if(!result.beamsResult.checks.deflection.isSafe) beamFailMessages.push(`Sehim (${result.beamsResult.checks.deflection.reason})`);
-     if(!result.beamsResult.checks.max_reinf.isSafe) beamFailMessages.push(`Max Donatı`);
-     if(!result.beamsResult.checks.min_reinf.isSafe) beamFailMessages.push(`Min Donatı`);
+     const beamRecommendations = [];
+
+     if(!result.beamsResult.checks.shear.isSafe) {
+         beamFailMessages.push(`Kesme`);
+         if(result.beamsResult.checks.shear.recommendation) beamRecommendations.push(result.beamsResult.checks.shear.recommendation);
+     }
+     if(!result.beamsResult.checks.deflection.isSafe) {
+         beamFailMessages.push(`Sehim`);
+         if(result.beamsResult.checks.deflection.recommendation) beamRecommendations.push(result.beamsResult.checks.deflection.recommendation);
+     }
+     if(!result.beamsResult.checks.max_reinf.isSafe) {
+         beamFailMessages.push(`Max Donatı`);
+         if(result.beamsResult.checks.max_reinf.recommendation) beamRecommendations.push(result.beamsResult.checks.max_reinf.recommendation);
+     }
+     if(!result.beamsResult.checks.min_reinf.isSafe) {
+         beamFailMessages.push(`Min Donatı`);
+         if(result.beamsResult.checks.min_reinf.recommendation) beamRecommendations.push(result.beamsResult.checks.min_reinf.recommendation);
+     }
 
      elementResults.set(originalId, {
          id: originalId,
          type: 'beam',
          isSafe: isSafeBeam,
          ratio: result.beamsResult.shear_design / result.beamsResult.shear_limit, 
-         messages: beamFailMessages
+         messages: beamFailMessages,
+         recommendations: beamRecommendations
      });
 
      if (!criticalBeamResult || result.beamsResult.as_support_req > criticalBeamResult.as_support_req) {
          criticalBeamResult = result.beamsResult;
      }
 
-     // Diyagram Verisi
      const points: DiagramPoint[] = [];
      const steps = 20; 
      const dx = beam.length / steps;
@@ -167,7 +250,7 @@ export const calculateStructure = (state: AppState): CalculationResult => {
     criticalBeamResult = solveBeams(state, 5, 10000, 10000, fcd, fctd, Ec, h_dummy).beamsResult;
   }
 
-  // 6. KOLON TASARIMI (FEM KUVVETLERİ İLE - TÜM KOLONLAR İÇİN)
+  // 6. KOLON TASARIMI
   let criticalColumnResult: CalculationResult['columns'] | null = null;
   let criticalJointResult: CalculationResult['joint'] | null = null;
   let maxColRatio = 0;
@@ -187,7 +270,6 @@ export const calculateStructure = (state: AppState): CalculationResult => {
       const storyIndex = parts.length > 1 ? parseInt(parts[1]) : 0;
       const storyHeight = state.dimensions.storyHeights[storyIndex] || 3;
       
-      // DÜZELTME: Kolon boyutlarını (col.b, col.h) iletiyoruz.
       const colRes = solveColumns(state, Nd_fem > 0 ? Nd_fem : 100000, V_fem > 0 ? V_fem : 10000, Md_fem, 0, 0, isConfined, fck, fcd, fctd, Ec, storyHeight, col.b, col.h);
 
       if(Md_fem > 0) {
@@ -202,18 +284,36 @@ export const calculateStructure = (state: AppState): CalculationResult => {
                         colRes.columnsResult.checks.slendernessCheck.isSafe;
 
       const colFailMessages = [];
-      if(!colRes.columnsResult.checks.axial_limit.isSafe) colFailMessages.push(`Eksenel Yük`);
-      if(!colRes.columnsResult.checks.shear_capacity.isSafe) colFailMessages.push(`Kesme`);
-      if(!colRes.columnsResult.checks.moment_capacity.isSafe) colFailMessages.push(`Moment`);
-      if(!colRes.columnsResult.checks.strongColumn.isSafe) colFailMessages.push(`Güçlü Kolon`);
-      if(!colRes.columnsResult.checks.slendernessCheck.isSafe) colFailMessages.push(`Narinlik`);
+      const colRecommendations = [];
+
+      if(!colRes.columnsResult.checks.axial_limit.isSafe) {
+          colFailMessages.push(`Eksenel`);
+          if(colRes.columnsResult.checks.axial_limit.recommendation) colRecommendations.push(colRes.columnsResult.checks.axial_limit.recommendation);
+      }
+      if(!colRes.columnsResult.checks.shear_capacity.isSafe) {
+          colFailMessages.push(`Kesme`);
+          if(colRes.columnsResult.checks.shear_capacity.recommendation) colRecommendations.push(colRes.columnsResult.checks.shear_capacity.recommendation);
+      }
+      if(!colRes.columnsResult.checks.moment_capacity.isSafe) {
+          colFailMessages.push(`Moment`);
+          if(colRes.columnsResult.checks.moment_capacity.recommendation) colRecommendations.push(colRes.columnsResult.checks.moment_capacity.recommendation);
+      }
+      if(!colRes.columnsResult.checks.strongColumn.isSafe) {
+          colFailMessages.push(`Güçlü K.`);
+          if(colRes.columnsResult.checks.strongColumn.recommendation) colRecommendations.push(colRes.columnsResult.checks.strongColumn.recommendation);
+      }
+      if(!colRes.columnsResult.checks.slendernessCheck.isSafe) {
+          colFailMessages.push(`Narinlik`);
+          if(colRes.columnsResult.checks.slendernessCheck.recommendation) colRecommendations.push(colRes.columnsResult.checks.slendernessCheck.recommendation);
+      }
 
       elementResults.set(originalId, {
           id: originalId,
           type: col.type === 'shear_wall' ? 'shear_wall' : 'column',
           isSafe: isSafeCol,
           ratio: colRes.columnsResult.interaction_ratio,
-          messages: colFailMessages
+          messages: colFailMessages,
+          recommendations: colRecommendations
       });
 
       if (!criticalColumnResult || colRes.columnsResult.interaction_ratio > maxColRatio) {
@@ -233,12 +333,17 @@ export const calculateStructure = (state: AppState): CalculationResult => {
   // 7. TEMEL HESABI
   const { foundationResult } = solveFoundation(state, W_total_N, criticalColumnResult!.axial_load_design * 1000, fctd);
   
+  const foundRecommendations = [];
+  if(!foundationResult.checks.bearing.isSafe && foundationResult.checks.bearing.recommendation) foundRecommendations.push(foundationResult.checks.bearing.recommendation);
+  if(!foundationResult.checks.punching.isSafe && foundationResult.checks.punching.recommendation) foundRecommendations.push(foundationResult.checks.punching.recommendation);
+
   elementResults.set('foundation', {
       id: 'foundation',
       type: 'foundation',
       isSafe: foundationResult.checks.bearing.isSafe && foundationResult.checks.punching.isSafe,
       ratio: foundationResult.stress_actual / foundationResult.stress_limit,
-      messages: []
+      messages: [],
+      recommendations: foundRecommendations
   });
 
   return {

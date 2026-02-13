@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { AppState, CalculationResult, ElementAnalysisStatus } from '../types';
-import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine, Info } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Box, Layers, ArrowDownToLine, Info, Lightbulb } from 'lucide-react';
 
 interface Props {
   state: AppState;
@@ -259,20 +259,36 @@ const Report: React.FC<Props> = ({ state, results }) => {
               <h3 className="font-bold text-lg mb-4 text-red-800 flex items-center gap-2">
                   <XCircle className="w-5 h-5" /> Kontrolleri Sağlamayan Elemanlar ({failedElements.length})
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {failedElements.map((el, i) => (
-                      <div key={i} className="bg-white border border-red-100 rounded-lg p-3 text-xs flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex justify-between items-center mb-2 border-b border-red-50 pb-1">
+                      <div key={i} className="bg-white border border-red-100 rounded-lg p-4 text-xs flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex justify-between items-center mb-2 border-b border-red-50 pb-2">
                               <span className="font-bold font-mono text-slate-800 text-sm">{el.id}</span>
-                              <span className="text-slate-400 capitalize bg-slate-50 px-2 py-0.5 rounded">{el.type}</span>
+                              <span className="text-slate-400 capitalize bg-slate-50 px-2 py-0.5 rounded border border-slate-100">{el.type}</span>
                           </div>
-                          <div className="flex flex-wrap gap-1">
+                          
+                          {/* Hata Mesajları */}
+                          <div className="flex flex-wrap gap-1 mb-3">
                               {el.messages.map((msg, idx) => (
                                   <span key={idx} className="bg-red-50 text-red-600 px-2 py-1 rounded border border-red-100 text-[10px] font-bold w-full text-center">
                                       {msg}
                                   </span>
                               ))}
                           </div>
+
+                          {/* Çözüm Önerileri */}
+                          {el.recommendations.length > 0 && (
+                              <div className="bg-blue-50 border border-blue-100 rounded p-2 mt-auto">
+                                  <div className="text-blue-800 font-bold flex items-center gap-1 mb-1">
+                                      <Lightbulb className="w-3 h-3" /> Çözüm Önerisi:
+                                  </div>
+                                  <ul className="list-disc list-inside text-slate-600 space-y-1">
+                                      {el.recommendations.map((rec, idx) => (
+                                          <li key={idx}>{rec}</li>
+                                      ))}
+                                  </ul>
+                              </div>
+                          )}
                       </div>
                   ))}
               </div>
