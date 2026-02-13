@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -73,6 +73,9 @@ const App: React.FC = () => {
   const [mainViewMode, setMainViewMode] = useState<ViewMode>('plan');
   const [activeStory, setActiveStory] = useState(0); // 0 = En alt kat (Bodrum veya Zemin)
   const [activeAxisId, setActiveAxisId] = useState('X1');
+  
+  // ANALİZ SONUÇ GÖRÜNÜM MODU
+  const [displayMode, setDisplayMode] = useState<'physical' | 'analysis'>('physical');
 
   // Başlangıçta örnek yapı
   useEffect(() => {
@@ -106,6 +109,7 @@ const App: React.FC = () => {
       return newState;
     });
     setResults(null);
+    setDisplayMode('physical'); // State değişince analizi sıfırla ve fiziksel moda dön
   };
 
   const toggleSection = (section: AccordionSection) => {
@@ -251,10 +255,6 @@ const App: React.FC = () => {
                   const endY = pt.y1;
                   const segId = `B-${startX}${startY}-${endX}${endY}`;
                   
-                  // Bölünmüş kirişler için de çakışma kontrolü yapılmalı mı? 
-                  // Genellikle ana kiriş yoksa parçalar da yoktur, ama emin olmak için eklenebilir.
-                  // Şimdilik basitçe ekliyoruz.
-                  
                   newBeams.push({
                       ...el, 
                       id: segId,
@@ -354,6 +354,7 @@ const App: React.FC = () => {
       const res = calculateStructure(state);
       setResults(res);
       setActiveTab('report');
+      setDisplayMode('analysis'); // Analiz bitince otomatik analiz moduna geç
     } catch (e) {
       console.error(e);
       alert("Hesaplama hatası. Lütfen yapının stabil olduğundan emin olun.");
@@ -513,6 +514,7 @@ const App: React.FC = () => {
                  )}
               </div>
 
+              {/* ... (Diğer input alanları aynı kalacak) ... */}
               {/* SECTION: STORIES */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                  <button onClick={() => toggleSection('stories')} className="w-full bg-slate-50 p-3 border-b border-slate-100 flex items-center justify-between hover:bg-slate-100 transition-colors">
@@ -711,17 +713,37 @@ const App: React.FC = () => {
                     onElementAdd={handleElementAdd}
                     onElementRemove={handleElementRemove}
                     
-                    selectedElementIds={selectedElementIds} // DİZİ OLARAK GİDİYOR
-                    onMultiElementSelect={handleMultiSelect} // YENİ ÇOKLU SEÇİM PROP'U
+                    selectedElementIds={selectedElementIds} 
+                    onMultiElementSelect={handleMultiSelect} 
 
                     interactive={true}
                     results={results} 
+                    displayMode={displayMode} // YENİ PROP
                 />
            </div>
 
            {/* MINI PREVIEWS (Top Right) */}
            {activeTab === 'inputs' && (
              <div className="absolute top-4 right-4 z-20 flex flex-col gap-3">
+                 
+                 {/* GÖRÜNÜM MODU SEÇİCİ (Eğer sonuç varsa) */}
+                 {results && (
+                     <div className="bg-white p-1 rounded-lg shadow-md border border-slate-200 flex gap-1 mb-2">
+                         <button 
+                            onClick={() => setDisplayMode('physical')}
+                            className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'physical' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                         >
+                             <Box className="w-3 h-3"/> Fiziksel
+                         </button>
+                         <button 
+                            onClick={() => setDisplayMode('analysis')}
+                            className={`flex-1 text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 ${displayMode === 'analysis' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                         >
+                             <ActivityIcon className="w-3 h-3"/> Sonuçlar
+                         </button>
+                     </div>
+                 )}
+
                  {/* Mini Elevation */}
                  {mainViewMode !== 'elevation' && (
                      <div 
@@ -729,7 +751,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
+                            <Visualizer state={state} activeTool="select" viewMode="elevation" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">KESİT</div>
                      </div>
@@ -741,7 +763,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
+                            <Visualizer state={state} activeTool="select" viewMode="plan" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">PLAN</div>
                      </div>
@@ -753,7 +775,7 @@ const App: React.FC = () => {
                         className="w-40 h-32 bg-white rounded-lg shadow-lg border-2 border-white hover:border-blue-400 cursor-pointer overflow-hidden relative group transition-all"
                      >
                         <div className="absolute inset-0 pointer-events-none">
-                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]}/>
+                            <Visualizer state={state} activeTool="select" viewMode="3d" activeStory={activeStory} activeAxisId={activeAxisId} interactive={false} results={results} selectedElementIds={[]} displayMode={displayMode}/>
                         </div>
                         <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1 rounded">3D</div>
                      </div>
@@ -761,7 +783,8 @@ const App: React.FC = () => {
              </div>
            )}
 
-           {/* ELEMAN ÖZELLİK PANELİ (TOPLU DÜZENLEME DESTEKLİ) */}
+           {/* ELEMAN ÖZELLİK PANELİ ... */}
+           {/* (Bu kısım aynı kalacak, sadece önceki değişiklikle uyumlu olması için burada bırakılıyor) */}
            {selectionSummary && activeTab === 'inputs' && (
                 <div className="absolute bottom-4 left-4 w-60 bg-white rounded-lg shadow-xl border border-slate-200 p-4 animate-in fade-in slide-in-from-left-4 z-20">
                     <div className="flex justify-between items-center mb-2 border-b pb-2">
@@ -771,6 +794,7 @@ const App: React.FC = () => {
                             </h4>
                             <button onClick={() => setSelectedElementIds([])}><X className="w-3 h-3 text-slate-400"/></button>
                     </div>
+                    {/* ... (Panel içeriği aynı) ... */}
                     {(() => {
                         if (selectionSummary.type === 'mixed') {
                             return (

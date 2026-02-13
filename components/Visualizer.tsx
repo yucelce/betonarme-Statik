@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { AppState, EditorTool, UserElement, ViewMode, CalculationResult } from '../types';
 import { generateModel } from '../utils/modelGenerator';
-import { Scan, MousePointer2, Box } from 'lucide-react';
+import { Scan, MousePointer2, Box, Activity } from 'lucide-react';
 
 interface Props {
   state: AppState;
@@ -12,13 +12,13 @@ interface Props {
   activeAxisId: string; 
   onElementAdd?: (el: UserElement) => void;
   onElementRemove?: (id: string) => void;
-  // Tekli seçim yerine çoklu seçim prop'ları
   onElementSelect?: (id: string | null) => void; 
   onMultiElementSelect?: (ids: string[]) => void;
   selectedElementId?: string | null; 
   selectedElementIds?: string[];
   interactive?: boolean; 
-  results?: CalculationResult | null; 
+  results?: CalculationResult | null;
+  displayMode?: 'physical' | 'analysis'; // YENİ: Görünüm Modu
 }
 
 const Visualizer: React.FC<Props> = ({ 
@@ -34,7 +34,8 @@ const Visualizer: React.FC<Props> = ({
   selectedElementId,
   selectedElementIds = [],
   interactive = true,
-  results
+  results,
+  displayMode = 'physical'
 }) => {
   const { dimensions, definedElements, grid } = state;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -72,13 +73,16 @@ const Visualizer: React.FC<Props> = ({
   const getElementColor = (el: UserElement, isSelected: boolean) => {
       if (isSelected) return "#fcd34d"; // Sarı (Highlight)
 
-      if (results && results.elementResults) {
+      // ANALİZ MODU
+      if (displayMode === 'analysis' && results && results.elementResults) {
           const status = results.elementResults.get(el.id);
           if (status) {
-              return status.isSafe ? "#22c55e" : "#ef4444"; 
+              return status.isSafe ? "#22c55e" : "#ef4444"; // Yeşil / Kırmızı
           }
+          return "#94a3b8"; // Analiz sonucu yoksa gri
       }
 
+      // FİZİKSEL MOD
       switch (el.type) {
           case 'slab': return "#fed7aa";
           case 'beam': return "#94a3b8";
@@ -90,18 +94,21 @@ const Visualizer: React.FC<Props> = ({
   
   const getStrokeColor = (el: UserElement, isSelected: boolean) => {
        if (isSelected) return "#2563eb";
-       if (results && results.elementResults) {
+
+       // ANALİZ MODU
+       if (displayMode === 'analysis' && results && results.elementResults) {
            const status = results.elementResults.get(el.id);
            if (status) {
-               return status.isSafe ? "#15803d" : "#b91c1c";
+               return status.isSafe ? "#15803d" : "#b91c1c"; // Koyu Yeşil / Koyu Kırmızı
            }
        }
+
        return el.type === 'beam' ? "#94a3b8" : "none";
   };
 
   // --- KOORDİNAT SİSTEMİ ---
   const canvasSize = 600;
-  const padding = 60;
+  const padding = 80; // Padding artırıldı (Aks etiketleri için)
   
   const xSpacings = [0, ...grid.xAxis.map(a => a.spacing)];
   const ySpacings = [0, ...grid.yAxis.map(a => a.spacing)];
@@ -162,7 +169,6 @@ const Visualizer: React.FC<Props> = ({
   const handleMouseMove = (e: React.MouseEvent) => {
     if(!interactive) return;
     
-    // PAN LOGIC (Middle Click)
     if (isPanning) {
       setOffset(p => ({ x: p.x + (e.clientX - lastMouseRef.current.x), y: p.y + (e.clientY - lastMouseRef.current.y) }));
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
@@ -173,11 +179,9 @@ const Visualizer: React.FC<Props> = ({
     const CTM = svgRef.current.getScreenCTM();
     if (!CTM) return;
     
-    // Mouse coordinates in SVG space
     const mouseX = (e.clientX - CTM.e) / CTM.a;
     const mouseY = (e.clientY - CTM.f) / CTM.d;
 
-    // BOX SELECTION LOGIC
     if (isBoxSelecting) {
         setBoxEnd({ x: mouseX, y: mouseY });
         return;
@@ -185,11 +189,9 @@ const Visualizer: React.FC<Props> = ({
 
     if(viewMode !== 'plan') return; 
 
-    // Mouse coordinates in World space (affected by zoom/offset)
     const rawX = (mouseX - offset.x) / zoom;
     const rawY = (mouseY - offset.y) / zoom;
 
-    // 1. SNAP NODE 
     let nNode = null;
     let minDist = 30 / zoom; 
 
@@ -212,11 +214,9 @@ const Visualizer: React.FC<Props> = ({
         return;
     }
 
-    // 2. SNAP SEGMENT (Beam) - Sadece kiriş modundaysa ve hoverNode yoksa
     if (activeTool === 'beam' && !nNode) {
         let nSeg = null;
         let minSegDist = 15 / zoom;
-        // Yatay
         for(let i=0; i<yCoords.length; i++) {
             const py = startY + toPx(yCoords[i]);
             if (Math.abs(rawY - py) < minSegDist) {
@@ -227,7 +227,6 @@ const Visualizer: React.FC<Props> = ({
                 }
             }
         }
-        // Dikey
         if (!nSeg) {
              for(let j=0; j<xCoords.length; j++) {
                 const px = startX + toPx(xCoords[j]);
@@ -245,7 +244,6 @@ const Visualizer: React.FC<Props> = ({
         setHoverSegment(null);
     }
 
-    // 3. SNAP CELL (Slab)
     if (activeTool === 'slab') {
          for(let i=0; i<yCoords.length-1; i++) {
             for(let j=0; j<xCoords.length-1; j++) {
@@ -255,7 +253,6 @@ const Visualizer: React.FC<Props> = ({
                 const py2 = startY + toPx(yCoords[i+1]);
                 
                 if (rawX > px1 && rawX < px2 && rawY > py1 && rawY < py2) {
-                    // Triangle Detection
                     const diagonalBeam = definedElements.find(b => 
                         b.type === 'beam' && 
                         b.storyIndex === activeStory &&
@@ -292,7 +289,6 @@ const Visualizer: React.FC<Props> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
      if(!interactive) return;
      
-     // MIDDLE MOUSE BUTTON (PAN)
      if (e.button === 1) {
          e.preventDefault();
          setIsPanning(true);
@@ -300,15 +296,9 @@ const Visualizer: React.FC<Props> = ({
          return;
      }
 
-     if(viewMode !== 'plan') {
-         return;
-     }
+     if(viewMode !== 'plan') return;
 
-     // LEFT MOUSE BUTTON
      if (e.button === 0) {
-         
-         // Eğer bir elemana tıklandıysa Box Select başlatma!
-         // Elemanlar 'data-is-element="true"' özelliğine sahip olacak.
          const target = e.target as Element;
          const isElement = target.getAttribute('data-is-element') === 'true';
 
@@ -326,7 +316,6 @@ const Visualizer: React.FC<Props> = ({
              return;
          }
 
-         // ELEMAN EKLEME MANTIĞI
          if((activeTool === 'column' || activeTool === 'shear_wall') && hoverNode && onElementAdd) {
              const type = activeTool;
              const id = `${type === 'column' ? 'C' : 'SW'}-${hoverNode.x}-${hoverNode.y}`;
@@ -355,12 +344,10 @@ const Visualizer: React.FC<Props> = ({
              }
          }
          else if(activeTool === 'slab' && hoverCell && onElementAdd) {
-             // Yeni Yöntem: Tek Tıkla Ekleme (Dikdörtgen veya Üçgen)
              const { x, y, segment } = hoverCell;
              const suffix = segment ? `-${segment}` : '';
              const id = `S-${x}${y}${suffix}`;
              
-             // Zaten var mı?
              const exists = definedElements.some(e => e.id === id && e.storyIndex === activeStory);
              if (!exists) {
                  onElementAdd({ 
@@ -382,19 +369,16 @@ const Visualizer: React.FC<Props> = ({
       }
       
       if (isBoxSelecting && boxStart && boxEnd) {
-          // SELECTION LOGIC
           const x1 = Math.min(boxStart.x, boxEnd.x);
           const x2 = Math.max(boxStart.x, boxEnd.x);
           const y1 = Math.min(boxStart.y, boxEnd.y);
           const y2 = Math.max(boxStart.y, boxEnd.y);
           
-          // Seçilenleri bul
           const foundIds: string[] = [];
           
           state.definedElements.forEach(el => {
               if (el.storyIndex !== activeStory) return;
 
-              // Elemanın ekran koordinatlarını (offset ve zoom uygulanmış) bul
               let elMinX, elMaxX, elMinY, elMaxY;
               
               const sx1 = startX + toPx(xCoords[el.x1]);
@@ -408,27 +392,21 @@ const Visualizer: React.FC<Props> = ({
                   elMinY = Math.min(sy1, sy2);
                   elMaxY = Math.max(sy1, sy2);
               } else {
-                  // Point elements (Column/Wall)
-                  // Biraz geniş tolerans
                   elMinX = sx1 - 10;
                   elMaxX = sx1 + 10;
                   elMinY = sy1 - 10;
                   elMaxY = sy1 + 10;
               }
 
-              // Apply Zoom & Offset transformation to Element Bounding Box
               const screenMinX = elMinX * zoom + offset.x;
               const screenMaxX = elMaxX * zoom + offset.x;
               const screenMinY = elMinY * zoom + offset.y;
               const screenMaxY = elMaxY * zoom + offset.y;
 
-              // Check Intersection (Box contains Center of Element, or Overlap?)
-              // Basitlik için: Elemanın merkezi kutu içinde mi?
               const centerX = (screenMinX + screenMaxX) / 2;
               const centerY = (screenMinY + screenMaxY) / 2;
               
               if (centerX >= x1 && centerX <= x2 && centerY >= y1 && centerY <= y2) {
-                  // FİLTRELEME: Eğer aktif araç 'select' ise hepsini, değilse sadece o tipi seç.
                   if (activeTool === 'select') {
                       foundIds.push(el.id);
                   } else if (activeTool === el.type) {
@@ -442,10 +420,6 @@ const Visualizer: React.FC<Props> = ({
               if (foundIds.length > 0) {
                   onMultiElementSelect(foundIds);
               } else if (isClick || foundIds.length === 0) {
-                  // Sadece tıklama boşluğa yapıldıysa seçimi temizle.
-                  // Eğer bir elemana tıklandıysa (data-is-element) bu blok çalışmayacak çünkü isBoxSelecting false olacak.
-                  // Ancak isBoxSelecting true başladığı için buraya düşeriz.
-                  // MouseDown'da elemana tıklayınca isBoxSelecting'i false yaptığımız için bu blok eleman tıklamalarında çalışmayacak.
                   onMultiElementSelect([]); 
               }
           }
@@ -456,7 +430,6 @@ const Visualizer: React.FC<Props> = ({
       }
   };
 
-  // Helper for multi-selection click
   const handleElementClick = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       if (activeTool === 'delete') {
@@ -466,19 +439,15 @@ const Visualizer: React.FC<Props> = ({
       
       if (!onMultiElementSelect) return;
 
-      // Multi Selection Logic: Ctrl/Cmd key toggles selection
       if (activeTool === 'select') {
           if (e.ctrlKey || e.metaKey || e.shiftKey) {
-              // Toggle
               if (selectedElementIds.includes(id)) {
                   onMultiElementSelect(selectedElementIds.filter(sid => sid !== id));
               } else {
                   onMultiElementSelect([...selectedElementIds, id]);
               }
           } else {
-              // Replace if not already selected alone
               if (selectedElementIds.length === 1 && selectedElementIds[0] === id) {
-                  // Already selected, do nothing
               } else {
                   onMultiElementSelect([id]);
               }
@@ -487,7 +456,6 @@ const Visualizer: React.FC<Props> = ({
   };
 
   const handleDoubleClick = () => {
-      // Çift tıklama yerine tek tık kullanıyoruz artık slab için
   };
 
   const renderPlan = () => (
@@ -520,9 +488,9 @@ const Visualizer: React.FC<Props> = ({
             const w = ex - sx;
             const h = ey - sy;
             
-            const isSel = selectedElementIds.includes(el.id); // ÇOKLU SEÇİM KONTROLÜ
+            const isSel = selectedElementIds.includes(el.id);
             const fillColor = getElementColor(el, isSel);
-            const opacity = (results && !isSel) ? 0.6 : 0.4;
+            const opacity = (results && !isSel && displayMode !== 'analysis') ? 0.6 : 0.4;
             const hoverClass = activeTool === 'delete' ? 'hover:fill-red-400' : '';
 
             // Üçgen döşeme desteği
@@ -540,9 +508,23 @@ const Visualizer: React.FC<Props> = ({
             return <rect key={el.id} x={sx} y={sy} width={w} height={h} fill={fillColor} fillOpacity={opacity} stroke="none" onClick={(e)=>handleElementClick(e, el.id)} className={hoverClass} data-is-element="true" />;
         })}
 
-        {/* GRID */}
-        {xCoords.map((x, i) => <line key={`gx${i}`} x1={startX+toPx(x)} y1={startY-20} x2={startX+toPx(x)} y2={startY+drawH+20} stroke="#cbd5e1" strokeDasharray="4 2" />)}
-        {yCoords.map((y, i) => <line key={`gy${i}`} x1={startX-20} y1={startY+toPx(y)} x2={startX+drawW+20} y2={startY+toPx(y)} stroke="#cbd5e1" strokeDasharray="4 2" />)}
+        {/* GRID VE AKS ETİKETLERİ */}
+        {xCoords.map((x, i) => (
+            <g key={`gx${i}`}>
+                <line x1={startX+toPx(x)} y1={startY-20} x2={startX+toPx(x)} y2={startY+drawH+20} stroke="#cbd5e1" strokeDasharray="4 2" />
+                {/* AKS ETİKETLERİ (ÜST) */}
+                <circle cx={startX+toPx(x)} cy={startY-35} r={10} fill="white" stroke="#64748b" strokeWidth={1} />
+                <text x={startX+toPx(x)} y={startY-31} textAnchor="middle" fontSize={10} fill="#475569" fontWeight="bold">{i + 1}</text>
+            </g>
+        ))}
+        {yCoords.map((y, i) => (
+            <g key={`gy${i}`}>
+                <line x1={startX-20} y1={startY+toPx(y)} x2={startX+drawW+20} y2={startY+toPx(y)} stroke="#cbd5e1" strokeDasharray="4 2" />
+                {/* AKS ETİKETLERİ (SOL) */}
+                <circle cx={startX-35} cy={startY+toPx(y)} r={10} fill="white" stroke="#64748b" strokeWidth={1} />
+                <text x={startX-35} y={startY+toPx(y)+3} textAnchor="middle" fontSize={10} fill="#475569" fontWeight="bold">{String.fromCharCode(65+i)}</text>
+            </g>
+        ))}
         
         {/* BEAMS */}
         {definedElements.filter(e => e.type === 'beam' && e.storyIndex === activeStory).map(el => {
@@ -682,20 +664,32 @@ const Visualizer: React.FC<Props> = ({
         <g>
             {/* Levels Grid */}
             {zLevels.map((z, i) => (
-                <line key={`lvl-${i}`} 
-                    x1={startX - 20} y1={startY + toPx(totalHeight - z)} 
-                    x2={startX + toPx(hTotal) + 20} y2={startY + toPx(totalHeight - z)} 
-                    stroke="#e2e8f0" strokeDasharray="4 2" 
-                />
+                <g key={`lvl-${i}`}>
+                    <line 
+                        x1={startX - 20} y1={startY + toPx(totalHeight - z)} 
+                        x2={startX + toPx(hTotal) + 20} y2={startY + toPx(totalHeight - z)} 
+                        stroke="#e2e8f0" strokeDasharray="4 2" 
+                    />
+                    <text x={startX - 25} y={startY + toPx(totalHeight - z) + 4} textAnchor="end" fontSize={10} fill="#94a3b8">
+                        {z.toFixed(1)}m
+                    </text>
+                </g>
             ))}
             
-            {/* Vertical Grid Lines */}
+            {/* Vertical Grid Lines & Bubbles */}
             {hCoords.map((c, i) => (
-                <line key={`vgrid-${i}`}
-                    x1={startX + toPx(c)} y1={startY - 20}
-                    x2={startX + toPx(c)} y2={startY + toPx(totalHeight) + 20}
-                    stroke="#e2e8f0" strokeDasharray="4 2"
-                />
+                <g key={`vgrid-${i}`}>
+                    <line 
+                        x1={startX + toPx(c)} y1={startY - 20}
+                        x2={startX + toPx(c)} y2={startY + toPx(totalHeight) + 20}
+                        stroke="#e2e8f0" strokeDasharray="4 2"
+                    />
+                    {/* Aks Etiketleri (Kesitte altta göster) */}
+                    <circle cx={startX + toPx(c)} cy={startY + toPx(totalHeight) + 35} r={10} fill="white" stroke="#64748b" strokeWidth={1} />
+                    <text x={startX + toPx(c)} y={startY + toPx(totalHeight) + 39} textAnchor="middle" fontSize={10} fill="#475569" fontWeight="bold">
+                        {isXAxis ? String.fromCharCode(65+i) : (i + 1)}
+                    </text>
+                </g>
             ))}
 
             {/* Elements */}
@@ -756,14 +750,49 @@ const Visualizer: React.FC<Props> = ({
                     
                     const p1 = mapPt(h1, zTop);
                     const p2 = mapPt(h2, zTop);
-                    
+                    const beamWidth = Math.abs(p2.x - p1.x);
+                    const beamHeight = toPx(0.5); // Görsel kalınlık
+
+                    // KİRİŞ DİYAGRAMLARI (Eğer Analiz Modundaysa)
+                    let diagram = null;
+                    if (displayMode === 'analysis' && results && results.memberResults) {
+                        const uniqueId = `${el.id}_S${el.storyIndex}`;
+                        const beamRes = results.memberResults.get(uniqueId);
+                        
+                        if (beamRes && beamWidth > 20) {
+                            // Moment Diagram (Mavi Dolgu, Ölçekli)
+                            // Grafik yüksekliği max 25px olsun
+                            const maxVal = Math.max(Math.abs(beamRes.maxM), Math.abs(beamRes.minM), 1);
+                            const scaleY = 25 / maxVal;
+                            
+                            const pathD = beamRes.diagramData.map((pt, i) => {
+                                const px = p1.x + (pt.x / (beamRes.diagramData[beamRes.diagramData.length-1].x)) * beamWidth;
+                                const py = p1.y + pt.M * scaleY; // Moment pozitifi aşağı çizer (Normalde ters ama burada +y aşağı olduğu için düz)
+                                return `${i===0?'M':'L'} ${px} ${py}`;
+                            }).join(' ');
+
+                            diagram = (
+                                <path 
+                                    d={`${pathD} L ${p2.x} ${p2.y} L ${p1.x} ${p1.y} Z`} 
+                                    fill="rgba(59, 130, 246, 0.6)" // Mavi yarı saydam
+                                    stroke="blue" 
+                                    strokeWidth={1} 
+                                    pointerEvents="none"
+                                />
+                            );
+                        }
+                    }
+
                     return (
-                        <line key={el.id}
-                            x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                            stroke={isSel ? '#2563eb' : '#94a3b8'}
-                            strokeWidth={isSel ? 4 : 3}
-                            onClick={(e) => handleElementClick(e, el.id)}
-                        />
+                        <g key={el.id}>
+                            <line
+                                x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                                stroke={isSel ? '#2563eb' : (displayMode === 'analysis' ? color : '#94a3b8')} // Analiz modunda çizgi rengi durum rengi olsun
+                                strokeWidth={isSel ? 4 : 3}
+                                onClick={(e) => handleElementClick(e, el.id)}
+                            />
+                            {diagram}
+                        </g>
                     );
                 }
                 return null;
@@ -889,9 +918,16 @@ const Visualizer: React.FC<Props> = ({
 
   return (
     <div className={`w-full h-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden relative select-none group shadow-inner ${!interactive ? 'pointer-events-none' : ''}`}>
-      <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded border shadow-sm text-[10px] text-slate-500 font-bold uppercase pointer-events-none flex gap-2 items-center">
-         <span>{viewMode === 'plan' ? `PLAN: ${activeStory < dimensions.basementCount ? `${activeStory - dimensions.basementCount}. BODRUM` : activeStory - dimensions.basementCount === 0 ? 'ZEMİN KAT' : `${activeStory - dimensions.basementCount}. KAT`}` : viewMode === 'elevation' ? `KESİT: AKS ${activeAxisId}` : '3D GÖRÜNÜM'}</span>
-         {selectedElementIds.length > 0 && <span className="bg-blue-100 text-blue-700 px-1 rounded">{selectedElementIds.length} Seçili</span>}
+      <div className="absolute top-2 left-2 z-10 flex gap-2">
+          <div className="bg-white/90 backdrop-blur px-2 py-1 rounded border shadow-sm text-[10px] text-slate-500 font-bold uppercase pointer-events-none flex gap-2 items-center">
+            <span>{viewMode === 'plan' ? `PLAN: ${activeStory < dimensions.basementCount ? `${activeStory - dimensions.basementCount}. BODRUM` : activeStory - dimensions.basementCount === 0 ? 'ZEMİN KAT' : `${activeStory - dimensions.basementCount}. KAT`}` : viewMode === 'elevation' ? `KESİT: AKS ${activeAxisId}` : '3D GÖRÜNÜM'}</span>
+            {selectedElementIds.length > 0 && <span className="bg-blue-100 text-blue-700 px-1 rounded">{selectedElementIds.length} Seçili</span>}
+          </div>
+          {displayMode === 'analysis' && (
+              <div className="bg-white/90 backdrop-blur px-2 py-1 rounded border shadow-sm text-[10px] font-bold uppercase pointer-events-none flex gap-2 items-center animate-pulse">
+                  <Activity className="w-3 h-3 text-green-600"/> <span>Analiz Sonuçları</span>
+              </div>
+          )}
       </div>
 
       {interactive && (
