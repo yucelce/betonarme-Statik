@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, SoilClass, ConcreteClass, CalculationResult, GridSettings, AxisData, ViewMode, EditorTool, UserElement, StandardType } from './types';
 import { calculateStructure } from './utils/solver';
-import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw, Loader2, Tag } from 'lucide-react';
+import { Plus, Trash2, Play, FileText, Settings, LayoutGrid, Eye, EyeOff, X, Download, Upload, BarChart3, Edit3, Undo2, MousePointer2, Box, Square, Grip, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Layers, Weight, HardHat, Activity, Copy, Check, RectangleVertical, ArrowDownToLine, MousePointerClick, Activity as ActivityIcon, BarChart2, RefreshCw, Loader2, Tag, PenLine } from 'lucide-react';
 import Visualizer from './components/Visualizer';
 import Report from './utils/report';
 import BeamDetailPanel from './components/BeamDetailPanel';
@@ -66,6 +66,9 @@ const App: React.FC = () => {
   // ÇOKLU SEÇİM İÇİN STATE
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   
+  // KESİT TİPLERİ UI STATE
+  const [activeTypeId, setActiveTypeId] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<'inputs' | 'report'>('inputs');
   const [activeTool, setActiveTool] = useState<EditorTool>('select');
   const [openSection, setOpenSection] = useState<AccordionSection>('grid');
@@ -203,16 +206,19 @@ const App: React.FC = () => {
       
       setState(prev => ({ ...prev, standardTypes: [...prev.standardTypes, newType] }));
       setNewTypeName('');
+      setActiveTypeId(newId); // Yeni ekleneni otomatik aç
       setIsDirty(true);
   };
 
-  const removeStandardType = (id: string) => {
+  const removeStandardType = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation(); // Parent click'i engelle
       setState(prev => ({
           ...prev,
           standardTypes: prev.standardTypes.filter(t => t.id !== id),
           // Bu tipe bağlı elemanların tipini sıfırla
           definedElements: prev.definedElements.map(el => el.typeId === id ? { ...el, typeId: undefined } : el)
       }));
+      if(activeTypeId === id) setActiveTypeId(null);
       setIsDirty(true);
   };
 
@@ -249,12 +255,28 @@ const App: React.FC = () => {
 
   // --- ELEMAN YÖNETİMİ ---
   const handleElementAdd = (el: UserElement) => {
-      // 1. ÇAKIŞMA KONTROLÜ (Overlap Check)
+      // 1. DÜŞEY ELEMAN ÇAKIŞMA KONTROLÜ (Kolon vs Perde)
+      // Kullanıcı bir kolon veya perde eklemeye çalışıyorsa, o noktada başka bir düşey eleman olup olmadığını kontrol et.
+      if (el.type === 'column' || el.type === 'shear_wall') {
+          const occupiedNode = state.definedElements.find(existing => 
+              existing.storyIndex === el.storyIndex &&
+              (existing.type === 'column' || existing.type === 'shear_wall') &&
+              existing.x1 === el.x1 && existing.y1 === el.y1
+          );
+
+          if (occupiedNode) {
+              alert(`Bu düğüm noktasında zaten bir düşey taşıyıcı (${occupiedNode.type === 'column' ? 'Kolon' : 'Perde'}) mevcut. Aynı noktaya birden fazla düşey taşıyıcı eklenemez.`);
+              return;
+          }
+      }
+
+      // 2. GENEL ÇAKIŞMA KONTROLÜ (Overlap Check - Aynı tipteki elemanların çakışması)
       const isDuplicate = state.definedElements.some(existing => {
           if (existing.storyIndex !== el.storyIndex) return false;
           if (existing.type !== el.type) return false;
 
           // Noktasal Elemanlar (Kolon, Perde)
+          // Bu kısım aslında yukarıdaki check ile kapsanıyor ama aynı tip için (Kolon-Kolon) burada kalması güvenli.
           if (el.type === 'column' || el.type === 'shear_wall') {
               return existing.x1 === el.x1 && existing.y1 === el.y1;
           }
@@ -707,53 +729,69 @@ const App: React.FC = () => {
                  {openSection === 'types' && (
                      <div className="p-3 bg-white space-y-3 text-xs animate-in slide-in-from-top-2 fade-in duration-200">
                          
-                         {/* Tip Listesi */}
+                         {/* Tip Listesi (Yenilenmiş - Accordion Style) */}
                          <div className="space-y-2">
                              {state.standardTypes.map(t => (
-                                 <div key={t.id} className="border rounded p-2 bg-slate-50 group">
-                                     <div className="flex justify-between items-center mb-1">
-                                         <div className="font-bold text-slate-700 flex items-center gap-1">
-                                             {t.type === 'column' && <Box className="w-3 h-3 text-slate-400"/>}
-                                             {t.type === 'beam' && <Grip className="w-3 h-3 text-slate-400"/>}
-                                             {t.type === 'slab' && <Square className="w-3 h-3 text-slate-400"/>}
-                                             {t.name}
+                                 <div 
+                                    key={t.id} 
+                                    className={`border rounded overflow-hidden transition-all ${activeTypeId === t.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-100' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'}`}
+                                 >
+                                     <div 
+                                        className="flex justify-between items-center p-2 cursor-pointer select-none"
+                                        onClick={() => setActiveTypeId(prev => prev === t.id ? null : t.id)}
+                                     >
+                                         <div className="font-bold text-slate-700 flex items-center gap-2">
+                                             {t.type === 'column' && <Box className="w-3 h-3 text-slate-500"/>}
+                                             {t.type === 'beam' && <Grip className="w-3 h-3 text-slate-500"/>}
+                                             {t.type === 'slab' && <Square className="w-3 h-3 text-slate-500"/>}
+                                             {t.type === 'shear_wall' && <RectangleVertical className="w-3 h-3 text-slate-500"/>}
+                                             <span className={activeTypeId === t.id ? 'text-blue-700' : ''}>{t.name}</span>
                                          </div>
-                                         <button onClick={() => removeStandardType(t.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><X className="w-3 h-3"/></button>
+                                         <div className="flex items-center gap-1">
+                                             {activeTypeId === t.id ? <ChevronUp className="w-3 h-3 text-slate-400"/> : <ChevronDown className="w-3 h-3 text-slate-400"/>}
+                                             <button onClick={(e) => removeStandardType(t.id, e)} className="p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500 transition-colors">
+                                                 <X className="w-3 h-3"/>
+                                             </button>
+                                         </div>
                                      </div>
-                                     <div className="grid grid-cols-2 gap-2">
-                                         {t.type !== 'slab' && (
-                                             <>
-                                                <div><label className="text-[9px] text-slate-400">Genişlik</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.width || ''} onChange={(e) => updateStandardType(t.id, {width: Number(e.target.value)})} /></div>
-                                                <div><label className="text-[9px] text-slate-400">{t.type === 'shear_wall' ? 'Kalınlık' : 'Derinlik'}</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.depth || ''} onChange={(e) => updateStandardType(t.id, {depth: Number(e.target.value)})} /></div>
-                                             </>
-                                         )}
-                                         {t.type === 'slab' && (
-                                             <>
-                                                <div><label className="text-[9px] text-slate-400">Kalınlık</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.thickness || ''} onChange={(e) => updateStandardType(t.id, {thickness: Number(e.target.value)})} /></div>
-                                                <div><label className="text-[9px] text-slate-400">Yük (kg)</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.liveLoad || ''} onChange={(e) => updateStandardType(t.id, {liveLoad: Number(e.target.value)})} /></div>
-                                             </>
-                                         )}
-                                         {t.type === 'beam' && (
-                                             <div className="col-span-2"><label className="text-[9px] text-slate-400">Duvar Yükü (kN/m)</label><input type="number" className="w-full border p-0.5 text-xs rounded" value={t.properties.wallLoad || ''} onChange={(e) => updateStandardType(t.id, {wallLoad: Number(e.target.value)})} /></div>
-                                         )}
-                                     </div>
+                                     
+                                     {/* Expanded Content */}
+                                     {activeTypeId === t.id && (
+                                         <div className="p-2 border-t border-blue-200 bg-white grid grid-cols-2 gap-2 animate-in slide-in-from-top-1 fade-in duration-200">
+                                             {t.type !== 'slab' && (
+                                                 <>
+                                                    <div><label className="text-[9px] text-slate-400 block mb-0.5">Genişlik (cm)</label><input type="number" className="w-full border rounded p-1 text-xs" value={t.properties.width || ''} onChange={(e) => updateStandardType(t.id, {width: Number(e.target.value)})} /></div>
+                                                    <div><label className="text-[9px] text-slate-400 block mb-0.5">{t.type === 'shear_wall' ? 'Kalınlık (cm)' : 'Derinlik (cm)'}</label><input type="number" className="w-full border rounded p-1 text-xs" value={t.properties.depth || ''} onChange={(e) => updateStandardType(t.id, {depth: Number(e.target.value)})} /></div>
+                                                 </>
+                                             )}
+                                             {t.type === 'slab' && (
+                                                 <>
+                                                    <div><label className="text-[9px] text-slate-400 block mb-0.5">Kalınlık (cm)</label><input type="number" className="w-full border rounded p-1 text-xs" value={t.properties.thickness || ''} onChange={(e) => updateStandardType(t.id, {thickness: Number(e.target.value)})} /></div>
+                                                    <div><label className="text-[9px] text-slate-400 block mb-0.5">Yük (kg/m²)</label><input type="number" className="w-full border rounded p-1 text-xs" value={t.properties.liveLoad || ''} onChange={(e) => updateStandardType(t.id, {liveLoad: Number(e.target.value)})} /></div>
+                                                 </>
+                                             )}
+                                             {t.type === 'beam' && (
+                                                 <div className="col-span-2"><label className="text-[9px] text-slate-400 block mb-0.5">Duvar Yükü (kN/m)</label><input type="number" className="w-full border rounded p-1 text-xs" value={t.properties.wallLoad || ''} onChange={(e) => updateStandardType(t.id, {wallLoad: Number(e.target.value)})} /></div>
+                                             )}
+                                         </div>
+                                     )}
                                  </div>
                              ))}
                          </div>
 
                          {/* Yeni Tip Ekleme */}
                          <div className="border-t pt-2 mt-2">
-                             <label className="block text-slate-500 mb-1 font-bold">Yeni Tip Ekle</label>
+                             <label className="block text-slate-500 mb-1 font-bold flex items-center gap-1"><PenLine className="w-3 h-3"/> Yeni Tip Oluştur</label>
                              <div className="flex gap-1 mb-1">
-                                 <input className="w-full border rounded p-1" placeholder="Adı (Örn: K1)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)}/>
-                                 <select className="border rounded p-1 bg-white" value={newTypeKind} onChange={(e) => setNewTypeKind(e.target.value as any)}>
+                                 <input className="w-full border rounded p-1" placeholder="İsim (Örn: K1)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)}/>
+                                 <select className="border rounded p-1 bg-white text-xs" value={newTypeKind} onChange={(e) => setNewTypeKind(e.target.value as any)}>
                                      <option value="column">Kolon</option>
                                      <option value="beam">Kiriş</option>
                                      <option value="slab">Döşeme</option>
                                      <option value="shear_wall">Perde</option>
                                  </select>
                              </div>
-                             <button onClick={addStandardType} className="w-full bg-blue-600 text-white p-1 rounded flex items-center justify-center gap-1 hover:bg-blue-700 disabled:opacity-50" disabled={!newTypeName}><Plus className="w-3 h-3"/> Ekle</button>
+                             <button onClick={addStandardType} className="w-full bg-blue-600 text-white p-1 rounded flex items-center justify-center gap-1 hover:bg-blue-700 disabled:opacity-50 transition-colors text-xs font-bold shadow-sm" disabled={!newTypeName}><Plus className="w-3 h-3"/> Ekle</button>
                          </div>
                      </div>
                  )}
