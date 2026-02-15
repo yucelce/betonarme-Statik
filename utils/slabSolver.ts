@@ -40,13 +40,71 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
   }
 
   slabs.forEach(slab => {
-      // Koordinatları al
+      // Koordinatları al (Grid İndeksleri)
       const x1 = Math.min(slab.x1, slab.x2 ?? slab.x1);
       const x2 = Math.max(slab.x1, slab.x2 ?? slab.x1);
       const y1 = Math.min(slab.y1, slab.y2 ?? slab.y1);
       const y2 = Math.max(slab.y1, slab.y2 ?? slab.y1);
 
       if (x2 >= xCoords.length || y2 >= yCoords.length) return;
+
+      // --- TOPOLOJİK MESNET KONTROLÜ (YENİ) ---
+      // Döşemenin kenarlarında kiriş veya perde var mı?
+      const storyElements = definedElements.filter(e => e.storyIndex === slab.storyIndex && e.id !== slab.id);
+      
+      const checkSupport = (p1: {x:number, y:number}, p2: {x:number, y:number}): boolean => {
+          const isHoriz = p1.y === p2.y; // Yatay Kenar Kontrolü
+          
+          return storyElements.some(el => {
+              // 1. Kiriş Kontrolü
+              if (el.type === 'beam' && el.x2 !== undefined && el.y2 !== undefined) {
+                  const bx1 = Math.min(el.x1, el.x2);
+                  const bx2 = Math.max(el.x1, el.x2);
+                  const by1 = Math.min(el.y1, el.y2);
+                  const by2 = Math.max(el.y1, el.y2);
+
+                  if (isHoriz) {
+                      // Kiriş de yatay olmalı, aynı Y ekseninde olmalı ve X aralığı örtüşmeli
+                      const beamIsHoriz = by1 === by2;
+                      if (!beamIsHoriz || by1 !== p1.y) return false;
+                      // Kesişim Kontrolü (Grid aralıkları tam sayı olduğu için basit aralık kontrolü)
+                      return Math.max(p1.x, bx1) < Math.min(p2.x, bx2);
+                  } else {
+                      // Dikey kenar kontrolü
+                      const beamIsVert = bx1 === bx2;
+                      if (!beamIsVert || bx1 !== p1.x) return false;
+                      return Math.max(p1.y, by1) < Math.min(p2.y, by2);
+                  }
+              }
+              // 2. Perde Kontrolü (Paralel Olmalı)
+              if (el.type === 'shear_wall') {
+                  const props = resolveElementProperties(state, el);
+                  const dir = props.direction || 'x';
+                  
+                  if (isHoriz) {
+                      // Yatay kenar için X yönündeki perde destek olabilir
+                      if (dir !== 'x' || el.y1 !== p1.y) return false;
+                      return el.x1 >= p1.x && el.x1 <= p2.x; // Perde kenar üzerinde mi?
+                  } else {
+                      // Dikey kenar için Y yönündeki perde destek olabilir
+                      if (dir !== 'y' || el.x1 !== p1.x) return false;
+                      return el.y1 >= p1.y && el.y1 <= p2.y;
+                  }
+              }
+              return false;
+          });
+      };
+
+      let supportedEdgeCount = 0;
+      if (checkSupport({x:x1, y:y1}, {x:x2, y:y1})) supportedEdgeCount++; // Üst Kenar
+      if (checkSupport({x:x1, y:y2}, {x:x2, y:y2})) supportedEdgeCount++; // Alt Kenar
+      if (checkSupport({x:x1, y:y1}, {x:x1, y:y2})) supportedEdgeCount++; // Sol Kenar
+      if (checkSupport({x:x2, y:y1}, {x:x2, y:y2})) supportedEdgeCount++; // Sağ Kenar
+
+      const isSupportSafe = supportedEdgeCount >= 2;
+      const supportMessage = isSupportSafe ? '' : `Yetersiz Mesnet (${supportedEdgeCount}/4)`;
+      
+      // --- MATEMATİKSEL HESAPLAMALAR ---
 
       const Lx_center_m = Math.abs(xCoords[x2] - xCoords[x1]);
       const Ly_center_m = Math.abs(yCoords[y2] - yCoords[y1]);
@@ -119,10 +177,12 @@ export const solveSlab = (state: AppState): SlabSolverResult => {
           reinforcement_type: reinforcementType,
           checks: {
               thickness: createStatus(
-                  t_cm >= h_req_cm,
+                  (t_cm >= h_req_cm) && isSupportSafe, // Hem kalınlık hem mesnet yeterli olmalı
                   `Uygun (${minHReason})`,
-                  `Yetersiz (Min ${h_req_cm.toFixed(1)}cm)`,
-                  `Gereken: ${h_req_cm.toFixed(1)}cm, Mevcut: ${t_cm}cm`
+                  !isSupportSafe ? 'Yetersiz Mesnetlenme' : `Yetersiz (Min ${h_req_cm.toFixed(1)}cm)`,
+                  !isSupportSafe 
+                    ? 'Döşeme kenarlarında kiriş/perde eksik.' 
+                    : `Gereken: ${h_req_cm.toFixed(1)}cm, Mevcut: ${t_cm}cm`
               ),
               doubleLayer: createStatus(
                   (t_cm < 15) || (t_cm >= 15), // Bilgi amaçlı, her zaman true ama mesaj önemli
